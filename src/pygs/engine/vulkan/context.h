@@ -23,6 +23,8 @@ class Context {
   VkDevice device() const noexcept;
   VmaAllocator allocator() const noexcept;
 
+  VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
+
  private:
   class Impl;
   std::shared_ptr<Impl> impl_;

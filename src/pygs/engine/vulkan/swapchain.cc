@@ -68,6 +68,8 @@ class Swapchain::Impl {
   }
 
   VkSwapchainKHR swapchain() const noexcept { return swapchain_; }
+  uint32_t width() const noexcept { return width_; }
+  uint32_t height() const noexcept { return height_; }
 
  private:
   Context context_;
@@ -88,6 +90,10 @@ Swapchain::Swapchain(Context context, GLFWwindow* window)
 Swapchain::~Swapchain() = default;
 
 VkSwapchainKHR Swapchain::swapchain() const { return impl_->swapchain(); }
+
+uint32_t Swapchain::width() const { return impl_->width(); }
+
+uint32_t Swapchain::height() const { return impl_->height(); }
 
 }  // namespace vk
 }  // namespace pygs

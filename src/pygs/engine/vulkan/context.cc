@@ -140,6 +140,7 @@ class Context::Impl {
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
     };
 
     VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -151,6 +152,10 @@ class Context::Impl {
     vkCreateDevice(physical_device_, &device_info, NULL, &device_);
 
     vkGetDeviceQueue(device_, queue_family_index_, 0, &queue_);
+
+    // Extensions
+    GetMemoryFdKHR_ =
+        (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryFdKHR");
 
     VmaAllocatorCreateInfo allocator_info = {};
     allocator_info.physicalDevice = physical_device_;
@@ -173,6 +178,11 @@ class Context::Impl {
   VkDevice device() const noexcept { return device_; }
   VmaAllocator allocator() const noexcept { return allocator_; }
 
+  VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd) {
+    if (GetMemoryFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
+    return GetMemoryFdKHR_(device_, pGetFdInfo, pFd);
+  }
+
  private:
   VkInstance instance_ = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
@@ -181,6 +191,7 @@ class Context::Impl {
   uint32_t queue_family_index_ = 0;
   VkQueue queue_ = VK_NULL_HANDLE;
   VmaAllocator allocator_ = VK_NULL_HANDLE;
+  PFN_vkGetMemoryFdKHR GetMemoryFdKHR_ = nullptr;
 };
 
 Context::Context() : impl_(std::make_shared<Impl>()) {}
@@ -196,6 +207,11 @@ VkPhysicalDevice Context::physical_device() const noexcept {
 VkDevice Context::device() const noexcept { return impl_->device(); }
 
 VmaAllocator Context::allocator() const noexcept { return impl_->allocator(); }
+
+VkResult Context::GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo,
+                                 int* pFd) {
+  return impl_->GetMemoryFdKHR(pGetFdInfo, pFd);
+}
 
 }  // namespace vk
 }  // namespace pygs

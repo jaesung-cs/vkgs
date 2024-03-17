@@ -15,8 +15,9 @@ add_subdirectory(third_party/glm EXCLUDE_FROM_ALL)
 # pygs
 add_library(pygs STATIC
   src/pygs/window/window.cc
-  src/pygs/engine/engine.cc
+  src/pygs/engine/engine.cu
   src/pygs/engine/vulkan/context.cc
+  src/pygs/engine/vulkan/cuda_image.cu
   src/pygs/engine/vulkan/swapchain.cc
   src/pygs/engine/vulkan/vma_impl.cc
 )

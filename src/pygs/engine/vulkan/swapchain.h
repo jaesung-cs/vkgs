@@ -21,6 +21,8 @@ class Swapchain {
   ~Swapchain();
 
   VkSwapchainKHR swapchain() const;
+  uint32_t width() const;
+  uint32_t height() const;
 
  private:
   class Impl;
