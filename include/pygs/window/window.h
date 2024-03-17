@@ -6,12 +6,16 @@
 
 #include <pygs/window/event.h>
 
+struct GLFWwindow;
+
 namespace pygs {
 
 class Window {
  public:
   Window();
   ~Window();
+
+  GLFWwindow* window() const noexcept;
 
   bool ShouldClose() const;
 

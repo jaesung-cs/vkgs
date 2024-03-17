@@ -29,6 +29,8 @@ class Window::Impl {
 
   ~Impl() { glfwTerminate(); }
 
+  GLFWwindow* window() const noexcept { return window_; }
+
   bool ShouldClose() const { return glfwWindowShouldClose(window_); }
 
   std::vector<Event> PollEvents() {
@@ -56,6 +58,8 @@ class Window::Impl {
 Window::Window() : impl_(std::make_shared<Impl>()) {}
 
 Window::~Window() {}
+
+GLFWwindow* Window::window() const noexcept { return impl_->window(); }
 
 bool Window::ShouldClose() const { return impl_->ShouldClose(); }
 
