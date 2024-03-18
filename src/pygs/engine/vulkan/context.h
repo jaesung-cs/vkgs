@@ -21,9 +21,13 @@ class Context {
   VkInstance instance() const noexcept;
   VkPhysicalDevice physical_device() const noexcept;
   VkDevice device() const noexcept;
+  VkQueue queue() const noexcept;
   VmaAllocator allocator() const noexcept;
+  VkCommandPool command_pool() const noexcept;
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
+  VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
+                             int* pFd);
 
  private:
   class Impl;

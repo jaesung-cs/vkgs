@@ -11,10 +11,12 @@ int main() {
     while (!window.ShouldClose()) {
       const auto& events = window.PollEvents();
       for (const auto& event : events) {
+        /*
         if (event.type == pygs::EventType::MOUSE_MOVE) {
           std::cout << "mouse move (" << event.mouse_move.x << ", "
                     << event.mouse_move.y << ")" << std::endl;
         }
+        */
       }
 
       engine.Draw(window);

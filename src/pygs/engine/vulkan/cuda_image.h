@@ -20,6 +20,7 @@ class CudaImage {
 
   operator bool() const noexcept { return impl_ != nullptr; }
 
+  VkImage image() const;
   uint32_t width() const;
   uint32_t height() const;
   void* map();

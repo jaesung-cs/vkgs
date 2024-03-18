@@ -18,6 +18,7 @@ add_library(pygs STATIC
   src/pygs/engine/engine.cu
   src/pygs/engine/vulkan/context.cc
   src/pygs/engine/vulkan/cuda_image.cu
+  src/pygs/engine/vulkan/cuda_semaphore.cu
   src/pygs/engine/vulkan/swapchain.cc
   src/pygs/engine/vulkan/vma_impl.cc
 )

@@ -15,7 +15,8 @@ class Swapchain::Impl {
   Impl(Context context, GLFWwindow* window) : context_(context) {
     glfwCreateWindowSurface(context.instance(), window, NULL, &surface_);
 
-    usage_ = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    usage_ =
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
     VkSurfaceCapabilitiesKHR surface_capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.physical_device(),
@@ -70,6 +71,14 @@ class Swapchain::Impl {
   VkSwapchainKHR swapchain() const noexcept { return swapchain_; }
   uint32_t width() const noexcept { return width_; }
   uint32_t height() const noexcept { return height_; }
+  VkImage image(int index) const { return images_[index]; }
+
+  uint32_t AcquireNextImage(VkSemaphore semaphore) {
+    uint32_t image_index = 0;
+    vkAcquireNextImageKHR(context_.device(), swapchain_, UINT64_MAX, semaphore,
+                          NULL, &image_index);
+    return image_index;
+  }
 
  private:
   Context context_;
@@ -94,6 +103,12 @@ VkSwapchainKHR Swapchain::swapchain() const { return impl_->swapchain(); }
 uint32_t Swapchain::width() const { return impl_->width(); }
 
 uint32_t Swapchain::height() const { return impl_->height(); }
+
+VkImage Swapchain::image(int index) const { return impl_->image(index); }
+
+uint32_t Swapchain::AcquireNextImage(VkSemaphore semaphore) {
+  return impl_->AcquireNextImage(semaphore);
+}
 
 }  // namespace vk
 }  // namespace pygs

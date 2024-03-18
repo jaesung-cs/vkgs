@@ -15,7 +15,8 @@ DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
               VkDebugUtilsMessageTypeFlagsEXT messageType,
               const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
               void* pUserData) {
-  std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+  std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl
+            << std::endl;
 
   return VK_FALSE;
 }
@@ -118,9 +119,13 @@ class Context::Impl {
     }
 
     // features
+    VkPhysicalDeviceSynchronization2Features synchronization_2_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+
     VkPhysicalDeviceImagelessFramebufferFeatures
         imageless_framebuffer_features = {
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
+    imageless_framebuffer_features.pNext = &synchronization_2_features;
 
     VkPhysicalDeviceFeatures2 features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
@@ -140,6 +145,8 @@ class Context::Impl {
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
     };
 
@@ -156,6 +163,8 @@ class Context::Impl {
     // Extensions
     GetMemoryFdKHR_ =
         (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryFdKHR");
+    GetSemaphoreFdKHR_ = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
+        device_, "vkGetSemaphoreFdKHR");
 
     VmaAllocatorCreateInfo allocator_info = {};
     allocator_info.physicalDevice = physical_device_;
@@ -163,9 +172,17 @@ class Context::Impl {
     allocator_info.instance = instance_;
     allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
     vmaCreateAllocator(&allocator_info, &allocator_);
+
+    VkCommandPoolCreateInfo command_pool_info = {
+        VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
+                              VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    command_pool_info.queueFamilyIndex = queue_family_index_;
+    vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
   }
 
   ~Impl() {
+    vkDestroyCommandPool(device_, command_pool_, NULL);
     vmaDestroyAllocator(allocator_);
     vkDestroyDevice(device_, NULL);
 
@@ -176,11 +193,19 @@ class Context::Impl {
   VkInstance instance() const noexcept { return instance_; }
   VkPhysicalDevice physical_device() const noexcept { return physical_device_; }
   VkDevice device() const noexcept { return device_; }
+  VkQueue queue() const noexcept { return queue_; }
   VmaAllocator allocator() const noexcept { return allocator_; }
+  VkCommandPool command_pool() const noexcept { return command_pool_; }
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd) {
     if (GetMemoryFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
     return GetMemoryFdKHR_(device_, pGetFdInfo, pFd);
+  }
+
+  VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
+                             int* pFd) {
+    if (GetSemaphoreFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
+    return GetSemaphoreFdKHR_(device_, pGetFdInfo, pFd);
   }
 
  private:
@@ -191,7 +216,10 @@ class Context::Impl {
   uint32_t queue_family_index_ = 0;
   VkQueue queue_ = VK_NULL_HANDLE;
   VmaAllocator allocator_ = VK_NULL_HANDLE;
+  VkCommandPool command_pool_ = VK_NULL_HANDLE;
+
   PFN_vkGetMemoryFdKHR GetMemoryFdKHR_ = nullptr;
+  PFN_vkGetSemaphoreFdKHR GetSemaphoreFdKHR_ = nullptr;
 };
 
 Context::Context() : impl_(std::make_shared<Impl>()) {}
@@ -206,11 +234,22 @@ VkPhysicalDevice Context::physical_device() const noexcept {
 
 VkDevice Context::device() const noexcept { return impl_->device(); }
 
+VkQueue Context::queue() const noexcept { return impl_->queue(); }
+
 VmaAllocator Context::allocator() const noexcept { return impl_->allocator(); }
+
+VkCommandPool Context::command_pool() const noexcept {
+  return impl_->command_pool();
+}
 
 VkResult Context::GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo,
                                  int* pFd) {
   return impl_->GetMemoryFdKHR(pGetFdInfo, pFd);
+}
+
+VkResult Context::GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
+                                    int* pFd) {
+  return impl_->GetSemaphoreFdKHR(pGetFdInfo, pFd);
 }
 
 }  // namespace vk

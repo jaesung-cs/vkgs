@@ -102,6 +102,7 @@ class CudaImage::Impl {
     cudaFree(map_);
   }
 
+  VkImage image() const noexcept { return image_; }
   uint32_t width() const noexcept { return width_; }
   uint32_t height() const noexcept { return height_; }
   void* map() noexcept { return map_; }
@@ -123,6 +124,8 @@ CudaImage::CudaImage(Context context, uint32_t width, uint32_t height)
     : impl_(std::make_shared<Impl>(context, width, height)) {}
 
 CudaImage::~CudaImage() = default;
+
+VkImage CudaImage::image() const { return impl_->image(); }
 
 uint32_t CudaImage::width() const { return impl_->width(); }
 

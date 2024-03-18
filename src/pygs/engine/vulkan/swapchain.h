@@ -23,6 +23,9 @@ class Swapchain {
   VkSwapchainKHR swapchain() const;
   uint32_t width() const;
   uint32_t height() const;
+  VkImage image(int index) const;
+
+  uint32_t AcquireNextImage(VkSemaphore semaphore);
 
  private:
   class Impl;
