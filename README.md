@@ -12,7 +12,7 @@ $ git submodule update --init --recursive
 $ conda create -n pygs python=3.10
 $ conda activate pygs
 $ conda install conda-forge::cmake
-$ conda install nvidia/label/cuda-12.2.2::cuda-toolkit
+$ conda install nvidia/label/cuda-12.2.2::cuda-toolkit  # or any other version
 ```
 
 ## Build
