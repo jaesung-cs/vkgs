@@ -146,8 +146,13 @@ class Context::Impl {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME,
         VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+#ifdef _WIN32
+        "VK_KHR_external_memory_win32",
+        "VK_KHR_external_semaphore_win32",
+#else
         VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+#endif
     };
 
     VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -165,6 +170,15 @@ class Context::Impl {
         (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryFdKHR");
     GetSemaphoreFdKHR_ = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
         device_, "vkGetSemaphoreFdKHR");
+
+#ifdef _WIN32
+    GetMemoryWin32HandleKHR_ =
+        (PFN_vkGetMemoryWin32HandleKHR)vkGetDeviceProcAddr(
+            device_, "vkGetMemoryWin32HandleKHR");
+    GetSemaphoreWin32HandleKHR_ =
+        (PFN_vkGetSemaphoreWin32HandleKHR)vkGetDeviceProcAddr(
+            device_, "vkGetSemaphoreWin32HandleKHR");
+#endif
 
     VmaAllocatorCreateInfo allocator_info = {};
     allocator_info.physicalDevice = physical_device_;
@@ -208,6 +222,24 @@ class Context::Impl {
     return GetSemaphoreFdKHR_(device_, pGetFdInfo, pFd);
   }
 
+#ifdef _WIN32
+  VkResult GetMemoryWin32HandleKHR(
+      const VkMemoryGetWin32HandleInfoKHR* pGetWin32HandleInfo,
+      HANDLE* handle) {
+    if (GetMemoryWin32HandleKHR_ == nullptr)
+      return VK_ERROR_EXTENSION_NOT_PRESENT;
+    return GetMemoryWin32HandleKHR_(device_, pGetWin32HandleInfo, handle);
+  }
+
+  VkResult GetSemaphoreWin32HandleKHR(
+      const VkSemaphoreGetWin32HandleInfoKHR* pGetWin32HandleInfo,
+      HANDLE* pFd) {
+    if (GetSemaphoreWin32HandleKHR_ == nullptr)
+      return VK_ERROR_EXTENSION_NOT_PRESENT;
+    return GetSemaphoreWin32HandleKHR_(device_, pGetWin32HandleInfo, pFd);
+  }
+#endif
+
  private:
   VkInstance instance_ = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
@@ -220,6 +252,11 @@ class Context::Impl {
 
   PFN_vkGetMemoryFdKHR GetMemoryFdKHR_ = nullptr;
   PFN_vkGetSemaphoreFdKHR GetSemaphoreFdKHR_ = nullptr;
+
+#ifdef _WIN32
+  PFN_vkGetMemoryWin32HandleKHR GetMemoryWin32HandleKHR_ = nullptr;
+  PFN_vkGetSemaphoreWin32HandleKHR GetSemaphoreWin32HandleKHR_ = nullptr;
+#endif
 };
 
 Context::Context() : impl_(std::make_shared<Impl>()) {}
@@ -251,6 +288,18 @@ VkResult Context::GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
                                     int* pFd) {
   return impl_->GetSemaphoreFdKHR(pGetFdInfo, pFd);
 }
+
+#ifdef _WIN32
+VkResult Context::GetMemoryWin32HandleKHR(
+    const VkMemoryGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* pHandle) {
+  return impl_->GetMemoryWin32HandleKHR(pGetFdInfo, pHandle);
+}
+
+VkResult Context::GetSemaphoreWin32HandleKHR(
+    const VkSemaphoreGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* pHandle) {
+  return impl_->GetSemaphoreWin32HandleKHR(pGetFdInfo, pHandle);
+}
+#endif
 
 }  // namespace vk
 }  // namespace pygs

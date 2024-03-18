@@ -1,5 +1,11 @@
 #include "cuda_semaphore.h"
 
+#ifdef _WIN32
+#include <windows.h>
+
+#include <vulkan/vulkan_win32.h>
+#endif
+
 namespace pygs {
 namespace vk {
 namespace {
@@ -18,6 +24,23 @@ cudaExternalSemaphore_t ImportVulkanSemaphoreObjectFromFileDescriptor(int fd) {
   return extSem;
 }
 
+#ifdef _WIN32
+cudaExternalSemaphore_t ImportVulkanSemaphoreObjectFromNTHandle(HANDLE handle) {
+  cudaExternalSemaphore_t extSem = NULL;
+  cudaExternalSemaphoreHandleDesc desc = {};
+  memset(&desc, 0, sizeof(desc));
+
+  desc.type = cudaExternalSemaphoreHandleTypeOpaqueWin32;
+  desc.handle.win32.handle = handle;
+  cudaImportExternalSemaphore(&extSem, &desc);
+
+  // Input parameter 'handle' should be closed if it's not needed anymore
+  CloseHandle(handle);
+
+  return extSem;
+}
+#endif
+
 void SignalExternalSemaphore(cudaExternalSemaphore_t extSem,
                              cudaStream_t stream) {
   cudaExternalSemaphoreSignalParams params = {};
@@ -32,24 +55,41 @@ class CudaSemaphore::Impl {
   Impl() = delete;
 
   Impl(Context context) : context_(context) {
+#ifdef _WIN32
+    constexpr VkExternalSemaphoreHandleTypeFlagBits handle_type =
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+#else
+    constexpr VkExternalSemaphoreHandleTypeFlagBits handle_type =
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+#endif
     VkExportSemaphoreCreateInfo external_semaphore_info = {
         VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
-    external_semaphore_info.handleTypes =
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    external_semaphore_info.handleTypes = handle_type;
 
     VkSemaphoreCreateInfo semaphore_info = {
         VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     semaphore_info.pNext = &external_semaphore_info;
     vkCreateSemaphore(context.device(), &semaphore_info, NULL, &semaphore_);
 
+#ifdef _WIN32
+    VkSemaphoreGetWin32HandleInfoKHR handle_info = {
+        VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
+    handle_info.semaphore = semaphore_;
+    handle_info.handleType = handle_type;
+    HANDLE handle;
+    context_.GetSemaphoreWin32HandleKHR(&handle_info, &handle);
+
+    cuda_semaphore_ = ImportVulkanSemaphoreObjectFromNTHandle(handle);
+#else
     VkSemaphoreGetFdInfoKHR fd_info = {
         VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
     fd_info.semaphore = semaphore_;
-    fd_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    fd_info.handleType = handle_type;
     int fd = -1;
     context_.GetSemaphoreFdKHR(&fd_info, &fd);
 
     cuda_semaphore_ = ImportVulkanSemaphoreObjectFromFileDescriptor(fd);
+#endif
   }
 
   ~Impl() { vkDestroySemaphore(context_.device(), semaphore_, NULL); }

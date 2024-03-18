@@ -5,7 +5,15 @@
 #include <vector>
 #include <string>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include <vulkan/vulkan.h>
+
+#ifdef _WIN32
+#include <vulkan/vulkan_win32.h>
+#endif
 
 #include "vk_mem_alloc.h"
 
@@ -28,6 +36,13 @@ class Context {
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
   VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
                              int* pFd);
+
+#ifdef _WIN32
+  VkResult Context::GetMemoryWin32HandleKHR(
+      const VkMemoryGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* handle);
+  VkResult Context::GetSemaphoreWin32HandleKHR(
+      const VkSemaphoreGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* handle);
+#endif
 
  private:
   class Impl;

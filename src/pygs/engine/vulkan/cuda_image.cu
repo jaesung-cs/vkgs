@@ -2,6 +2,12 @@
 
 #include <cuda_runtime.h>
 
+#ifdef _WIN32
+#include <windows.h>
+
+#include <vulkan/vulkan_win32.h>
+#endif
+
 #include "context.h"
 
 namespace pygs {
@@ -28,6 +34,29 @@ cudaExternalMemory_t ImportVulkanMemoryObjectFromFileDescriptor(
   return extMem;
 }
 
+#ifdef _WIN32
+cudaExternalMemory_t ImportVulkanMemoryObjectFromNTHandle(
+    HANDLE handle, unsigned long long size, bool isDedicated) {
+  cudaExternalMemory_t extMem = NULL;
+  cudaExternalMemoryHandleDesc desc = {};
+  memset(&desc, 0, sizeof(desc));
+
+  desc.type = cudaExternalMemoryHandleTypeOpaqueWin32;
+  desc.handle.win32.handle = handle;
+  desc.size = size;
+  if (isDedicated) {
+    desc.flags |= cudaExternalMemoryDedicated;
+  }
+
+  cudaImportExternalMemory(&extMem, &desc);
+
+  // Input parameter 'handle' should be closed if it's not needed anymore
+  CloseHandle(handle);
+
+  return extMem;
+}
+#endif
+
 void* MapBufferOntoExternalMemory(cudaExternalMemory_t extMem,
                                   unsigned long long offset,
                                   unsigned long long size) {
@@ -51,12 +80,19 @@ class CudaImage::Impl {
 
   Impl(Context context, uint32_t width, uint32_t height)
       : context_(context), width_(width), height_(height) {
-    VkExternalMemoryImageCreateInfo image_fd_info = {
+#ifdef _WIN32
+    constexpr VkExternalMemoryHandleTypeFlagBits handle_type =
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+#else
+    constexpr VkExternalMemoryHandleTypeFlagBits handle_type =
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+#endif
+    VkExternalMemoryImageCreateInfo external_image_info = {
         VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
-    image_fd_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    external_image_info.handleTypes = handle_type;
 
     VkImageCreateInfo image_info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    image_info.pNext = &image_fd_info;
+    image_info.pNext = &external_image_info;
     image_info.imageType = VK_IMAGE_TYPE_2D;
     image_info.format = VK_FORMAT_R32G32B32A32_SFLOAT;
     image_info.extent = {width, height, 1};
@@ -71,28 +107,41 @@ class CudaImage::Impl {
 
     // Memory
     // TODO: allocate large memory
-    VkExportMemoryAllocateInfo memory_fd_info = {
+    VkExportMemoryAllocateInfo external_memory_info = {
         VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO};
-    memory_fd_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    external_memory_info.handleTypes = handle_type;
 
     const VkDeviceSize size =
         static_cast<VkDeviceSize>(width) * height * 4 * sizeof(float);
     VkMemoryAllocateInfo memory_info = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    memory_info.pNext = &memory_fd_info;
+    memory_info.pNext = &external_memory_info;
     memory_info.memoryTypeIndex = 0;  // TODO
     memory_info.allocationSize = size;
     vkAllocateMemory(context_.device(), &memory_info, NULL, &memory_);
 
     vkBindImageMemory(context.device(), image_, memory_, 0);
 
+#ifdef _WIN32
+    VkMemoryGetWin32HandleInfoKHR handle_info = {
+        VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR};
+    handle_info.memory = memory_;
+    handle_info.handleType = handle_type;
+    HANDLE handle;
+    context_.GetMemoryWin32HandleKHR(&handle_info, &handle);
+
+    cudaExternalMemory_t ext_mem =
+        ImportVulkanMemoryObjectFromNTHandle(handle, size, false);
+#else
     VkMemoryGetFdInfoKHR fd_info = {VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR};
     fd_info.memory = memory_;
-    fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    fd_info.handleType = handle_type;
     int fd = -1;
     context_.GetMemoryFdKHR(&fd_info, &fd);
 
     cudaExternalMemory_t ext_mem =
         ImportVulkanMemoryObjectFromFileDescriptor(fd, size, false);
+#endif
+
     map_ = MapBufferOntoExternalMemory(ext_mem, 0, size);
   }
 
