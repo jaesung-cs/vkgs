@@ -143,9 +143,9 @@ class Engine::Impl {
     // Layout transition
     std::vector<VkImageMemoryBarrier2> image_barriers(2);
     image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    image_barriers[0].srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-    image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    image_barriers[0].srcStageMask = 0;
+    image_barriers[0].srcAccessMask = 0;
+    image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
     image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
     image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -156,7 +156,7 @@ class Engine::Impl {
     image_barriers[1] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     image_barriers[1].srcStageMask = 0;
     image_barriers[1].srcAccessMask = 0;
-    image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
     image_barriers[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -170,7 +170,7 @@ class Engine::Impl {
     vkCmdPipelineBarrier2(cb_, &barrier);
 
     // Blit
-    VkImageBlit region = {};
+    VkImageBlit2 region = {VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.srcOffsets[0] = {0, 0, 0};
     region.srcOffsets[1] = {static_cast<int32_t>(cuda_image_.width()),
@@ -179,17 +179,23 @@ class Engine::Impl {
     region.dstOffsets[0] = {0, 0, 0};
     region.dstOffsets[1] = {static_cast<int32_t>(swapchain.width()),
                             static_cast<int32_t>(swapchain.height()), 1};
-    vkCmdBlitImage(
-        cb_, cuda_image_.image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        swapchain.image(image_index), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-        &region, VK_FILTER_NEAREST);
+
+    VkBlitImageInfo2 blit_info = {VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
+    blit_info.srcImage = cuda_image_.image();
+    blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    blit_info.dstImage = swapchain.image(image_index);
+    blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    blit_info.regionCount = 1;
+    blit_info.pRegions = &region;
+    blit_info.filter = VK_FILTER_NEAREST;
+    vkCmdBlitImage2(cb_, &blit_info);
 
     // Layout transition
     image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
     image_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    image_barriers[0].dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    image_barriers[0].dstStageMask = 0;
+    image_barriers[0].dstAccessMask = 0;
     image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     image_barriers[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_barriers[0].image = cuda_image_.image();
@@ -197,7 +203,7 @@ class Engine::Impl {
                                           1};
 
     image_barriers[1] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    image_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    image_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
     image_barriers[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     image_barriers[1].dstStageMask = 0;
     image_barriers[1].dstAccessMask = 0;
