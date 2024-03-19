@@ -3,43 +3,19 @@
 #include <iostream>
 #include <unordered_map>
 
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-
 #include <vulkan/vulkan.h>
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
 #include "vulkan/context.h"
-#include "vulkan/cuda_image.h"
-#include "vulkan/cuda_semaphore.h"
 #include "vulkan/swapchain.h"
 
 namespace pygs {
-namespace {
-
-__global__ void test_kernel(int width, int height, float4* __restrict__ out) {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
-
-  if (i >= height || j >= width) return;
-
-  float r = (float)threadIdx.x / blockDim.x;
-  float g = (float)threadIdx.y / blockDim.y;
-  float b = 0.f;
-
-  out[i * width + j] = {r, g, b, 1.f};
-}
-
-}  // namespace
 
 class Engine::Impl {
  public:
   Impl() {
-    cuda_semaphore_ = vk::CudaSemaphore(context_);
-
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     command_buffer_info.commandPool = context_.command_pool();
@@ -57,10 +33,6 @@ class Engine::Impl {
     VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     vkCreateFence(context_.device(), &fence_info, NULL, &fence_);
-
-    cudaStreamCreate(&stream_);
-
-    cudaMalloc(&test_cuda_mem_, 1600 * 900 * 4 * sizeof(float));
   }
 
   ~Impl() {
@@ -83,85 +55,22 @@ class Engine::Impl {
     uint32_t image_index =
         swapchain.AcquireNextImage(image_acquired_semaphore_);
 
-    if (!cuda_image_ || cuda_image_.width() != swapchain.width() ||
-        cuda_image_.height() != swapchain.height()) {
-      cuda_image_ =
-          vk::CudaImage(context_, swapchain.width(), swapchain.height());
-    }
-
-    dim3 threads(16, 16, 1);
-    dim3 blocks((cuda_image_.height() + 15) / 16,
-                (cuda_image_.width() + 15) / 16, 1);
-
-    std::cout << (cuda_image_.height() + 15) / 16 << ' '
-              << (cuda_image_.width() + 15) / 16 << std::endl;
-
-    cudaEvent_t start, stop;
-    float elapsedTime;
-
-    cudaEventCreate(&start);
-    cudaEventRecord(start, 0);
-
-    test_kernel<<<blocks, threads, 0, stream_>>>(
-        cuda_image_.width(), cuda_image_.height(),
-        static_cast<float4*>(cuda_image_.map()));
-
-    cudaEventCreate(&stop);
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
-
-    cudaEventElapsedTime(&elapsedTime, start, stop);
-    std::cout << "Elapsed time 1: " << elapsedTime << " ms" << std::endl;
-
-    /*
-    cudaEventCreate(&start);
-    cudaEventRecord(start, 0);
-
-    test_kernel<<<blocks, threads, 0, stream_>>>(
-        cuda_image_.width(), cuda_image_.height(),
-        static_cast<float4*>(test_cuda_mem_));
-
-    cudaMemcpyAsync(cuda_image_.map(), test_cuda_mem_,
-                    cuda_image_.width() * cuda_image_.height() * sizeof(float4),
-                    cudaMemcpyDefault, stream_);
-
-    cudaEventCreate(&stop);
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
-
-    cudaEventElapsedTime(&elapsedTime, start, stop);
-    std::cout << "Elapsed time 2: " << elapsedTime << " ms" << std::endl;
-    */
-
-    cuda_semaphore_.signal(stream_);
-
     VkCommandBufferBeginInfo command_begin_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cb_, &command_begin_info);
 
     // Layout transition
-    std::vector<VkImageMemoryBarrier2> image_barriers(2);
+    std::vector<VkImageMemoryBarrier2> image_barriers(1);
     image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     image_barriers[0].srcStageMask = 0;
     image_barriers[0].srcAccessMask = 0;
     image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-    image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    image_barriers[0].image = cuda_image_.image();
+    image_barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    image_barriers[0].image = swapchain.image(image_index);
     image_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-                                          1};
-
-    image_barriers[1] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    image_barriers[1].srcStageMask = 0;
-    image_barriers[1].srcAccessMask = 0;
-    image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-    image_barriers[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    image_barriers[1].image = swapchain.image(image_index);
-    image_barriers[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
                                           1};
 
     VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -169,48 +78,27 @@ class Engine::Impl {
     barrier.pImageMemoryBarriers = image_barriers.data();
     vkCmdPipelineBarrier2(cb_, &barrier);
 
-    // Blit
-    VkImageBlit2 region = {VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
-    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.srcOffsets[0] = {0, 0, 0};
-    region.srcOffsets[1] = {static_cast<int32_t>(cuda_image_.width()),
-                            static_cast<int32_t>(cuda_image_.height()), 1};
-    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.dstOffsets[0] = {0, 0, 0};
-    region.dstOffsets[1] = {static_cast<int32_t>(swapchain.width()),
-                            static_cast<int32_t>(swapchain.height()), 1};
-
-    VkBlitImageInfo2 blit_info = {VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2};
-    blit_info.srcImage = cuda_image_.image();
-    blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    blit_info.dstImage = swapchain.image(image_index);
-    blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    blit_info.regionCount = 1;
-    blit_info.pRegions = &region;
-    blit_info.filter = VK_FILTER_NEAREST;
-    vkCmdBlitImage2(cb_, &blit_info);
+    // Clear
+    VkClearColorValue clear_color = {};
+    clear_color.float32[0] = 0.5f;
+    clear_color.float32[1] = 0.5f;
+    clear_color.float32[2] = 0.5f;
+    clear_color.float32[3] = 1.f;
+    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cb_, swapchain.image(image_index),
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear_color, 1,
+                         &range);
 
     // Layout transition
     image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-    image_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    image_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     image_barriers[0].dstStageMask = 0;
     image_barriers[0].dstAccessMask = 0;
-    image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    image_barriers[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_barriers[0].image = cuda_image_.image();
+    image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    image_barriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    image_barriers[0].image = swapchain.image(image_index);
     image_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-                                          1};
-
-    image_barriers[1] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    image_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-    image_barriers[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    image_barriers[1].dstStageMask = 0;
-    image_barriers[1].dstAccessMask = 0;
-    image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    image_barriers[1].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    image_barriers[1].image = swapchain.image(image_index);
-    image_barriers[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
                                           1};
 
     barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -220,14 +108,10 @@ class Engine::Impl {
 
     vkEndCommandBuffer(cb_);
 
-    std::vector<VkSemaphoreSubmitInfo> wait_semaphores(2);
+    std::vector<VkSemaphoreSubmitInfo> wait_semaphores(1);
     wait_semaphores[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    wait_semaphores[0].semaphore = cuda_semaphore_.semaphore();
+    wait_semaphores[0].semaphore = image_acquired_semaphore_;
     wait_semaphores[0].stageMask = 0;
-
-    wait_semaphores[1] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    wait_semaphores[1].semaphore = image_acquired_semaphore_;
-    wait_semaphores[1].stageMask = 0;
 
     std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
     command_buffer_submit_info[0] = {
@@ -264,10 +148,6 @@ class Engine::Impl {
  private:
   vk::Context context_;
   std::unordered_map<GLFWwindow*, vk::Swapchain> swapchains_;
-  vk::CudaImage cuda_image_;
-  vk::CudaSemaphore cuda_semaphore_;
-  cudaStream_t stream_;
-  void* test_cuda_mem_ = nullptr;
 
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkCommandBuffer cb_ = VK_NULL_HANDLE;
