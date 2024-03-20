@@ -16,10 +16,16 @@ add_subdirectory(third_party/glm EXCLUDE_FROM_ALL)
 add_library(pygs STATIC
   src/pygs/window/window.cc
   src/pygs/engine/engine.cc
+  src/pygs/engine/vulkan/buffer.cc
   src/pygs/engine/vulkan/context.cc
   src/pygs/engine/vulkan/cuda_image.cu
   src/pygs/engine/vulkan/cuda_semaphore.cu
+  src/pygs/engine/vulkan/descriptor_layout.cc
+  src/pygs/engine/vulkan/descriptor.cc
+  src/pygs/engine/vulkan/graphics_pipeline.cc
+  src/pygs/engine/vulkan/pipeline_layout.cc
   src/pygs/engine/vulkan/swapchain.cc
+  src/pygs/engine/vulkan/uniform_buffer.cc
   src/pygs/engine/vulkan/vma_impl.cc
 )
 

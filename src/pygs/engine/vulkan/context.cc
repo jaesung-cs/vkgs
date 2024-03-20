@@ -192,9 +192,22 @@ class Context::Impl {
                               VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     command_pool_info.queueFamilyIndex = queue_family_index_;
     vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
+
+    std::vector<VkDescriptorPoolSize> pool_sizes = {
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1048576},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2048},
+    };
+    VkDescriptorPoolCreateInfo descriptor_pool_info = {
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    descriptor_pool_info.maxSets = 1048576;
+    descriptor_pool_info.poolSizeCount = pool_sizes.size();
+    descriptor_pool_info.pPoolSizes = pool_sizes.data();
+    vkCreateDescriptorPool(device_, &descriptor_pool_info, NULL,
+                           &descriptor_pool_);
   }
 
   ~Impl() {
+    vkDestroyDescriptorPool(device_, descriptor_pool_, NULL);
     vkDestroyCommandPool(device_, command_pool_, NULL);
     vmaDestroyAllocator(allocator_);
     vkDestroyDevice(device_, NULL);
@@ -209,6 +222,7 @@ class Context::Impl {
   VkQueue queue() const noexcept { return queue_; }
   VmaAllocator allocator() const noexcept { return allocator_; }
   VkCommandPool command_pool() const noexcept { return command_pool_; }
+  VkDescriptorPool descriptor_pool() const noexcept { return descriptor_pool_; }
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd) {
     if (GetMemoryFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
@@ -248,6 +262,7 @@ class Context::Impl {
   VkQueue queue_ = VK_NULL_HANDLE;
   VmaAllocator allocator_ = VK_NULL_HANDLE;
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
+  VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
 
   PFN_vkGetMemoryFdKHR GetMemoryFdKHR_ = nullptr;
   PFN_vkGetSemaphoreFdKHR GetSemaphoreFdKHR_ = nullptr;
@@ -276,6 +291,10 @@ VmaAllocator Context::allocator() const noexcept { return impl_->allocator(); }
 
 VkCommandPool Context::command_pool() const noexcept {
   return impl_->command_pool();
+}
+
+VkDescriptorPool Context::descriptor_pool() const noexcept {
+  return impl_->descriptor_pool();
 }
 
 VkResult Context::GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo,

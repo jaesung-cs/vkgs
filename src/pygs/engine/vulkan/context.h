@@ -32,6 +32,7 @@ class Context {
   VkQueue queue() const noexcept;
   VmaAllocator allocator() const noexcept;
   VkCommandPool command_pool() const noexcept;
+  VkDescriptorPool descriptor_pool() const noexcept;
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
   VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,

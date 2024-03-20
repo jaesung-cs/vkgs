@@ -10,12 +10,49 @@
 
 #include "vulkan/context.h"
 #include "vulkan/swapchain.h"
+#include "vulkan/descriptor_layout.h"
+#include "vulkan/pipeline_layout.h"
+#include "vulkan/graphics_pipeline.h"
+#include "vulkan/descriptor.h"
+#include "vulkan/buffer.h"
+#include "vulkan/uniform_buffer.h"
+#include "vulkan/shader/uniforms.h"
+#include "vulkan/shader/point.h"
 
 namespace pygs {
 
 class Engine::Impl {
  public:
   Impl() {
+    vk::DescriptorLayoutCreateInfo camera_layout_info = {};
+    camera_layout_info.bindings.resize(1);
+    camera_layout_info.bindings[0] = {};
+    camera_layout_info.bindings[0].binding = 0;
+    camera_layout_info.bindings[0].descriptor_type =
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    camera_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_VERTEX_BIT;
+    camera_descriptor_layout_ =
+        vk::DescriptorLayout(context_, camera_layout_info);
+
+    camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
+    camera_descriptors_.resize(2);
+    for (int i = 0; i < 2; i++) {
+      camera_descriptors_[i] =
+          vk::Descriptor(context_, camera_descriptor_layout_);
+      camera_descriptors_[i].Update(0, camera_buffer_, camera_buffer_.offset(i),
+                                    camera_buffer_.element_size());
+    }
+
+    vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
+    pipeline_layout_info.layouts = {camera_descriptor_layout_};
+    pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
+
+    vk::GraphicsPipelineCreateInfo point_pipeline_info = {};
+    point_pipeline_info.layout = pipeline_layout_;
+    point_pipeline_info.vertex_shader = vk::shader::point_vert;
+    point_pipeline_info.fragment_shader = vk::shader::point_frag;
+    point_pipeline_ = vk::GraphicsPipeline(context_, point_pipeline_info);
+
     draw_command_buffers_.resize(3);
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -42,6 +79,57 @@ class Engine::Impl {
                         &render_finished_semaphores_[i]);
       vkCreateFence(context_.device(), &fence_info, NULL,
                     &render_finished_fences_[i]);
+    }
+
+    {
+      point_count_ = 32;
+      std::vector<float> position;
+      std::vector<float> color;
+      for (int i = 0; i < point_count_; i++) {
+        float x = (static_cast<float>(i) + 0.5f) / point_count_;
+        position.push_back(x);
+        position.push_back(0.f);
+        position.push_back(0.f);
+        color.push_back(x);
+        color.push_back(x);
+        color.push_back(x);
+        color.push_back(1.f);
+      }
+
+      position_buffer_ = vk::Buffer(
+          context_, position.size() * sizeof(float),
+          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+      color_buffer_ = vk::Buffer(
+          context_, color.size() * sizeof(float),
+          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+      VkCommandBufferAllocateInfo command_buffer_info = {
+          VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+      command_buffer_info.commandPool = context_.command_pool();
+      command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+      command_buffer_info.commandBufferCount = 1;
+      VkCommandBuffer cb;
+      vkAllocateCommandBuffers(context_.device(), &command_buffer_info, &cb);
+
+      VkCommandBufferBeginInfo begin_info = {
+          VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+      begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      vkBeginCommandBuffer(cb, &begin_info);
+
+      position_buffer_.FromCpu(cb, position);
+      color_buffer_.FromCpu(cb, color);
+
+      vkEndCommandBuffer(cb);
+
+      std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
+      command_buffer_submit_info[0] = {
+          VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+      command_buffer_submit_info[0].commandBuffer = cb;
+
+      VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+      submit_info.commandBufferInfoCount = command_buffer_submit_info.size();
+      submit_info.pCommandBufferInfos = command_buffer_submit_info.data();
+      vkQueueSubmit2(context_.queue(), 1, &submit_info, NULL);
     }
   }
 
@@ -87,6 +175,9 @@ class Engine::Impl {
                       UINT64_MAX);
       vkResetFences(context_.device(), 1, &render_finished_fence);
 
+      camera_buffer_[frame_index].projection = glm::mat4(1.f);
+      camera_buffer_[frame_index].view = glm::mat4(1.f);
+
       VkCommandBufferBeginInfo command_begin_info = {
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
       command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -118,9 +209,9 @@ class Engine::Impl {
       color_attachments[0].resolveMode = VK_RESOLVE_MODE_NONE;
       color_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       color_attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-      color_attachments[0].clearValue.color.float32[0] = 0.5f;
-      color_attachments[0].clearValue.color.float32[1] = 0.5f;
-      color_attachments[0].clearValue.color.float32[2] = 0.5f;
+      color_attachments[0].clearValue.color.float32[0] = 0.f;
+      color_attachments[0].clearValue.color.float32[1] = 1.f;
+      color_attachments[0].clearValue.color.float32[2] = 0.f;
       color_attachments[0].clearValue.color.float32[3] = 1.f;
 
       VkRenderingInfo rendering_info = {VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -132,7 +223,34 @@ class Engine::Impl {
       rendering_info.pColorAttachments = color_attachments.data();
       vkCmdBeginRendering(cb, &rendering_info);
 
+      VkViewport viewport = {};
+      viewport.x = 0.f;
+      viewport.y = 0.f;
+      viewport.width = static_cast<float>(swapchain.width());
+      viewport.height = static_cast<float>(swapchain.height());
+      viewport.minDepth = 0.f;
+      viewport.maxDepth = 1.f;
+      vkCmdSetViewport(cb, 0, 1, &viewport);
+
+      VkRect2D scissor = {};
+      scissor.offset = {0, 0};
+      scissor.extent = {swapchain.width(), swapchain.height()};
+      vkCmdSetScissor(cb, 0, 1, &scissor);
+
       // TODO: draw
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
+
+      std::vector<VkDescriptorSet> descriptors = {
+          camera_descriptors_[frame_index]};
+      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              pipeline_layout_, 0, descriptors.size(),
+                              descriptors.data(), 0, nullptr);
+
+      std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+
+      vkCmdDraw(cb, point_count_, 1, 0, 0);
 
       vkCmdEndRendering(cb);
 
@@ -202,6 +320,16 @@ class Engine::Impl {
   std::vector<VkSemaphore> image_acquired_semaphores_;
   std::vector<VkSemaphore> render_finished_semaphores_;
   std::vector<VkFence> render_finished_fences_;
+
+  vk::DescriptorLayout camera_descriptor_layout_;
+  vk::PipelineLayout pipeline_layout_;
+  vk::GraphicsPipeline point_pipeline_;
+
+  std::vector<vk::Descriptor> camera_descriptors_;
+  vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
+  vk::Buffer position_buffer_;
+  vk::Buffer color_buffer_;
+  int point_count_ = 0;
 
   uint64_t frame_counter_ = 0;
 };
