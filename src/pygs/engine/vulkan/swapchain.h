@@ -24,6 +24,7 @@ class Swapchain {
   uint32_t width() const;
   uint32_t height() const;
   VkImage image(int index) const;
+  VkImageView image_view(int index) const;
 
   uint32_t AcquireNextImage(VkSemaphore semaphore);
 

@@ -72,6 +72,7 @@ class Swapchain::Impl {
   uint32_t width() const noexcept { return width_; }
   uint32_t height() const noexcept { return height_; }
   VkImage image(int index) const { return images_[index]; }
+  VkImageView image_view(int index) const { return image_views_[index]; }
 
   uint32_t AcquireNextImage(VkSemaphore semaphore) {
     uint32_t image_index = 0;
@@ -105,6 +106,10 @@ uint32_t Swapchain::width() const { return impl_->width(); }
 uint32_t Swapchain::height() const { return impl_->height(); }
 
 VkImage Swapchain::image(int index) const { return impl_->image(index); }
+
+VkImageView Swapchain::image_view(int index) const {
+  return impl_->image_view(index);
+}
 
 uint32_t Swapchain::AcquireNextImage(VkSemaphore semaphore) {
   return impl_->AcquireNextImage(semaphore);

@@ -65,10 +65,10 @@ class Engine::Impl {
     image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     image_barriers[0].srcStageMask = 0;
     image_barriers[0].srcAccessMask = 0;
-    image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+    image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
     image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    image_barriers[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     image_barriers[0].image = swapchain.image(image_index);
     image_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
                                           1};
@@ -78,24 +78,38 @@ class Engine::Impl {
     barrier.pImageMemoryBarriers = image_barriers.data();
     vkCmdPipelineBarrier2(cb_, &barrier);
 
-    // Clear
-    VkClearColorValue clear_color = {};
-    clear_color.float32[0] = 0.5f;
-    clear_color.float32[1] = 0.5f;
-    clear_color.float32[2] = 0.5f;
-    clear_color.float32[3] = 1.f;
-    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdClearColorImage(cb_, swapchain.image(image_index),
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear_color, 1,
-                         &range);
+    std::vector<VkRenderingAttachmentInfo> color_attachments(1);
+    color_attachments[0] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    color_attachments[0].imageView = swapchain.image_view(image_index);
+    color_attachments[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachments[0].resolveMode = VK_RESOLVE_MODE_NONE;
+    color_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachments[0].clearValue.color.float32[0] = 0.5f;
+    color_attachments[0].clearValue.color.float32[1] = 0.5f;
+    color_attachments[0].clearValue.color.float32[2] = 0.5f;
+    color_attachments[0].clearValue.color.float32[3] = 1.f;
+
+    VkRenderingInfo rendering_info = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+    rendering_info.renderArea.offset = {0, 0};
+    rendering_info.renderArea.extent = {swapchain.width(), swapchain.height()};
+    rendering_info.layerCount = 1;
+    rendering_info.colorAttachmentCount = color_attachments.size();
+    rendering_info.pColorAttachments = color_attachments.data();
+    vkCmdBeginRendering(cb_, &rendering_info);
+
+    // TODO: draw
+
+    vkCmdEndRendering(cb_);
 
     // Layout transition
     image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
-    image_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    image_barriers[0].srcStageMask =
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    image_barriers[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     image_barriers[0].dstStageMask = 0;
     image_barriers[0].dstAccessMask = 0;
-    image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     image_barriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     image_barriers[0].image = swapchain.image(image_index);
     image_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
