@@ -59,7 +59,9 @@ class Engine::Impl {
   void Draw(Window window) {
     auto window_ptr = window.window();
     if (swapchains_.count(window_ptr) == 0) {
-      swapchains_[window_ptr] = vk::Swapchain(context_, window_ptr);
+      VkSurfaceKHR surface;
+      glfwCreateWindowSurface(context_.instance(), window_ptr, NULL, &surface);
+      swapchains_[window_ptr] = vk::Swapchain(context_, surface);
     }
 
     auto swapchain = swapchains_[window_ptr];

@@ -2,9 +2,6 @@
 
 #include <iostream>
 
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
-
 namespace pygs {
 namespace vk {
 
@@ -12,9 +9,8 @@ class Swapchain::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, GLFWwindow* window) : context_(context) {
-    glfwCreateWindowSurface(context.instance(), window, NULL, &surface_);
-
+  Impl(Context context, VkSurfaceKHR surface)
+      : context_(context), surface_(surface) {
     usage_ =
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
@@ -166,8 +162,8 @@ class Swapchain::Impl {
 
 Swapchain::Swapchain() = default;
 
-Swapchain::Swapchain(Context context, GLFWwindow* window)
-    : impl_(std::make_shared<Impl>(context, window)) {}
+Swapchain::Swapchain(Context context, VkSurfaceKHR surface)
+    : impl_(std::make_shared<Impl>(context, surface)) {}
 
 Swapchain::~Swapchain() = default;
 

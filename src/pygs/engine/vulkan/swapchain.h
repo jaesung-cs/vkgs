@@ -7,8 +7,6 @@
 
 #include "context.h"
 
-struct GLFWwindow;
-
 namespace pygs {
 namespace vk {
 
@@ -16,7 +14,7 @@ class Swapchain {
  public:
   Swapchain();
 
-  Swapchain(Context context, GLFWwindow* window);
+  Swapchain(Context context, VkSurfaceKHR surface);
 
   ~Swapchain();
 
