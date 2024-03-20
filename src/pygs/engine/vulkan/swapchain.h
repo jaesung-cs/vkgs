@@ -25,8 +25,10 @@ class Swapchain {
   uint32_t height() const;
   VkImage image(int index) const;
   VkImageView image_view(int index) const;
+  bool ShouldRecreate() const;
+  void Recreate();
 
-  uint32_t AcquireNextImage(VkSemaphore semaphore);
+  bool AcquireNextImage(VkSemaphore semaphore, uint32_t* image_index);
 
  private:
   class Impl;
