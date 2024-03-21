@@ -16,6 +16,9 @@ struct GraphicsPipelineCreateInfo {
   PipelineLayout layout;
   std::string vertex_shader;
   std::string fragment_shader;
+  VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  std::vector<VkVertexInputBindingDescription> input_bindings;
+  std::vector<VkVertexInputAttributeDescription> input_attributes;
 };
 
 class GraphicsPipeline {

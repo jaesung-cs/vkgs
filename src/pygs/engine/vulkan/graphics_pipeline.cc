@@ -72,37 +72,20 @@ class GraphicsPipeline::Impl {
     stages[1].module = fragment_module;
     stages[1].pName = "main";
 
-    std::vector<VkVertexInputBindingDescription> input_bindings(2);
-    input_bindings[0].binding = 0;
-    input_bindings[0].stride = sizeof(float) * 3;
-    input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    input_bindings[1].binding = 1;
-    input_bindings[1].stride = sizeof(float) * 4;
-    input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    std::vector<VkVertexInputAttributeDescription> input_attributes(2);
-    input_attributes[0].location = 0;
-    input_attributes[0].binding = 0;
-    input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    input_attributes[0].offset = 0;
-
-    input_attributes[1].location = 1;
-    input_attributes[1].binding = 1;
-    input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    input_attributes[1].offset = 0;
-
     VkPipelineVertexInputStateCreateInfo vertex_input_state = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertex_input_state.vertexBindingDescriptionCount = input_bindings.size();
-    vertex_input_state.pVertexBindingDescriptions = input_bindings.data();
+    vertex_input_state.vertexBindingDescriptionCount =
+        create_info.input_bindings.size();
+    vertex_input_state.pVertexBindingDescriptions =
+        create_info.input_bindings.data();
     vertex_input_state.vertexAttributeDescriptionCount =
-        input_attributes.size();
-    vertex_input_state.pVertexAttributeDescriptions = input_attributes.data();
+        create_info.input_attributes.size();
+    vertex_input_state.pVertexAttributeDescriptions =
+        create_info.input_attributes.data();
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_state = {
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    input_assembly_state.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    input_assembly_state.topology = create_info.topology;
     input_assembly_state.primitiveRestartEnable = VK_FALSE;
 
     VkPipelineViewportStateCreateInfo viewport_state = {

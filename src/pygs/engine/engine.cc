@@ -8,6 +8,9 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
+
 #include <pygs/scene/camera.h>
 #include <pygs/scene/splats.h>
 
@@ -21,6 +24,7 @@
 #include "vulkan/uniform_buffer.h"
 #include "vulkan/shader/uniforms.h"
 #include "vulkan/shader/point.h"
+#include "vulkan/shader/axes.h"
 
 namespace pygs {
 
@@ -55,11 +59,90 @@ class Engine::Impl {
     pipeline_layout_info.layouts = {camera_descriptor_layout_};
     pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
 
-    vk::GraphicsPipelineCreateInfo point_pipeline_info = {};
-    point_pipeline_info.layout = pipeline_layout_;
-    point_pipeline_info.vertex_shader = vk::shader::point_vert;
-    point_pipeline_info.fragment_shader = vk::shader::point_frag;
-    point_pipeline_ = vk::GraphicsPipeline(context_, point_pipeline_info);
+    // point pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(2);
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 3;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      input_bindings[1].binding = 1;
+      input_bindings[1].stride = sizeof(float) * 4;
+      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(2);
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 1;
+      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[1].offset = 0;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.vertex_shader = vk::shader::point_vert;
+      pipeline_info.fragment_shader = vk::shader::point_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      point_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    }
+
+    // axes pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(2);
+      // xyzrgb
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 6;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      input_bindings[1].binding = 1;
+      input_bindings[1].stride = sizeof(float) * 16;
+      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(6);
+      // vertex position
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      // vertex color
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 0;
+      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[1].offset = sizeof(float) * 3;
+
+      // instance mat4
+      input_attributes[2].location = 2;
+      input_attributes[2].binding = 1;
+      input_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[2].offset = 0;
+      input_attributes[3].location = 3;
+      input_attributes[3].binding = 1;
+      input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[3].offset = sizeof(float) * 4;
+      input_attributes[4].location = 4;
+      input_attributes[4].binding = 1;
+      input_attributes[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[4].offset = sizeof(float) * 8;
+      input_attributes[5].location = 5;
+      input_attributes[5].binding = 1;
+      input_attributes[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[5].offset = sizeof(float) * 12;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.vertex_shader = vk::shader::axes_vert;
+      pipeline_info.fragment_shader = vk::shader::axes_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      axes_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    }
 
     draw_command_buffers_.resize(3);
     VkCommandBufferAllocateInfo command_buffer_info = {
@@ -109,12 +192,51 @@ class Engine::Impl {
     point_count_ = splats.size();
     const auto& position = splats.positions();
     const auto& color = splats.colors();
+    const auto& rotation = splats.rots();
+    const auto& scale = splats.scales();
+
+    std::vector<float> transform;
+    transform.reserve(16 * point_count_);
+    for (int i = 0; i < point_count_; i++) {
+      glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
+                  rotation[i * 4 + 3]);
+      glm::mat4 r = glm::toMat4(q);
+      glm::mat4 s = glm::mat4(1.f);
+      s[0][0] = scale[i * 3 + 0];
+      s[1][1] = scale[i * 3 + 1];
+      s[2][2] = scale[i * 3 + 2];
+      glm::mat4 m = r * s;
+      m[3][0] = position[i * 3 + 0];
+      m[3][1] = position[i * 3 + 1];
+      m[3][2] = position[i * 3 + 2];
+
+      for (int c = 0; c < 4; c++) {
+        for (int r = 0; r < 4; r++) transform.push_back(m[c][r]);
+      }
+    }
+
+    std::cout << transform.size() / 16 << std::endl;
+
+    std::vector<float> axes = {
+        -1.f, 0.f,  0.f,  1.f, 0.f, 0.f,  // 0
+        1.f,  0.f,  0.f,  1.f, 0.f, 0.f,  // 1
+        0.f,  -1.f, 0.f,  0.f, 1.f, 0.f,  // 2
+        0.f,  1.f,  0.f,  0.f, 1.f, 0.f,  // 3
+        0.f,  0.f,  -1.f, 0.f, 0.f, 1.f,  // 4
+        0.f,  0.f,  1.f,  0.f, 0.f, 1.f,  // 5
+    };
 
     position_buffer_ = vk::Buffer(
         context_, position.size() * sizeof(float),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
     color_buffer_ = vk::Buffer(
         context_, color.size() * sizeof(float),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    transform_buffer_ = vk::Buffer(
+        context_, transform.size() * sizeof(float),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    axes_buffer_ = vk::Buffer(
+        context_, axes.size() * sizeof(float),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     VkCommandBufferAllocateInfo command_buffer_info = {
@@ -132,6 +254,8 @@ class Engine::Impl {
 
     position_buffer_.FromCpu(cb, position);
     color_buffer_.FromCpu(cb, color);
+    transform_buffer_.FromCpu(cb, transform);
+    axes_buffer_.FromCpu(cb, axes);
 
     vkEndCommandBuffer(cb);
 
@@ -220,9 +344,9 @@ class Engine::Impl {
       color_attachments[0].resolveMode = VK_RESOLVE_MODE_NONE;
       color_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       color_attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-      color_attachments[0].clearValue.color.float32[0] = 0.f;
-      color_attachments[0].clearValue.color.float32[1] = 1.f;
-      color_attachments[0].clearValue.color.float32[2] = 0.f;
+      color_attachments[0].clearValue.color.float32[0] = 0.5f;
+      color_attachments[0].clearValue.color.float32[1] = 0.5f;
+      color_attachments[0].clearValue.color.float32[2] = 0.5f;
       color_attachments[0].clearValue.color.float32[3] = 1.f;
 
       VkRenderingInfo rendering_info = {VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -248,20 +372,35 @@ class Engine::Impl {
       scissor.extent = {swapchain.width(), swapchain.height()};
       vkCmdSetScissor(cb, 0, 1, &scissor);
 
-      // TODO: draw
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
-
       std::vector<VkDescriptorSet> descriptors = {
           camera_descriptors_[frame_index]};
       vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               pipeline_layout_, 0, descriptors.size(),
                               descriptors.data(), 0, nullptr);
 
-      std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+      // draw points
+      {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
 
-      vkCmdDraw(cb, point_count_, 1, 0, 0);
+        std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
+        std::vector<VkDeviceSize> vb_offsets = {0, 0};
+        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                               vb_offsets.data());
+
+        vkCmdDraw(cb, point_count_, 1, 0, 0);
+      }
+
+      // draw axes
+      {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, axes_pipeline_);
+
+        std::vector<VkBuffer> vbs = {axes_buffer_, transform_buffer_};
+        std::vector<VkDeviceSize> vb_offsets = {0, 0};
+        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                               vb_offsets.data());
+
+        vkCmdDraw(cb, 6, point_count_, 0, 0);
+      }
 
       vkCmdEndRendering(cb);
 
@@ -343,11 +482,14 @@ class Engine::Impl {
   vk::DescriptorLayout camera_descriptor_layout_;
   vk::PipelineLayout pipeline_layout_;
   vk::GraphicsPipeline point_pipeline_;
+  vk::GraphicsPipeline axes_pipeline_;
 
   std::vector<vk::Descriptor> camera_descriptors_;
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
   vk::Buffer position_buffer_;
   vk::Buffer color_buffer_;
+  vk::Buffer transform_buffer_;
+  vk::Buffer axes_buffer_;
   int point_count_ = 0;
   bool on_transfer_ = false;
   VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;

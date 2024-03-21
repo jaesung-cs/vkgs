@@ -25,7 +25,7 @@ class Splats {
   std::vector<float> position_;  // (N, 3), x, y, z
   std::vector<float> color_;     // (N, 4), f_dc_0,1,2, opacity
   std::vector<float> scale_;     // (N, 3), scale_0,1,2
-  std::vector<float> rot_;       // (N, 4), rot_0,1,2,3
+  std::vector<float> rot_;       // (N, 4), rot_0,1,2,3, in wxyz order
 };
 
 }  // namespace pygs
