@@ -77,13 +77,13 @@ Splats Splats::load(const std::string& ply_filepath) {
                                            offsets.at("scale_1"));
       float sz = *reinterpret_cast<float*>(buffer.data() + i * offset +
                                            offsets.at("scale_2"));
-      float rx = *reinterpret_cast<float*>(buffer.data() + i * offset +
-                                           offsets.at("rot_0"));
-      float ry = *reinterpret_cast<float*>(buffer.data() + i * offset +
-                                           offsets.at("rot_1"));
-      float rz = *reinterpret_cast<float*>(buffer.data() + i * offset +
-                                           offsets.at("rot_2"));
       float rw = *reinterpret_cast<float*>(buffer.data() + i * offset +
+                                           offsets.at("rot_0"));
+      float rx = *reinterpret_cast<float*>(buffer.data() + i * offset +
+                                           offsets.at("rot_1"));
+      float ry = *reinterpret_cast<float*>(buffer.data() + i * offset +
+                                           offsets.at("rot_2"));
+      float rz = *reinterpret_cast<float*>(buffer.data() + i * offset +
                                            offsets.at("rot_3"));
 
       splats.position_[i * 3 + 0] = x;
@@ -98,11 +98,11 @@ Splats Splats::load(const std::string& ply_filepath) {
       splats.scale_[i * 3 + 0] = std::exp(sx);
       splats.scale_[i * 3 + 1] = std::exp(sy);
       splats.scale_[i * 3 + 2] = std::exp(sz);
-      float r = std::sqrt(rx * rx + ry * ry + rz * rz + rw * rw);
-      splats.rot_[i * 4 + 0] = rx / r;
-      splats.rot_[i * 4 + 1] = ry / r;
-      splats.rot_[i * 4 + 2] = rz / r;
-      splats.rot_[i * 4 + 3] = rw / r;
+      float r = std::sqrt(rw * rw + rx * rx + ry * ry + rz * rz);
+      splats.rot_[i * 4 + 0] = rw / r;
+      splats.rot_[i * 4 + 1] = rx / r;
+      splats.rot_[i * 4 + 2] = ry / r;
+      splats.rot_[i * 4 + 3] = rz / r;
     }
   }
 
