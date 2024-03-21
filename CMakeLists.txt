@@ -16,6 +16,7 @@ add_subdirectory(third_party/glm EXCLUDE_FROM_ALL)
 add_library(pygs STATIC
   src/pygs/window/window.cc
   src/pygs/scene/camera.cc
+  src/pygs/scene/splats.cc
   src/pygs/engine/engine.cc
   src/pygs/engine/vulkan/buffer.cc
   src/pygs/engine/vulkan/context.cc

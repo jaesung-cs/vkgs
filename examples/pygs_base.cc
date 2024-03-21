@@ -1,11 +1,28 @@
 #include <iostream>
 
+#include "argparse/argparse.hpp"
+
 #include <pygs/window/window.h>
 #include <pygs/engine/engine.h>
 #include <pygs/scene/camera.h>
+#include <pygs/scene/splats.h>
 
-int main() {
+int main(int argc, char** argv) {
+  argparse::ArgumentParser parser("pygs");
+  parser.add_argument("-i", "--input").required().help("input ply file.");
   try {
+    parser.parse_args(argc, argv);
+  } catch (const std::exception& err) {
+    std::cerr << err.what() << std::endl;
+    std::cerr << parser;
+    return 1;
+  }
+
+  auto ply_filepath = parser.get<std::string>("input");
+
+  try {
+    auto splat = pygs::Splats::load(ply_filepath);
+
     pygs::Window window;
     pygs::Engine engine;
     pygs::Camera camera;
