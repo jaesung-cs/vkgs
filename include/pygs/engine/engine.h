@@ -7,12 +7,14 @@
 
 namespace pygs {
 
+class Camera;
+
 class Engine {
  public:
   Engine();
   ~Engine();
 
-  void Draw(Window window);
+  void Draw(Window window, const Camera& camera);
 
  private:
   class Impl;

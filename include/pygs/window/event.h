@@ -5,6 +5,12 @@ namespace pygs {
 
 enum class EventType {
   MOUSE_MOVE,
+  MOUSE_CLICK,
+};
+
+enum class MouseButton {
+  LEFT,
+  RIGHT,
 };
 
 struct MouseMoveEvent {
@@ -12,10 +18,16 @@ struct MouseMoveEvent {
   double y;
 };
 
+struct MouseClickEvent {
+  MouseButton button;
+  bool pressed;
+};
+
 struct Event {
   EventType type;
   union {
     MouseMoveEvent mouse_move;
+    MouseClickEvent mouse_click;
   };
 };
 

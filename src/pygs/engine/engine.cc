@@ -8,6 +8,8 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#include <pygs/scene/camera.h>
+
 #include "vulkan/context.h"
 #include "vulkan/swapchain.h"
 #include "vulkan/descriptor_layout.h"
@@ -144,7 +146,7 @@ class Engine::Impl {
       vkDestroyFence(context_.device(), fence, NULL);
   }
 
-  void Draw(Window window) {
+  void Draw(Window window, const Camera& camera) {
     auto window_ptr = window.window();
     if (swapchains_.count(window_ptr) == 0) {
       VkSurfaceKHR surface;
@@ -175,8 +177,8 @@ class Engine::Impl {
                       UINT64_MAX);
       vkResetFences(context_.device(), 1, &render_finished_fence);
 
-      camera_buffer_[frame_index].projection = glm::mat4(1.f);
-      camera_buffer_[frame_index].view = glm::mat4(1.f);
+      camera_buffer_[frame_index].projection = camera.ProjectionMatrix();
+      camera_buffer_[frame_index].view = camera.ViewMatrix();
 
       VkCommandBufferBeginInfo command_begin_info = {
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -307,7 +309,6 @@ class Engine::Impl {
       present_info.pImageIndices = &image_index;
       vkQueuePresentKHR(context_.queue(), &present_info);
 
-      std::cout << "frame " << frame_counter_ << std::endl;
       frame_counter_++;
     }
   }
@@ -338,6 +339,8 @@ Engine::Engine() : impl_(std::make_shared<Impl>()) {}
 
 Engine::~Engine() {}
 
-void Engine::Draw(Window window) { impl_->Draw(window); }
+void Engine::Draw(Window window, const Camera& camera) {
+  impl_->Draw(window, camera);
+}
 
 }  // namespace pygs
