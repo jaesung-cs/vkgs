@@ -14,6 +14,12 @@ class Splats {
   Splats();
   ~Splats();
 
+  auto size() const noexcept { return size_; }
+  auto positions() const noexcept { return position_; }
+  auto colors() const noexcept { return color_; }
+  auto scales() const noexcept { return scale_; }
+  auto rots() const noexcept { return rot_; }
+
  private:
   size_t size_ = 0;
   std::vector<float> position_;  // (N, 3), x, y, z

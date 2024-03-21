@@ -23,7 +23,7 @@ void main() {
   out_color = color;
 
   // Hard-coded point size
-  gl_PointSize = 20.f;
+  gl_PointSize = 5.f;
 }
 )shader";
 

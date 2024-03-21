@@ -17,7 +17,7 @@ void Camera::SetWindowSize(uint32_t width, uint32_t height) {
 
 glm::mat4 Camera::ProjectionMatrix() const {
   float aspect = static_cast<float>(width_) / height_;
-  glm::mat4 projection = glm::perspective(fovy_, aspect, 0.01f, 10.f);
+  glm::mat4 projection = glm::perspective(fovy_, aspect, near_, far_);
 
   // gl to vulkan projection matrix
   glm::mat4 conversion = glm::mat4(1.f);

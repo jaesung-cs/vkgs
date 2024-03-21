@@ -24,6 +24,8 @@ class Camera {
   uint32_t width_ = 256;
   uint32_t height_ = 256;
   float fovy_ = glm::radians(60.f);
+  float near_ = 0.01f;
+  float far_ = 100.f;
 
   glm::vec3 center_ = {0.f, 0.f, 0.f};
   // camera = center + r (sin phi sin theta, cos phi, sin phi cos theta)

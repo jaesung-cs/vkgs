@@ -50,9 +50,6 @@ class Window::Impl {
 
  public:
   Impl() {
-    if (glfwInit() == GLFW_FALSE)
-      throw std::runtime_error("Failed to initialize glfw.");
-
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     window_ = glfwCreateWindow(width_, height_, "pygs", NULL, NULL);
     glfwSetWindowUserPointer(window_, this);
@@ -60,7 +57,7 @@ class Window::Impl {
     glfwSetMouseButtonCallback(window_, MouseButtonCallback);
   }
 
-  ~Impl() { glfwTerminate(); }
+  ~Impl() = default;
 
   GLFWwindow* window() const noexcept { return window_; }
 

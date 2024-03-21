@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 
 #include <pygs/scene/camera.h>
+#include <pygs/scene/splats.h>
 
 #include "vulkan/context.h"
 #include "vulkan/swapchain.h"
@@ -26,6 +27,11 @@ namespace pygs {
 class Engine::Impl {
  public:
   Impl() {
+    if (glfwInit() == GLFW_FALSE)
+      throw std::runtime_error("Failed to initialize glfw.");
+
+    context_ = vk::Context(0);
+
     vk::DescriptorLayoutCreateInfo camera_layout_info = {};
     camera_layout_info.bindings.resize(1);
     camera_layout_info.bindings[0] = {};
@@ -70,69 +76,19 @@ class Engine::Impl {
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     image_acquired_semaphores_.resize(2);
+    render_finished_semaphores_.resize(2);
+    render_finished_fences_.resize(2);
     for (int i = 0; i < 2; i++) {
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
                         &image_acquired_semaphores_[i]);
-    }
-    render_finished_semaphores_.resize(3);
-    render_finished_fences_.resize(3);
-    for (int i = 0; i < 3; i++) {
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
                         &render_finished_semaphores_[i]);
       vkCreateFence(context_.device(), &fence_info, NULL,
                     &render_finished_fences_[i]);
     }
 
-    {
-      point_count_ = 32;
-      std::vector<float> position;
-      std::vector<float> color;
-      for (int i = 0; i < point_count_; i++) {
-        float x = (static_cast<float>(i) + 0.5f) / point_count_;
-        position.push_back(x);
-        position.push_back(0.f);
-        position.push_back(0.f);
-        color.push_back(x);
-        color.push_back(x);
-        color.push_back(x);
-        color.push_back(1.f);
-      }
-
-      position_buffer_ = vk::Buffer(
-          context_, position.size() * sizeof(float),
-          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-      color_buffer_ = vk::Buffer(
-          context_, color.size() * sizeof(float),
-          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-
-      VkCommandBufferAllocateInfo command_buffer_info = {
-          VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-      command_buffer_info.commandPool = context_.command_pool();
-      command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-      command_buffer_info.commandBufferCount = 1;
-      VkCommandBuffer cb;
-      vkAllocateCommandBuffers(context_.device(), &command_buffer_info, &cb);
-
-      VkCommandBufferBeginInfo begin_info = {
-          VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-      begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-      vkBeginCommandBuffer(cb, &begin_info);
-
-      position_buffer_.FromCpu(cb, position);
-      color_buffer_.FromCpu(cb, color);
-
-      vkEndCommandBuffer(cb);
-
-      std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
-      command_buffer_submit_info[0] = {
-          VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-      command_buffer_submit_info[0].commandBuffer = cb;
-
-      VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-      submit_info.commandBufferInfoCount = command_buffer_submit_info.size();
-      submit_info.pCommandBufferInfos = command_buffer_submit_info.data();
-      vkQueueSubmit2(context_.queue(), 1, &submit_info, NULL);
-    }
+    vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
+                      &transfer_semaphore_);
   }
 
   ~Impl() {
@@ -144,6 +100,60 @@ class Engine::Impl {
       vkDestroySemaphore(context_.device(), semaphore, NULL);
     for (auto fence : render_finished_fences_)
       vkDestroyFence(context_.device(), fence, NULL);
+    vkDestroySemaphore(context_.device(), transfer_semaphore_, NULL);
+
+    glfwTerminate();
+  }
+
+  void AddSplats(const Splats& splats) {
+    point_count_ = splats.size();
+    const auto& position = splats.positions();
+    const auto& color = splats.colors();
+
+    position_buffer_ = vk::Buffer(
+        context_, position.size() * sizeof(float),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    color_buffer_ = vk::Buffer(
+        context_, color.size() * sizeof(float),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+    VkCommandBufferAllocateInfo command_buffer_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    command_buffer_info.commandPool = context_.command_pool();
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_info.commandBufferCount = 1;
+    VkCommandBuffer cb;
+    vkAllocateCommandBuffers(context_.device(), &command_buffer_info, &cb);
+
+    VkCommandBufferBeginInfo begin_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cb, &begin_info);
+
+    position_buffer_.FromCpu(cb, position);
+    color_buffer_.FromCpu(cb, color);
+
+    vkEndCommandBuffer(cb);
+
+    std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
+    command_buffer_submit_info[0] = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+    command_buffer_submit_info[0].commandBuffer = cb;
+
+    // TODO: use timeline semaphore to support multiple transfers
+    std::vector<VkSemaphoreSubmitInfo> signal_semaphore_info(1);
+    signal_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    signal_semaphore_info[0].semaphore = transfer_semaphore_;
+    signal_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+
+    VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    submit_info.commandBufferInfoCount = command_buffer_submit_info.size();
+    submit_info.pCommandBufferInfos = command_buffer_submit_info.data();
+    submit_info.signalSemaphoreInfoCount = signal_semaphore_info.size();
+    submit_info.pSignalSemaphoreInfos = signal_semaphore_info.data();
+    vkQueueSubmit2(context_.queue(), 1, &submit_info, NULL);
+
+    on_transfer_ = true;
   }
 
   void Draw(Window window, const Camera& camera) {
@@ -166,17 +176,16 @@ class Engine::Impl {
     VkSemaphore image_acquired_semaphore =
         image_acquired_semaphores_[frame_index];
 
+    VkSemaphore render_finished_semaphore =
+        render_finished_semaphores_[frame_index];
+    VkFence render_finished_fence = render_finished_fences_[frame_index];
+    VkCommandBuffer cb = draw_command_buffers_[frame_index];
+    vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
+                    UINT64_MAX);
+    vkResetFences(context_.device(), 1, &render_finished_fence);
+
     uint32_t image_index;
     if (swapchain.AcquireNextImage(image_acquired_semaphore, &image_index)) {
-      VkSemaphore render_finished_semaphore =
-          render_finished_semaphores_[image_index];
-      VkFence render_finished_fence = render_finished_fences_[image_index];
-      VkCommandBuffer cb = draw_command_buffers_[image_index];
-
-      vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
-                      UINT64_MAX);
-      vkResetFences(context_.device(), 1, &render_finished_fence);
-
       camera_buffer_[frame_index].projection = camera.ProjectionMatrix();
       camera_buffer_[frame_index].view = camera.ViewMatrix();
 
@@ -281,6 +290,15 @@ class Engine::Impl {
       wait_semaphores[0].semaphore = image_acquired_semaphore;
       wait_semaphores[0].stageMask = 0;
 
+      if (on_transfer_) {
+        VkSemaphoreSubmitInfo wait_semaphore = {
+            VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        wait_semaphore.semaphore = transfer_semaphore_;
+        wait_semaphore.stageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        wait_semaphores.push_back(wait_semaphore);
+        on_transfer_ = false;
+      }
+
       std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
       command_buffer_submit_info[0] = {
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
@@ -331,6 +349,8 @@ class Engine::Impl {
   vk::Buffer position_buffer_;
   vk::Buffer color_buffer_;
   int point_count_ = 0;
+  bool on_transfer_ = false;
+  VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;
 
   uint64_t frame_counter_ = 0;
 };
@@ -338,6 +358,8 @@ class Engine::Impl {
 Engine::Engine() : impl_(std::make_shared<Impl>()) {}
 
 Engine::~Engine() {}
+
+void Engine::AddSplats(const Splats& splats) { impl_->AddSplats(splats); }
 
 void Engine::Draw(Window window, const Camera& camera) {
   impl_->Draw(window, camera);

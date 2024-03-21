@@ -8,12 +8,14 @@
 namespace pygs {
 
 class Camera;
+class Splats;
 
 class Engine {
  public:
   Engine();
   ~Engine();
 
+  void AddSplats(const Splats& splats);
   void Draw(Window window, const Camera& camera);
 
  private:

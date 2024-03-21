@@ -24,6 +24,8 @@ class Context {
  public:
   Context();
 
+  explicit Context(int);
+
   ~Context();
 
   VkInstance instance() const noexcept;

@@ -273,7 +273,9 @@ class Context::Impl {
 #endif
 };
 
-Context::Context() : impl_(std::make_shared<Impl>()) {}
+Context::Context() = default;
+
+Context::Context(int) : impl_(std::make_shared<Impl>()) {}
 
 Context::~Context() = default;
 

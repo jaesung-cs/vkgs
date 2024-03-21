@@ -21,16 +21,17 @@ int main(int argc, char** argv) {
   auto ply_filepath = parser.get<std::string>("input");
 
   try {
-    auto splat = pygs::Splats::load(ply_filepath);
+    auto splats = pygs::Splats::load(ply_filepath);
 
-    pygs::Window window;
     pygs::Engine engine;
-    pygs::Camera camera;
+    engine.AddSplats(splats);
 
     float cursor_x = 0.f;
     float cursor_y = 0.f;
     bool clicked[2] = {false, false};  // left, right
 
+    pygs::Camera camera;
+    pygs::Window window;
     while (!window.ShouldClose()) {
       const auto& events = window.PollEvents();
       for (const auto& event : events) {
