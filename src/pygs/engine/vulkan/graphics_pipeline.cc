@@ -102,12 +102,12 @@ class GraphicsPipeline::Impl {
 
     VkPipelineMultisampleStateCreateInfo multisample_state = {
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state = {
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depth_stencil_state.depthTestEnable = VK_FALSE;
-    depth_stencil_state.depthWriteEnable = VK_FALSE;
+    depth_stencil_state.depthTestEnable = create_info.depth_test;
+    depth_stencil_state.depthWriteEnable = create_info.depth_write;
     depth_stencil_state.depthCompareOp = VK_COMPARE_OP_LESS;
 
     std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(1);
@@ -142,6 +142,7 @@ class GraphicsPipeline::Impl {
         VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rendering_info.colorAttachmentCount = color_attachment_formats.size();
     rendering_info.pColorAttachmentFormats = color_attachment_formats.data();
+    rendering_info.depthAttachmentFormat = VK_FORMAT_D24_UNORM_S8_UINT;
 
     VkGraphicsPipelineCreateInfo pipeline_info = {
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};

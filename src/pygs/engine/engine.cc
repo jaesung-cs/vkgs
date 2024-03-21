@@ -16,6 +16,7 @@
 
 #include "vulkan/context.h"
 #include "vulkan/swapchain.h"
+#include "vulkan/attachment.h"
 #include "vulkan/descriptor_layout.h"
 #include "vulkan/pipeline_layout.h"
 #include "vulkan/graphics_pipeline.h"
@@ -88,6 +89,8 @@ class Engine::Impl {
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
       pipeline_info.input_bindings = std::move(input_bindings);
       pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = false;
       point_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
@@ -141,6 +144,8 @@ class Engine::Impl {
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
       pipeline_info.input_bindings = std::move(input_bindings);
       pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = true;
       axes_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
@@ -172,6 +177,11 @@ class Engine::Impl {
 
     vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
                       &transfer_semaphore_);
+
+    color_attachment_ = vk::Attachment(context_, VK_FORMAT_B8G8R8A8_SRGB,
+                                       VK_SAMPLE_COUNT_4_BIT);
+    depth_attachment_ = vk::Attachment(context_, VK_FORMAT_D24_UNORM_S8_UINT,
+                                       VK_SAMPLE_COUNT_4_BIT);
   }
 
   ~Impl() {
@@ -319,7 +329,7 @@ class Engine::Impl {
       vkBeginCommandBuffer(cb, &command_begin_info);
 
       // Layout transition
-      std::vector<VkImageMemoryBarrier2> image_barriers(1);
+      std::vector<VkImageMemoryBarrier2> image_barriers(3);
       image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
       image_barriers[0].srcStageMask = 0;
       image_barriers[0].srcAccessMask = 0;
@@ -327,8 +337,31 @@ class Engine::Impl {
       image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
       image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       image_barriers[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      image_barriers[0].image = swapchain.image(image_index);
+      image_barriers[0].image = color_attachment_.image();
       image_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
+                                            1};
+
+      image_barriers[1] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      image_barriers[1].srcStageMask = 0;
+      image_barriers[1].srcAccessMask = 0;
+      image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      image_barriers[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      image_barriers[1].newLayout =
+          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+      image_barriers[1].image = depth_attachment_.image();
+      image_barriers[1].subresourceRange = {
+          VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1};
+
+      image_barriers[2] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      image_barriers[2].srcStageMask = 0;
+      image_barriers[2].srcAccessMask = 0;
+      image_barriers[2].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      image_barriers[2].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      image_barriers[2].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      image_barriers[2].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      image_barriers[2].image = swapchain.image(image_index);
+      image_barriers[2].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
                                             1};
 
       VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -338,16 +371,29 @@ class Engine::Impl {
 
       std::vector<VkRenderingAttachmentInfo> color_attachments(1);
       color_attachments[0] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      color_attachments[0].imageView = swapchain.image_view(image_index);
+      color_attachments[0].imageView = color_attachment_;
       color_attachments[0].imageLayout =
           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      color_attachments[0].resolveMode = VK_RESOLVE_MODE_NONE;
+      color_attachments[0].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+      color_attachments[0].resolveImageView = swapchain.image_view(image_index);
+      color_attachments[0].resolveImageLayout =
+          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
       color_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       color_attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
       color_attachments[0].clearValue.color.float32[0] = 0.5f;
       color_attachments[0].clearValue.color.float32[1] = 0.5f;
       color_attachments[0].clearValue.color.float32[2] = 0.5f;
       color_attachments[0].clearValue.color.float32[3] = 1.f;
+
+      VkRenderingAttachmentInfo depth_attachment;
+      depth_attachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      depth_attachment.imageView = depth_attachment_;
+      depth_attachment.imageLayout =
+          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+      depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
+      depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+      depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+      depth_attachment.clearValue.depthStencil.depth = 1.f;
 
       VkRenderingInfo rendering_info = {VK_STRUCTURE_TYPE_RENDERING_INFO};
       rendering_info.renderArea.offset = {0, 0};
@@ -356,6 +402,7 @@ class Engine::Impl {
       rendering_info.layerCount = 1;
       rendering_info.colorAttachmentCount = color_attachments.size();
       rendering_info.pColorAttachments = color_attachments.data();
+      rendering_info.pDepthAttachment = &depth_attachment;
       vkCmdBeginRendering(cb, &rendering_info);
 
       VkViewport viewport = {};
@@ -378,18 +425,6 @@ class Engine::Impl {
                               pipeline_layout_, 0, descriptors.size(),
                               descriptors.data(), 0, nullptr);
 
-      // draw points
-      {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
-
-        std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
-        std::vector<VkDeviceSize> vb_offsets = {0, 0};
-        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
-                               vb_offsets.data());
-
-        vkCmdDraw(cb, point_count_, 1, 0, 0);
-      }
-
       // draw axes
       {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, axes_pipeline_);
@@ -402,9 +437,22 @@ class Engine::Impl {
         vkCmdDraw(cb, 6, point_count_, 0, 0);
       }
 
+      // draw points
+      {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
+
+        std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
+        std::vector<VkDeviceSize> vb_offsets = {0, 0};
+        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                               vb_offsets.data());
+
+        vkCmdDraw(cb, point_count_, 1, 0, 0);
+      }
+
       vkCmdEndRendering(cb);
 
       // Layout transition
+      image_barriers.resize(1);
       image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
       image_barriers[0].srcStageMask =
           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -483,6 +531,9 @@ class Engine::Impl {
   vk::PipelineLayout pipeline_layout_;
   vk::GraphicsPipeline point_pipeline_;
   vk::GraphicsPipeline axes_pipeline_;
+
+  vk::Attachment color_attachment_;
+  vk::Attachment depth_attachment_;
 
   std::vector<vk::Descriptor> camera_descriptors_;
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;

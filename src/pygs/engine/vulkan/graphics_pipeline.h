@@ -19,6 +19,8 @@ struct GraphicsPipelineCreateInfo {
   VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   std::vector<VkVertexInputBindingDescription> input_bindings;
   std::vector<VkVertexInputAttributeDescription> input_attributes;
+  bool depth_test = false;
+  bool depth_write = false;
 };
 
 class GraphicsPipeline {
