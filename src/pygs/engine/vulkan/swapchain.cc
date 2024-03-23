@@ -1,7 +1,5 @@
 #include "swapchain.h"
 
-#include <iostream>
-
 namespace pygs {
 namespace vk {
 

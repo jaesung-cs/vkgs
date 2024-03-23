@@ -1,6 +1,6 @@
 #include <pygs/engine/engine.h>
 
-#include <iostream>
+#include <stdexcept>
 #include <unordered_map>
 
 #include <vulkan/vulkan.h>
@@ -29,6 +29,7 @@
 #include "vulkan/shader/axes.h"
 #include "vulkan/shader/projection.h"
 #include "vulkan/shader/splat.h"
+#include "vulkan/shader/splat_fill.h"
 
 namespace pygs {
 
@@ -229,6 +230,61 @@ class Engine::Impl {
       splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
+    // splat fill pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(3);
+      // xy, rgba
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 2;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      // cov2d, projected position
+      input_bindings[1].binding = 1;
+      input_bindings[1].stride = sizeof(float) * 6;
+      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+      // point rgba
+      input_bindings[2].binding = 2;
+      input_bindings[2].stride = sizeof(float) * 4;
+      input_bindings[2].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
+      // vertex position
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      // cov2d
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 1;
+      input_attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[1].offset = 0;
+
+      // projected position
+      input_attributes[2].location = 2;
+      input_attributes[2].binding = 1;
+      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[2].offset = sizeof(float) * 3;
+
+      // point rgba
+      input_attributes[3].location = 3;
+      input_attributes[3].binding = 2;
+      input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[3].offset = 0;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.vertex_shader = vk::shader::splat_fill_vert;
+      pipeline_info.fragment_shader = vk::shader::splat_fill_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = false;
+      splat_fill_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    }
+
     // gaussian pipeline
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
@@ -357,6 +413,15 @@ class Engine::Impl {
       splat.push_back(1.f);
     }
 
+    std::vector<float> splat_fill_vertex = {
+        // xy, ccw in NDC space.
+        -1.f, -1.f,  // 0
+        -1.f, 1.f,   // 1
+        1.f,  -1.f,  // 2
+        1.f,  1.f,   // 3
+    };
+    std::vector<uint32_t> splat_fill_index = {0, 1, 2, 3};
+
     position_buffer_ = vk::Buffer(
         context_, position.size() * sizeof(float),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -372,6 +437,12 @@ class Engine::Impl {
     splat_buffer_ = vk::Buffer(
         context_, splat.size() * sizeof(float),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    splat_fill_vertex_buffer_ = vk::Buffer(
+        context_, splat_fill_vertex.size() * sizeof(float),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    splat_fill_index_buffer_ = vk::Buffer(
+        context_, splat_fill_index.size() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     gaussian3d_buffer_ = vk::Buffer(
         context_, gaussian3d.size() * sizeof(float),
@@ -400,6 +471,8 @@ class Engine::Impl {
     transform_buffer_.FromCpu(cb, transform);
     axes_buffer_.FromCpu(cb, axes);
     splat_buffer_.FromCpu(cb, splat);
+    splat_fill_vertex_buffer_.FromCpu(cb, splat_fill_vertex);
+    splat_fill_index_buffer_.FromCpu(cb, splat_fill_index);
     gaussian3d_buffer_.FromCpu(cb, gaussian3d);
 
     vkEndCommandBuffer(cb);
@@ -461,17 +534,17 @@ class Engine::Impl {
     int32_t frame_index = frame_counter_ % 2;
     VkSemaphore image_acquired_semaphore =
         image_acquired_semaphores_[frame_index];
-
     VkSemaphore render_finished_semaphore =
         render_finished_semaphores_[frame_index];
     VkFence render_finished_fence = render_finished_fences_[frame_index];
     VkCommandBuffer cb = draw_command_buffers_[frame_index];
-    vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
-                    UINT64_MAX);
-    vkResetFences(context_.device(), 1, &render_finished_fence);
 
     uint32_t image_index;
     if (swapchain.AcquireNextImage(image_acquired_semaphore, &image_index)) {
+      vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
+                      UINT64_MAX);
+      vkResetFences(context_.device(), 1, &render_finished_fence);
+
       camera_buffer_[frame_index].projection = camera.ProjectionMatrix();
       camera_buffer_[frame_index].view = camera.ViewMatrix();
 
@@ -526,8 +599,9 @@ class Engine::Impl {
       // layout transition
       std::vector<VkImageMemoryBarrier2> image_barriers(3);
       image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      image_barriers[0].srcStageMask = 0;
-      image_barriers[0].srcAccessMask = 0;
+      image_barriers[0].srcStageMask =
+          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+      image_barriers[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
       image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
       image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
       image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -537,8 +611,12 @@ class Engine::Impl {
                                             1};
 
       image_barriers[1] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      image_barriers[1].srcStageMask = 0;
-      image_barriers[1].srcAccessMask = 0;
+      image_barriers[1].srcStageMask =
+          VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+          VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+      image_barriers[1].srcAccessMask =
+          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
       image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
       image_barriers[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
       image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -551,8 +629,9 @@ class Engine::Impl {
       image_barriers[2] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
       image_barriers[2].srcStageMask = 0;
       image_barriers[2].srcAccessMask = 0;
-      image_barriers[2].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      image_barriers[2].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      image_barriers[2].dstStageMask =
+          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+      image_barriers[2].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
       image_barriers[2].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       image_barriers[2].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
       image_barriers[2].image = swapchain.image(image_index);
@@ -619,6 +698,7 @@ class Engine::Impl {
                               pipeline_layout_, 0, descriptors.size(),
                               descriptors.data(), 0, nullptr);
       // draw axes
+      /*
       {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, axes_pipeline_);
 
@@ -629,8 +709,9 @@ class Engine::Impl {
 
         vkCmdDraw(cb, 6, point_count_, 0, 0);
       }
+      */
 
-      // draw splat
+      // draw splat outline
       {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
 
@@ -643,6 +724,7 @@ class Engine::Impl {
       }
 
       // draw points
+      /*
       {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
 
@@ -652,6 +734,24 @@ class Engine::Impl {
                                vb_offsets.data());
 
         vkCmdDraw(cb, point_count_, 1, 0, 0);
+      }
+      */
+
+      // draw splat fill
+      {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          splat_fill_pipeline_);
+
+        std::vector<VkBuffer> vbs = {splat_fill_vertex_buffer_,
+                                     gaussian2d_buffer_, color_buffer_};
+        std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
+        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                               vb_offsets.data());
+
+        vkCmdBindIndexBuffer(cb, splat_fill_index_buffer_, 0,
+                             VK_INDEX_TYPE_UINT32);
+
+        vkCmdDrawIndexed(cb, 4, point_count_, 0, 0, 0);
       }
 
       vkCmdEndRendering(cb);
@@ -739,6 +839,7 @@ class Engine::Impl {
   vk::GraphicsPipeline axes_pipeline_;
   vk::ComputePipeline projection_pipeline_;
   vk::GraphicsPipeline splat_pipeline_;
+  vk::GraphicsPipeline splat_fill_pipeline_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
@@ -756,6 +857,8 @@ class Engine::Impl {
   vk::Buffer gaussian2d_buffer_;  // output of compute shader
   static constexpr int splat_division_ = 16;
   vk::Buffer splat_buffer_;
+  vk::Buffer splat_fill_vertex_buffer_;
+  vk::Buffer splat_fill_index_buffer_;
   vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;
   int point_count_ = 0;
   bool on_transfer_ = false;
