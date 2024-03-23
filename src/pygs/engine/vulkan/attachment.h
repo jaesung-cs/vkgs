@@ -5,6 +5,9 @@
 
 #include <vulkan/vulkan.h>
 
+#include "context.h"
+#include "image_spec.h"
+
 namespace pygs {
 namespace vk {
 
@@ -21,6 +24,9 @@ class Attachment {
   operator VkImageView() const;
 
   VkImage image() const;
+  VkImageUsageFlags usage() const;
+  VkFormat format() const;
+  ImageSpec image_spec() const;
 
  private:
   class Impl;

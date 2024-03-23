@@ -21,6 +21,8 @@
 #include "vulkan/pipeline_layout.h"
 #include "vulkan/compute_pipeline.h"
 #include "vulkan/graphics_pipeline.h"
+#include "vulkan/render_pass.h"
+#include "vulkan/framebuffer.h"
 #include "vulkan/descriptor.h"
 #include "vulkan/buffer.h"
 #include "vulkan/uniform_buffer.h"
@@ -86,6 +88,8 @@ class Engine::Impl {
 
     splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
 
+    render_pass_ = vk::RenderPass(context_, vk::RenderPassType::NORMAL);
+
     vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
     pipeline_layout_info.layouts = {camera_descriptor_layout_,
                                     gaussian_descriptor_layout_};
@@ -115,6 +119,7 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
+      pipeline_info.render_pass = render_pass_;
       pipeline_info.vertex_shader = vk::shader::point_vert;
       pipeline_info.fragment_shader = vk::shader::point_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
@@ -170,6 +175,7 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
+      pipeline_info.render_pass = render_pass_;
       pipeline_info.vertex_shader = vk::shader::axes_vert;
       pipeline_info.fragment_shader = vk::shader::axes_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
@@ -220,6 +226,7 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
+      pipeline_info.render_pass = render_pass_;
       pipeline_info.vertex_shader = vk::shader::splat_vert;
       pipeline_info.fragment_shader = vk::shader::splat_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
@@ -275,6 +282,7 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
+      pipeline_info.render_pass = render_pass_;
       pipeline_info.vertex_shader = vk::shader::splat_fill_vert;
       pipeline_info.fragment_shader = vk::shader::splat_fill_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
@@ -520,7 +528,17 @@ class Engine::Impl {
     if (swapchains_.count(window_ptr) == 0) {
       VkSurfaceKHR surface;
       glfwCreateWindowSurface(context_.instance(), window_ptr, NULL, &surface);
-      swapchains_[window_ptr] = vk::Swapchain(context_, surface);
+      auto swapchain = vk::Swapchain(context_, surface);
+      swapchains_[window_ptr] = swapchain;
+
+      vk::FramebufferCreateInfo framebuffer_info;
+      framebuffer_info.render_pass = render_pass_;
+      framebuffer_info.width = swapchain.width();
+      framebuffer_info.height = swapchain.height();
+      framebuffer_info.image_specs = {color_attachment_.image_spec(),
+                                      depth_attachment_.image_spec(),
+                                      swapchain.image_spec()};
+      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     auto swapchain = swapchains_[window_ptr];
@@ -529,6 +547,15 @@ class Engine::Impl {
       vkWaitForFences(context_.device(), render_finished_fences_.size(),
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain.Recreate();
+
+      vk::FramebufferCreateInfo framebuffer_info;
+      framebuffer_info.render_pass = render_pass_;
+      framebuffer_info.width = swapchain.width();
+      framebuffer_info.height = swapchain.height();
+      framebuffer_info.image_specs = {color_attachment_.image_spec(),
+                                      depth_attachment_.image_spec(),
+                                      swapchain.image_spec()};
+      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     int32_t frame_index = frame_counter_ % 2;
@@ -596,88 +623,37 @@ class Engine::Impl {
       barrier.pBufferMemoryBarriers = buffer_barriers.data();
       vkCmdPipelineBarrier2(cb, &barrier);
 
-      // layout transition
-      std::vector<VkImageMemoryBarrier2> image_barriers(3);
-      image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      image_barriers[0].srcStageMask =
-          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      image_barriers[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-      image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      image_barriers[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      image_barriers[0].image = color_attachment_.image();
-      image_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-                                            1};
+      std::vector<VkClearValue> clear_values(2);
+      clear_values[0].color.float32[0] = 0.5f;
+      clear_values[0].color.float32[1] = 0.5f;
+      clear_values[0].color.float32[2] = 0.5f;
+      clear_values[0].color.float32[3] = 1.f;
+      clear_values[1].depthStencil.depth = 1.f;
 
-      image_barriers[1] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      image_barriers[1].srcStageMask =
-          VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-          VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-      image_barriers[1].srcAccessMask =
-          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      image_barriers[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      image_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      image_barriers[1].newLayout =
-          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-      image_barriers[1].image = depth_attachment_.image();
-      image_barriers[1].subresourceRange = {
-          VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1};
+      std::vector<VkImageView> render_pass_attachments = {
+          color_attachment_,
+          depth_attachment_,
+          swapchain.image_view(image_index),
+      };
+      VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
+          VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
+      render_pass_attachments_info.attachmentCount =
+          render_pass_attachments.size();
+      render_pass_attachments_info.pAttachments =
+          render_pass_attachments.data();
 
-      image_barriers[2] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      image_barriers[2].srcStageMask = 0;
-      image_barriers[2].srcAccessMask = 0;
-      image_barriers[2].dstStageMask =
-          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      image_barriers[2].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-      image_barriers[2].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      image_barriers[2].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      image_barriers[2].image = swapchain.image(image_index);
-      image_barriers[2].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-                                            1};
-
-      barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      barrier.imageMemoryBarrierCount = image_barriers.size();
-      barrier.pImageMemoryBarriers = image_barriers.data();
-      vkCmdPipelineBarrier2(cb, &barrier);
-
-      std::vector<VkRenderingAttachmentInfo> color_attachments(1);
-      color_attachments[0] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      color_attachments[0].imageView = color_attachment_;
-      color_attachments[0].imageLayout =
-          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      color_attachments[0].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-      color_attachments[0].resolveImageView = swapchain.image_view(image_index);
-      color_attachments[0].resolveImageLayout =
-          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      color_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-      color_attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-      color_attachments[0].clearValue.color.float32[0] = 0.5f;
-      color_attachments[0].clearValue.color.float32[1] = 0.5f;
-      color_attachments[0].clearValue.color.float32[2] = 0.5f;
-      color_attachments[0].clearValue.color.float32[3] = 1.f;
-
-      VkRenderingAttachmentInfo depth_attachment;
-      depth_attachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      depth_attachment.imageView = depth_attachment_;
-      depth_attachment.imageLayout =
-          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-      depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
-      depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-      depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-      depth_attachment.clearValue.depthStencil.depth = 1.f;
-
-      VkRenderingInfo rendering_info = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-      rendering_info.renderArea.offset = {0, 0};
-      rendering_info.renderArea.extent = {swapchain.width(),
-                                          swapchain.height()};
-      rendering_info.layerCount = 1;
-      rendering_info.colorAttachmentCount = color_attachments.size();
-      rendering_info.pColorAttachments = color_attachments.data();
-      rendering_info.pDepthAttachment = &depth_attachment;
-      vkCmdBeginRendering(cb, &rendering_info);
+      VkRenderPassBeginInfo render_pass_begin_info = {
+          VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+      render_pass_begin_info.pNext = &render_pass_attachments_info;
+      render_pass_begin_info.renderPass = render_pass_;
+      render_pass_begin_info.framebuffer = framebuffer_;
+      render_pass_begin_info.renderArea.offset = {0, 0};
+      render_pass_begin_info.renderArea.extent = {swapchain.width(),
+                                                  swapchain.height()};
+      render_pass_begin_info.clearValueCount = clear_values.size();
+      render_pass_begin_info.pClearValues = clear_values.data();
+      vkCmdBeginRenderPass(cb, &render_pass_begin_info,
+                           VK_SUBPASS_CONTENTS_INLINE);
 
       VkViewport viewport = {};
       viewport.x = 0.f;
@@ -754,26 +730,7 @@ class Engine::Impl {
         vkCmdDrawIndexed(cb, 4, point_count_, 0, 0, 0);
       }
 
-      vkCmdEndRendering(cb);
-
-      // Layout transition
-      image_barriers.resize(1);
-      image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      image_barriers[0].srcStageMask =
-          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      image_barriers[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-      image_barriers[0].dstStageMask = 0;
-      image_barriers[0].dstAccessMask = 0;
-      image_barriers[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      image_barriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-      image_barriers[0].image = swapchain.image(image_index);
-      image_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-                                            1};
-
-      barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      barrier.imageMemoryBarrierCount = image_barriers.size();
-      barrier.pImageMemoryBarriers = image_barriers.data();
-      vkCmdPipelineBarrier2(cb, &barrier);
+      vkCmdEndRenderPass(cb);
 
       vkEndCommandBuffer(cb);
 
@@ -840,6 +797,9 @@ class Engine::Impl {
   vk::ComputePipeline projection_pipeline_;
   vk::GraphicsPipeline splat_pipeline_;
   vk::GraphicsPipeline splat_fill_pipeline_;
+
+  vk::Framebuffer framebuffer_;
+  vk::RenderPass render_pass_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;

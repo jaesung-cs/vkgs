@@ -122,13 +122,13 @@ class Context::Impl {
     VkPhysicalDeviceSynchronization2Features synchronization_2_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
 
-    VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
-    dynamic_rendering_features.pNext = &synchronization_2_features;
+    VkPhysicalDeviceImagelessFramebufferFeatures imageless_framebuffer_feature =
+        {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
+    imageless_framebuffer_feature.pNext = &synchronization_2_features;
 
     VkPhysicalDeviceFeatures2 features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-    features.pNext = &dynamic_rendering_features;
+    features.pNext = &imageless_framebuffer_feature;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
     // queues
@@ -143,7 +143,7 @@ class Context::Impl {
 
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+        VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME,
         VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 #ifdef _WIN32
         "VK_KHR_external_memory_win32",

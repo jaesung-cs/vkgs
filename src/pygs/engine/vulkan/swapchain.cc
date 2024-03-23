@@ -11,6 +11,7 @@ class Swapchain::Impl {
       : context_(context), surface_(surface) {
     usage_ =
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    format_ = VK_FORMAT_B8G8R8A8_SRGB;
 
     VkSurfaceCapabilitiesKHR surface_capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.physical_device(),
@@ -65,6 +66,11 @@ class Swapchain::Impl {
   VkSwapchainKHR swapchain() const noexcept { return swapchain_; }
   uint32_t width() const noexcept { return width_; }
   uint32_t height() const noexcept { return height_; }
+  VkImageUsageFlags usage() const noexcept { return usage_; }
+  VkFormat format() const noexcept { return format_; }
+  ImageSpec image_spec() const noexcept {
+    return ImageSpec{width_, height_, usage_, format_};
+  }
   VkImage image(int index) const { return images_[index]; }
   VkImageView image_view(int index) const { return image_views_[index]; }
 
@@ -101,7 +107,7 @@ class Swapchain::Impl {
         VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swapchain_info.surface = surface_;
     swapchain_info.minImageCount = 3;
-    swapchain_info.imageFormat = VK_FORMAT_B8G8R8A8_SRGB;
+    swapchain_info.imageFormat = format_;
     swapchain_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     swapchain_info.imageExtent = surface_capabilities.currentExtent;
     swapchain_info.imageArrayLayers = 1;
@@ -150,6 +156,7 @@ class Swapchain::Impl {
   Context context_;
   VkSurfaceKHR surface_ = VK_NULL_HANDLE;
   VkImageUsageFlags usage_ = 0;
+  VkFormat format_ = VK_FORMAT_UNDEFINED;
   uint32_t width_ = 0;
   uint32_t height_ = 0;
   VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
@@ -170,6 +177,12 @@ VkSwapchainKHR Swapchain::swapchain() const { return impl_->swapchain(); }
 uint32_t Swapchain::width() const { return impl_->width(); }
 
 uint32_t Swapchain::height() const { return impl_->height(); }
+
+VkImageUsageFlags Swapchain::usage() const { return impl_->usage(); }
+
+VkFormat Swapchain::format() const { return impl_->format(); }
+
+ImageSpec Swapchain::image_spec() const { return impl_->image_spec(); }
 
 VkImage Swapchain::image(int index) const { return impl_->image(index); }
 

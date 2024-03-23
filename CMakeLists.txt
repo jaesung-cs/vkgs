@@ -26,8 +26,10 @@ add_library(pygs STATIC
   src/pygs/engine/vulkan/cuda_semaphore.cu
   src/pygs/engine/vulkan/descriptor_layout.cc
   src/pygs/engine/vulkan/descriptor.cc
+  src/pygs/engine/vulkan/framebuffer.cc
   src/pygs/engine/vulkan/graphics_pipeline.cc
   src/pygs/engine/vulkan/pipeline_layout.cc
+  src/pygs/engine/vulkan/render_pass.cc
   src/pygs/engine/vulkan/shader_module.cc
   src/pygs/engine/vulkan/swapchain.cc
   src/pygs/engine/vulkan/uniform_buffer.cc

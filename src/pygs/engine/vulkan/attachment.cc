@@ -16,7 +16,7 @@ constexpr uint32_t max_height = 2160;
 class Attachment::Impl {
  public:
   Impl::Impl(Context context, VkFormat format, VkSampleCountFlagBits samples)
-      : context_(context) {
+      : context_(context), format_(format) {
     width_ = max_width;
     height_ = max_height;
 
@@ -74,12 +74,18 @@ class Attachment::Impl {
   operator VkImageView() const noexcept { return image_view_; }
 
   VkImage image() const noexcept { return image_; }
+  VkImageUsageFlags usage() const noexcept { return usage_; }
+  VkFormat format() const noexcept { return format_; }
+  ImageSpec image_spec() const noexcept {
+    return ImageSpec{width_, height_, usage_, format_};
+  }
 
  private:
   Context context_;
   uint32_t width_ = 0;
   uint32_t height_ = 0;
   VkImageUsageFlags usage_ = 0;
+  VkFormat format_ = VK_FORMAT_UNDEFINED;
   VkImage image_ = VK_NULL_HANDLE;
   VmaAllocation allocation_ = VK_NULL_HANDLE;
   VkImageView image_view_ = VK_NULL_HANDLE;
@@ -96,6 +102,12 @@ Attachment::~Attachment() = default;
 Attachment::operator VkImageView() const { return *impl_; }
 
 VkImage Attachment::image() const { return impl_->image(); }
+
+VkImageUsageFlags Attachment::usage() const { return impl_->usage(); }
+
+VkFormat Attachment::format() const { return impl_->format(); }
+
+ImageSpec Attachment::image_spec() const { return impl_->image_spec(); }
 
 }  // namespace vk
 }  // namespace pygs

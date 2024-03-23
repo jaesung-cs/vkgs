@@ -93,16 +93,8 @@ class GraphicsPipeline::Impl {
     dynamic_state.dynamicStateCount = dynamic_states.size();
     dynamic_state.pDynamicStates = dynamic_states.data();
 
-    std::vector<VkFormat> color_attachment_formats = {VK_FORMAT_B8G8R8A8_SRGB};
-    VkPipelineRenderingCreateInfo rendering_info = {
-        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rendering_info.colorAttachmentCount = color_attachment_formats.size();
-    rendering_info.pColorAttachmentFormats = color_attachment_formats.data();
-    rendering_info.depthAttachmentFormat = VK_FORMAT_D24_UNORM_S8_UINT;
-
     VkGraphicsPipelineCreateInfo pipeline_info = {
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    pipeline_info.pNext = &rendering_info;
     pipeline_info.stageCount = stages.size();
     pipeline_info.pStages = stages.data();
     pipeline_info.pVertexInputState = &vertex_input_state;
@@ -114,6 +106,8 @@ class GraphicsPipeline::Impl {
     pipeline_info.pColorBlendState = &color_blend_state;
     pipeline_info.pDynamicState = &dynamic_state;
     pipeline_info.layout = create_info.layout;
+    pipeline_info.renderPass = create_info.render_pass;
+    pipeline_info.subpass = create_info.subpass;
     vkCreateGraphicsPipelines(device, NULL, 1, &pipeline_info, NULL,
                               &pipeline_);
 
