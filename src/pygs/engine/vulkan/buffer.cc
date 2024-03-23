@@ -12,7 +12,7 @@ class Buffer::Impl {
   Impl() = delete;
 
   Impl(Context context, VkDeviceSize size, VkBufferUsageFlags usage)
-      : context_(context) {
+      : context_(context), size_(size) {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = size;
     buffer_info.usage = usage;
@@ -40,6 +40,8 @@ class Buffer::Impl {
 
   operator VkBuffer() const noexcept { return buffer_; }
 
+  VkDeviceSize size() const { return size_; }
+
   void FromCpu(VkCommandBuffer command_buffer, const void* src,
                VkDeviceSize size) {
     std::memcpy(map_, src, size);
@@ -53,6 +55,7 @@ class Buffer::Impl {
 
  private:
   Context context_;
+  VkDeviceSize size_ = 0;
   VkBuffer buffer_ = VK_NULL_HANDLE;
   VmaAllocation allocation_ = VK_NULL_HANDLE;
   VkBuffer staging_buffer_ = VK_NULL_HANDLE;
@@ -68,6 +71,8 @@ Buffer::Buffer(Context context, VkDeviceSize size, VkBufferUsageFlags usage)
 Buffer::~Buffer() = default;
 
 Buffer::operator VkBuffer() const { return *impl_; }
+
+VkDeviceSize Buffer::size() const { return impl_->size(); }
 
 void Buffer::FromCpu(VkCommandBuffer command_buffer, const void* src,
                      VkDeviceSize size) {

@@ -12,6 +12,10 @@ struct Camera {
   glm::mat4 view;
 };
 
+struct SplatInfo {
+  uint32_t point_count;
+};
+
 }  // namespace shader
 }  // namespace vk
 }  // namespace pygs

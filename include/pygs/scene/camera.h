@@ -10,6 +10,9 @@ class Camera {
   Camera();
   ~Camera();
 
+  auto Near() const noexcept { return near_; }
+  auto Far() const noexcept { return far_; }
+
   void SetWindowSize(uint32_t width, uint32_t height);
 
   glm::mat4 ProjectionMatrix() const;

@@ -19,6 +19,7 @@
 #include "vulkan/attachment.h"
 #include "vulkan/descriptor_layout.h"
 #include "vulkan/pipeline_layout.h"
+#include "vulkan/compute_pipeline.h"
 #include "vulkan/graphics_pipeline.h"
 #include "vulkan/descriptor.h"
 #include "vulkan/buffer.h"
@@ -26,6 +27,8 @@
 #include "vulkan/shader/uniforms.h"
 #include "vulkan/shader/point.h"
 #include "vulkan/shader/axes.h"
+#include "vulkan/shader/projection.h"
+#include "vulkan/shader/splat.h"
 
 namespace pygs {
 
@@ -43,9 +46,33 @@ class Engine::Impl {
     camera_layout_info.bindings[0].binding = 0;
     camera_layout_info.bindings[0].descriptor_type =
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    camera_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_VERTEX_BIT;
+    camera_layout_info.bindings[0].stage_flags =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
     camera_descriptor_layout_ =
         vk::DescriptorLayout(context_, camera_layout_info);
+
+    vk::DescriptorLayoutCreateInfo gaussian_layout_info = {};
+    gaussian_layout_info.bindings.resize(3);
+    gaussian_layout_info.bindings[0] = {};
+    gaussian_layout_info.bindings[0].binding = 0;
+    gaussian_layout_info.bindings[0].descriptor_type =
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    gaussian_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    gaussian_layout_info.bindings[1] = {};
+    gaussian_layout_info.bindings[1].binding = 1;
+    gaussian_layout_info.bindings[1].descriptor_type =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    gaussian_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    gaussian_layout_info.bindings[2] = {};
+    gaussian_layout_info.bindings[2].binding = 2;
+    gaussian_layout_info.bindings[2].descriptor_type =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    gaussian_layout_info.bindings[2].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    gaussian_descriptor_layout_ =
+        vk::DescriptorLayout(context_, gaussian_layout_info);
 
     camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
     camera_descriptors_.resize(2);
@@ -56,8 +83,11 @@ class Engine::Impl {
                                     camera_buffer_.element_size());
     }
 
+    splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
+
     vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
-    pipeline_layout_info.layouts = {camera_descriptor_layout_};
+    pipeline_layout_info.layouts = {camera_descriptor_layout_,
+                                    gaussian_descriptor_layout_};
     pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
 
     // point pipeline
@@ -149,6 +179,64 @@ class Engine::Impl {
       axes_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
+    // splat pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(2);
+      // xy, rgba
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 6;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      // cov2d, projected position
+      input_bindings[1].binding = 1;
+      input_bindings[1].stride = sizeof(float) * 6;
+      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
+      // vertex position
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      // vertex color
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 0;
+      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[1].offset = sizeof(float) * 2;
+
+      // cov2d
+      input_attributes[2].location = 2;
+      input_attributes[2].binding = 1;
+      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[2].offset = 0;
+
+      // projected position
+      input_attributes[3].location = 3;
+      input_attributes[3].binding = 1;
+      input_attributes[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[3].offset = sizeof(float) * 3;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.vertex_shader = vk::shader::splat_vert;
+      pipeline_info.fragment_shader = vk::shader::splat_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = true;
+      splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    }
+
+    // gaussian pipeline
+    {
+      vk::ComputePipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.compute_shader = vk::shader::projection_comp;
+      projection_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
+    }
+
     draw_command_buffers_.resize(3);
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -225,9 +313,31 @@ class Engine::Impl {
       }
     }
 
-    std::cout << transform.size() / 16 << std::endl;
+    std::vector<float> gaussian3d;
+    gaussian3d.reserve(9 * point_count_);  // 3 for position, 6 for cov3d
+    for (int i = 0; i < point_count_; i++) {
+      glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
+                  rotation[i * 4 + 3]);
+      glm::mat3 r = glm::toMat3(q);
+      glm::mat3 s = glm::mat4(1.f);
+      s[0][0] = scale[i * 3 + 0];
+      s[1][1] = scale[i * 3 + 1];
+      s[2][2] = scale[i * 3 + 2];
+      glm::mat3 m = r * s * s * glm::transpose(r);  // cov = RSSR^T
+
+      gaussian3d.push_back(m[0][0]);
+      gaussian3d.push_back(m[1][0]);
+      gaussian3d.push_back(m[2][0]);
+      gaussian3d.push_back(m[1][1]);
+      gaussian3d.push_back(m[2][1]);
+      gaussian3d.push_back(m[2][2]);
+      gaussian3d.push_back(position[i * 3 + 0]);
+      gaussian3d.push_back(position[i * 3 + 1]);
+      gaussian3d.push_back(position[i * 3 + 2]);
+    }
 
     std::vector<float> axes = {
+        // xyz, rgb
         -1.f, 0.f,  0.f,  1.f, 0.f, 0.f,  // 0
         1.f,  0.f,  0.f,  1.f, 0.f, 0.f,  // 1
         0.f,  -1.f, 0.f,  0.f, 1.f, 0.f,  // 2
@@ -235,6 +345,17 @@ class Engine::Impl {
         0.f,  0.f,  -1.f, 0.f, 0.f, 1.f,  // 4
         0.f,  0.f,  1.f,  0.f, 0.f, 1.f,  // 5
     };
+
+    std::vector<float> splat;
+    for (int i = 0; i <= splat_division_; i++) {
+      float t = static_cast<float>(i) / splat_division_;
+      splat.push_back(std::cos(2.f * glm::pi<float>() * t));
+      splat.push_back(std::sin(2.f * glm::pi<float>() * t));
+      splat.push_back(1.f);
+      splat.push_back(1.f);
+      splat.push_back(0.f);
+      splat.push_back(1.f);
+    }
 
     position_buffer_ = vk::Buffer(
         context_, position.size() * sizeof(float),
@@ -248,6 +369,18 @@ class Engine::Impl {
     axes_buffer_ = vk::Buffer(
         context_, axes.size() * sizeof(float),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    splat_buffer_ = vk::Buffer(
+        context_, splat.size() * sizeof(float),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+    gaussian3d_buffer_ = vk::Buffer(
+        context_, gaussian3d.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    gaussian2d_buffer_ = vk::Buffer(
+        context_, (6 * point_count_) * sizeof(float),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+    splat_info_buffer_[0].point_count = point_count_;
 
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -266,6 +399,8 @@ class Engine::Impl {
     color_buffer_.FromCpu(cb, color);
     transform_buffer_.FromCpu(cb, transform);
     axes_buffer_.FromCpu(cb, axes);
+    splat_buffer_.FromCpu(cb, splat);
+    gaussian3d_buffer_.FromCpu(cb, gaussian3d);
 
     vkEndCommandBuffer(cb);
 
@@ -288,9 +423,26 @@ class Engine::Impl {
     vkQueueSubmit2(context_.queue(), 1, &submit_info, NULL);
 
     on_transfer_ = true;
+
+    // update descriptor
+    // TODO: make sure descriptors are not in use
+    gaussian_descriptor_ =
+        vk::Descriptor(context_, gaussian_descriptor_layout_);
+    gaussian_descriptor_.Update(0, splat_info_buffer_, 0,
+                                splat_info_buffer_.element_size());
+    gaussian_descriptor_.Update(1, gaussian3d_buffer_, 0,
+                                gaussian3d_buffer_.size());
+    gaussian_descriptor_.Update(2, gaussian2d_buffer_, 0,
+                                gaussian2d_buffer_.size());
   }
 
   void Draw(Window window, const Camera& camera) {
+    /* projection:
+    0.974279 0 0 0
+    0 -1.73205 0 0
+    0 0 -1.0001 -0.010001
+    0 0 -1 0
+    */
     auto window_ptr = window.window();
     if (swapchains_.count(window_ptr) == 0) {
       VkSurfaceKHR surface;
@@ -328,7 +480,50 @@ class Engine::Impl {
       command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       vkBeginCommandBuffer(cb, &command_begin_info);
 
-      // Layout transition
+      // projection pipeline
+      std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+      buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+      buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+      buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+      buffer_barriers[0].buffer = gaussian2d_buffer_;
+      buffer_barriers[0].offset = 0;
+      buffer_barriers[0].size = gaussian2d_buffer_.size();
+
+      VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+      barrier.pBufferMemoryBarriers = buffer_barriers.data();
+      vkCmdPipelineBarrier2(cb, &barrier);
+
+      std::vector<VkDescriptorSet> descriptors = {
+          camera_descriptors_[frame_index], gaussian_descriptor_};
+      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              pipeline_layout_, 0, descriptors.size(),
+                              descriptors.data(), 0, nullptr);
+
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        projection_pipeline_);
+
+      // TODO: dispatch
+      constexpr int local_size = 256;
+      vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+
+      buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+      buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+      buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+      buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      buffer_barriers[0].buffer = gaussian2d_buffer_;
+      buffer_barriers[0].offset = 0;
+      buffer_barriers[0].size = gaussian2d_buffer_.size();
+
+      barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+      barrier.pBufferMemoryBarriers = buffer_barriers.data();
+      vkCmdPipelineBarrier2(cb, &barrier);
+
+      // layout transition
       std::vector<VkImageMemoryBarrier2> image_barriers(3);
       image_barriers[0] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
       image_barriers[0].srcStageMask = 0;
@@ -364,7 +559,7 @@ class Engine::Impl {
       image_barriers[2].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
                                             1};
 
-      VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
       barrier.imageMemoryBarrierCount = image_barriers.size();
       barrier.pImageMemoryBarriers = image_barriers.data();
       vkCmdPipelineBarrier2(cb, &barrier);
@@ -419,12 +614,10 @@ class Engine::Impl {
       scissor.extent = {swapchain.width(), swapchain.height()};
       vkCmdSetScissor(cb, 0, 1, &scissor);
 
-      std::vector<VkDescriptorSet> descriptors = {
-          camera_descriptors_[frame_index]};
+      descriptors = {camera_descriptors_[frame_index]};
       vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               pipeline_layout_, 0, descriptors.size(),
                               descriptors.data(), 0, nullptr);
-
       // draw axes
       {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, axes_pipeline_);
@@ -435,6 +628,18 @@ class Engine::Impl {
                                vb_offsets.data());
 
         vkCmdDraw(cb, 6, point_count_, 0, 0);
+      }
+
+      // draw splat
+      {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
+
+        std::vector<VkBuffer> vbs = {splat_buffer_, gaussian2d_buffer_};
+        std::vector<VkDeviceSize> vb_offsets = {0, 0};
+        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                               vb_offsets.data());
+
+        vkCmdDraw(cb, splat_division_ + 1, point_count_, 0, 0);
       }
 
       // draw points
@@ -528,19 +733,30 @@ class Engine::Impl {
   std::vector<VkFence> render_finished_fences_;
 
   vk::DescriptorLayout camera_descriptor_layout_;
+  vk::DescriptorLayout gaussian_descriptor_layout_;
   vk::PipelineLayout pipeline_layout_;
   vk::GraphicsPipeline point_pipeline_;
   vk::GraphicsPipeline axes_pipeline_;
+  vk::ComputePipeline projection_pipeline_;
+  vk::GraphicsPipeline splat_pipeline_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
 
   std::vector<vk::Descriptor> camera_descriptors_;
+  vk::Descriptor gaussian_descriptor_;
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
   vk::Buffer position_buffer_;
   vk::Buffer color_buffer_;
   vk::Buffer transform_buffer_;
   vk::Buffer axes_buffer_;
+  vk::Buffer cov3d_buffer_;
+  vk::Buffer center_buffer_;
+  vk::Buffer gaussian3d_buffer_;
+  vk::Buffer gaussian2d_buffer_;  // output of compute shader
+  static constexpr int splat_division_ = 16;
+  vk::Buffer splat_buffer_;
+  vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;
   int point_count_ = 0;
   bool on_transfer_ = false;
   VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;

@@ -21,6 +21,8 @@ class Buffer {
 
   operator VkBuffer() const;
 
+  VkDeviceSize size() const;
+
   void FromCpu(VkCommandBuffer command_buffer, const void* src,
                VkDeviceSize size);
 
