@@ -1,11 +1,11 @@
-#ifndef PYGS_ENGINE_VULKAN_SHADER_SPLAT_FILL_H
-#define PYGS_ENGINE_VULKAN_SHADER_SPLAT_FILL_H
+#ifndef PYGS_ENGINE_VULKAN_SHADER_SPLAT_OIT_H
+#define PYGS_ENGINE_VULKAN_SHADER_SPLAT_OIT_H
 
 namespace pygs {
 namespace vk {
 namespace shader {
 
-const char* splat_fill_vert = R"shader(
+const char* splat_oit_vert = R"shader(
 #version 450 core
 
 // vertex
@@ -18,7 +18,7 @@ layout (location = 3) in vec4 color;
 
 layout (location = 0) out vec4 out_color;
 layout (location = 1) out vec2 out_position;
-layout (location = 2) out vec3 out_inv_cov2d;
+layout (location = 2) out float out_depth;
 
 void main() {
   // eigendecomposition
@@ -42,23 +42,31 @@ void main() {
   gl_Position = vec4(projected_position + vec3(rot * scale * position * confidence_radius, 0.f), 1.f);
   out_color = color;
   out_position = position * confidence_radius;
+  out_depth = projected_position.z;
 }
 )shader";
 
-const char* splat_fill_frag = R"shader(
+const char* splat_oit_frag = R"shader(
 #version 450 core
 
 layout (location = 0) in vec4 color;
 layout (location = 1) in vec2 position;
+layout (location = 2) in float depth;
 
 layout (location = 0) out vec4 out_color;
+layout (location = 1) out float out_alpha;
 
 void main() {
-  // TODO: premultiplied alpha
-  // float gaussian_alpha = exp(-0.5f * (inv_cov2d.x * position.x * position.x + 2.f * inv_cov2d.y * position.x * position.y + inv_cov2d.z * position.y * position.y));
   float gaussian_alpha = exp(-0.5f * length(position));
-  out_color = vec4(color.rgb, color.a * gaussian_alpha);
-  // out_color = vec4(color.rgb, 1.f);
+  float alpha = color.a * gaussian_alpha;
+
+  // TODO: WBOIT weight
+  // float weight = 1.f;
+  float weight = 1.f - depth;
+  // float weight = (1.f - depth) * (1.f - depth);
+
+  out_color = vec4(color.rgb * alpha, alpha) * weight;
+  out_alpha = alpha;
 }
 )shader";
 
@@ -66,4 +74,4 @@ void main() {
 }  // namespace vk
 }  // namespace pygs
 
-#endif  // PYGS_ENGINE_VULKAN_SHADER_SPLAT_FILL_H
+#endif  // PYGS_ENGINE_VULKAN_SHADER_SPLAT_OIT_H

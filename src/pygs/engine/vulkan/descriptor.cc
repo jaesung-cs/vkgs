@@ -40,6 +40,22 @@ class Descriptor::Impl {
     vkUpdateDescriptorSets(context_.device(), 1, &write, 0, NULL);
   }
 
+  void UpdateInputAttachment(uint32_t binding, VkImageView image_view) {
+    VkDescriptorImageInfo image_info = {};
+    image_info.sampler = VK_NULL_HANDLE;
+    image_info.imageView = image_view;
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = descriptor_;
+    write.dstBinding = binding;
+    write.dstArrayElement = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = layout_.type(binding);
+    write.pImageInfo = &image_info;
+    vkUpdateDescriptorSets(context_.device(), 1, &write, 0, NULL);
+  }
+
  private:
   Context context_;
   DescriptorLayout layout_;
@@ -58,6 +74,11 @@ Descriptor::operator VkDescriptorSet() const { return *impl_; }
 void Descriptor::Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset,
                         VkDeviceSize size) {
   impl_->Update(binding, buffer, offset, size);
+}
+
+void Descriptor::UpdateInputAttachment(uint32_t binding,
+                                       VkImageView image_view) {
+  impl_->UpdateInputAttachment(binding, image_view);
 }
 
 }  // namespace vk

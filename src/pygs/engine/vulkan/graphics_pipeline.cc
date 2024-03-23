@@ -66,25 +66,11 @@ class GraphicsPipeline::Impl {
     depth_stencil_state.depthWriteEnable = create_info.depth_write;
     depth_stencil_state.depthCompareOp = VK_COMPARE_OP_LESS;
 
-    std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(1);
-    color_blend_attachments[0] = {};
-    color_blend_attachments[0].blendEnable = VK_TRUE;
-    color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    color_blend_attachments[0].dstColorBlendFactor =
-        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-    color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    color_blend_attachments[0].dstAlphaBlendFactor =
-        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
-    color_blend_attachments[0].colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
     VkPipelineColorBlendStateCreateInfo color_blend_state = {
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    color_blend_state.attachmentCount = color_blend_attachments.size();
-    color_blend_state.pAttachments = color_blend_attachments.data();
+    color_blend_state.attachmentCount =
+        create_info.color_blend_attachments.size();
+    color_blend_state.pAttachments = create_info.color_blend_attachments.data();
 
     std::vector<VkDynamicState> dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT,
                                                   VK_DYNAMIC_STATE_SCISSOR};

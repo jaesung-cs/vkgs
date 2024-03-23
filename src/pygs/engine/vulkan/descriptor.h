@@ -23,6 +23,7 @@ class Descriptor {
 
   void Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset,
               VkDeviceSize size);
+  void UpdateInputAttachment(uint32_t binding, VkImageView image_view);
 
  private:
   class Impl;

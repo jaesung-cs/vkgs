@@ -31,7 +31,9 @@
 #include "vulkan/shader/axes.h"
 #include "vulkan/shader/projection.h"
 #include "vulkan/shader/splat.h"
-#include "vulkan/shader/splat_fill.h"
+#include "vulkan/shader/splat_outline.h"
+#include "vulkan/shader/splat_oit.h"
+#include "vulkan/shader/blend_oit.h"
 
 namespace pygs {
 
@@ -77,6 +79,23 @@ class Engine::Impl {
     gaussian_descriptor_layout_ =
         vk::DescriptorLayout(context_, gaussian_layout_info);
 
+    vk::DescriptorLayoutCreateInfo input_layout_info = {};
+    input_layout_info.bindings.resize(2);
+    input_layout_info.bindings[0] = {};
+    input_layout_info.bindings[0].binding = 0;
+    input_layout_info.bindings[0].descriptor_type =
+        VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+    input_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    input_layout_info.bindings[1] = {};
+    input_layout_info.bindings[1].binding = 1;
+    input_layout_info.bindings[1].descriptor_type =
+        VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+    input_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    input_descriptor_layout_ =
+        vk::DescriptorLayout(context_, input_layout_info);
+
     camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
     camera_descriptors_.resize(2);
     for (int i = 0; i < 2; i++) {
@@ -89,10 +108,12 @@ class Engine::Impl {
     splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
 
     render_pass_ = vk::RenderPass(context_, vk::RenderPassType::NORMAL);
+    oit_render_pass_ = vk::RenderPass(context_, vk::RenderPassType::OIT);
 
     vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
     pipeline_layout_info.layouts = {camera_descriptor_layout_,
-                                    gaussian_descriptor_layout_};
+                                    gaussian_descriptor_layout_,
+                                    input_descriptor_layout_};
     pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
 
     // point pipeline
@@ -117,6 +138,23 @@ class Engine::Impl {
       input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
       input_attributes[1].offset = 0;
 
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor =
+          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
       pipeline_info.render_pass = render_pass_;
@@ -127,6 +165,8 @@ class Engine::Impl {
       pipeline_info.input_attributes = std::move(input_attributes);
       pipeline_info.depth_test = true;
       pipeline_info.depth_write = false;
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
       point_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
@@ -173,6 +213,23 @@ class Engine::Impl {
       input_attributes[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
       input_attributes[5].offset = sizeof(float) * 12;
 
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor =
+          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
       pipeline_info.render_pass = render_pass_;
@@ -183,10 +240,12 @@ class Engine::Impl {
       pipeline_info.input_attributes = std::move(input_attributes);
       pipeline_info.depth_test = true;
       pipeline_info.depth_write = true;
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
       axes_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
-    // splat pipeline
+    // splat outline pipeline
     {
       std::vector<VkVertexInputBindingDescription> input_bindings(2);
       // xy, rgba
@@ -224,20 +283,39 @@ class Engine::Impl {
       input_attributes[3].format = VK_FORMAT_R32G32B32_SFLOAT;
       input_attributes[3].offset = sizeof(float) * 3;
 
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor =
+          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
       pipeline_info.render_pass = render_pass_;
-      pipeline_info.vertex_shader = vk::shader::splat_vert;
-      pipeline_info.fragment_shader = vk::shader::splat_frag;
+      pipeline_info.vertex_shader = vk::shader::splat_outline_vert;
+      pipeline_info.fragment_shader = vk::shader::splat_outline_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
       pipeline_info.input_bindings = std::move(input_bindings);
       pipeline_info.input_attributes = std::move(input_attributes);
       pipeline_info.depth_test = true;
       pipeline_info.depth_write = true;
-      splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
+      splat_outline_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
-    // splat fill pipeline
+    // splat pipeline
     {
       std::vector<VkVertexInputBindingDescription> input_bindings(3);
       // xy, rgba
@@ -280,17 +358,238 @@ class Engine::Impl {
       input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
       input_attributes[3].offset = 0;
 
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor =
+          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = pipeline_layout_;
       pipeline_info.render_pass = render_pass_;
-      pipeline_info.vertex_shader = vk::shader::splat_fill_vert;
-      pipeline_info.fragment_shader = vk::shader::splat_fill_frag;
+      pipeline_info.vertex_shader = vk::shader::splat_vert;
+      pipeline_info.fragment_shader = vk::shader::splat_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
       pipeline_info.input_bindings = std::move(input_bindings);
       pipeline_info.input_attributes = std::move(input_attributes);
       pipeline_info.depth_test = true;
       pipeline_info.depth_write = false;
-      splat_fill_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
+      splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    }
+
+    // splat outline oit pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(2);
+      // xy, rgba
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 6;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      // cov2d, projected position
+      input_bindings[1].binding = 1;
+      input_bindings[1].stride = sizeof(float) * 6;
+      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
+      // vertex position
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      // vertex color
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 0;
+      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[1].offset = sizeof(float) * 2;
+
+      // cov2d
+      input_attributes[2].location = 2;
+      input_attributes[2].binding = 1;
+      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[2].offset = 0;
+
+      // projected position
+      input_attributes[3].location = 3;
+      input_attributes[3].binding = 1;
+      input_attributes[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[3].offset = sizeof(float) * 3;
+
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor =
+          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.render_pass = oit_render_pass_;
+      pipeline_info.subpass = 0;
+      pipeline_info.vertex_shader = vk::shader::splat_outline_vert;
+      pipeline_info.fragment_shader = vk::shader::splat_outline_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = true;
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
+      splat_outline_oit_pipeline_ =
+          vk::GraphicsPipeline(context_, pipeline_info);
+    }
+
+    // splat oit pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(3);
+      // xy, rgba
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 2;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      // cov2d, projected position
+      input_bindings[1].binding = 1;
+      input_bindings[1].stride = sizeof(float) * 6;
+      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+      // point rgba
+      input_bindings[2].binding = 2;
+      input_bindings[2].stride = sizeof(float) * 4;
+      input_bindings[2].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
+      // vertex position
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      // cov2d
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 1;
+      input_attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[1].offset = 0;
+
+      // projected position
+      input_attributes[2].location = 2;
+      input_attributes[2].binding = 1;
+      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[2].offset = sizeof(float) * 3;
+
+      // point rgba
+      input_attributes[3].location = 3;
+      input_attributes[3].binding = 2;
+      input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[3].offset = 0;
+
+      // WBOIT blend operators
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          2);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+      color_blend_attachments[1] = {};
+      color_blend_attachments[1].blendEnable = VK_TRUE;
+      color_blend_attachments[1].srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+      color_blend_attachments[1].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+      color_blend_attachments[1].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.render_pass = oit_render_pass_;
+      pipeline_info.subpass = 1;
+      pipeline_info.vertex_shader = vk::shader::splat_oit_vert;
+      pipeline_info.fragment_shader = vk::shader::splat_oit_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = false;
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
+      splat_oit_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    }
+
+    // blend oit pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(1);
+      // xy
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 2;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(1);
+      // xy
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor =
+          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.render_pass = oit_render_pass_;
+      pipeline_info.subpass = 2;
+      pipeline_info.vertex_shader = vk::shader::blend_oit_vert;
+      pipeline_info.fragment_shader = vk::shader::blend_oit_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = false;
+      pipeline_info.depth_write = false;
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
+      blend_oit_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // gaussian pipeline
@@ -331,9 +630,17 @@ class Engine::Impl {
                       &transfer_semaphore_);
 
     color_attachment_ = vk::Attachment(context_, VK_FORMAT_B8G8R8A8_SRGB,
-                                       VK_SAMPLE_COUNT_4_BIT);
+                                       VK_SAMPLE_COUNT_4_BIT, false);
     depth_attachment_ = vk::Attachment(context_, VK_FORMAT_D24_UNORM_S8_UINT,
-                                       VK_SAMPLE_COUNT_4_BIT);
+                                       VK_SAMPLE_COUNT_4_BIT, false);
+    oit_color_attachment_ = vk::Attachment(
+        context_, VK_FORMAT_R32G32B32A32_SFLOAT, VK_SAMPLE_COUNT_4_BIT, true);
+    oit_alpha_attachment_ = vk::Attachment(context_, VK_FORMAT_R32_SFLOAT,
+                                           VK_SAMPLE_COUNT_4_BIT, true);
+
+    input_descriptor_ = vk::Descriptor(context_, input_descriptor_layout_);
+    input_descriptor_.UpdateInputAttachment(0, oit_color_attachment_);
+    input_descriptor_.UpdateInputAttachment(1, oit_alpha_attachment_);
   }
 
   ~Impl() {
@@ -430,6 +737,13 @@ class Engine::Impl {
     };
     std::vector<uint32_t> splat_fill_index = {0, 1, 2, 3};
 
+    std::vector<float> screen = {
+        // xy, ccw in NDC space.
+        -1.f, -1.f,  // 0
+        -1.f, 3.f,   // 1
+        3.f,  -1.f,  // 2
+    };
+
     position_buffer_ = vk::Buffer(
         context_, position.size() * sizeof(float),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -451,6 +765,9 @@ class Engine::Impl {
     splat_fill_index_buffer_ = vk::Buffer(
         context_, splat_fill_index.size() * sizeof(uint32_t),
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    screen_buffer_ = vk::Buffer(
+        context_, screen.size() * sizeof(float),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     gaussian3d_buffer_ = vk::Buffer(
         context_, gaussian3d.size() * sizeof(float),
@@ -481,6 +798,7 @@ class Engine::Impl {
     splat_buffer_.FromCpu(cb, splat);
     splat_fill_vertex_buffer_.FromCpu(cb, splat_fill_vertex);
     splat_fill_index_buffer_.FromCpu(cb, splat_fill_index);
+    screen_buffer_.FromCpu(cb, screen);
     gaussian3d_buffer_.FromCpu(cb, gaussian3d);
 
     vkEndCommandBuffer(cb);
@@ -539,6 +857,13 @@ class Engine::Impl {
                                       depth_attachment_.image_spec(),
                                       swapchain.image_spec()};
       framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+
+      framebuffer_info.render_pass = oit_render_pass_;
+      framebuffer_info.image_specs = {
+          depth_attachment_.image_spec(), color_attachment_.image_spec(),
+          oit_color_attachment_.image_spec(),
+          oit_alpha_attachment_.image_spec(), swapchain.image_spec()};
+      oit_framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     auto swapchain = swapchains_[window_ptr];
@@ -556,6 +881,13 @@ class Engine::Impl {
                                       depth_attachment_.image_spec(),
                                       swapchain.image_spec()};
       framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+
+      framebuffer_info.render_pass = oit_render_pass_;
+      framebuffer_info.image_specs = {
+          depth_attachment_.image_spec(), color_attachment_.image_spec(),
+          oit_color_attachment_.image_spec(),
+          oit_alpha_attachment_.image_spec(), swapchain.image_spec()};
+      oit_framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     int32_t frame_index = frame_counter_ % 2;
@@ -605,7 +937,7 @@ class Engine::Impl {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
                         projection_pipeline_);
 
-      // TODO: dispatch
+      // dispatch
       constexpr int local_size = 256;
       vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
 
@@ -623,114 +955,12 @@ class Engine::Impl {
       barrier.pBufferMemoryBarriers = buffer_barriers.data();
       vkCmdPipelineBarrier2(cb, &barrier);
 
-      std::vector<VkClearValue> clear_values(2);
-      clear_values[0].color.float32[0] = 0.5f;
-      clear_values[0].color.float32[1] = 0.5f;
-      clear_values[0].color.float32[2] = 0.5f;
-      clear_values[0].color.float32[3] = 1.f;
-      clear_values[1].depthStencil.depth = 1.f;
-
-      std::vector<VkImageView> render_pass_attachments = {
-          color_attachment_,
-          depth_attachment_,
-          swapchain.image_view(image_index),
-      };
-      VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
-          VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-      render_pass_attachments_info.attachmentCount =
-          render_pass_attachments.size();
-      render_pass_attachments_info.pAttachments =
-          render_pass_attachments.data();
-
-      VkRenderPassBeginInfo render_pass_begin_info = {
-          VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-      render_pass_begin_info.pNext = &render_pass_attachments_info;
-      render_pass_begin_info.renderPass = render_pass_;
-      render_pass_begin_info.framebuffer = framebuffer_;
-      render_pass_begin_info.renderArea.offset = {0, 0};
-      render_pass_begin_info.renderArea.extent = {swapchain.width(),
-                                                  swapchain.height()};
-      render_pass_begin_info.clearValueCount = clear_values.size();
-      render_pass_begin_info.pClearValues = clear_values.data();
-      vkCmdBeginRenderPass(cb, &render_pass_begin_info,
-                           VK_SUBPASS_CONTENTS_INLINE);
-
-      VkViewport viewport = {};
-      viewport.x = 0.f;
-      viewport.y = 0.f;
-      viewport.width = static_cast<float>(swapchain.width());
-      viewport.height = static_cast<float>(swapchain.height());
-      viewport.minDepth = 0.f;
-      viewport.maxDepth = 1.f;
-      vkCmdSetViewport(cb, 0, 1, &viewport);
-
-      VkRect2D scissor = {};
-      scissor.offset = {0, 0};
-      scissor.extent = {swapchain.width(), swapchain.height()};
-      vkCmdSetScissor(cb, 0, 1, &scissor);
-
-      descriptors = {camera_descriptors_[frame_index]};
-      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipeline_layout_, 0, descriptors.size(),
-                              descriptors.data(), 0, nullptr);
-      // draw axes
+      DrawNormalPass(cb, frame_index, swapchain.width(), swapchain.height(),
+                     swapchain.image_view(image_index));
       /*
-      {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, axes_pipeline_);
-
-        std::vector<VkBuffer> vbs = {axes_buffer_, transform_buffer_};
-        std::vector<VkDeviceSize> vb_offsets = {0, 0};
-        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
-                               vb_offsets.data());
-
-        vkCmdDraw(cb, 6, point_count_, 0, 0);
-      }
+      DrawOitPass(cb, frame_index, swapchain.width(), swapchain.height(),
+                  swapchain.image_view(image_index));
       */
-
-      // draw splat outline
-      {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
-
-        std::vector<VkBuffer> vbs = {splat_buffer_, gaussian2d_buffer_};
-        std::vector<VkDeviceSize> vb_offsets = {0, 0};
-        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
-                               vb_offsets.data());
-
-        vkCmdDraw(cb, splat_division_ + 1, point_count_, 0, 0);
-      }
-
-      // draw points
-      /*
-      {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
-
-        std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
-        std::vector<VkDeviceSize> vb_offsets = {0, 0};
-        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
-                               vb_offsets.data());
-
-        vkCmdDraw(cb, point_count_, 1, 0, 0);
-      }
-      */
-
-      // draw splat fill
-      {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          splat_fill_pipeline_);
-
-        std::vector<VkBuffer> vbs = {splat_fill_vertex_buffer_,
-                                     gaussian2d_buffer_, color_buffer_};
-        std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
-        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
-                               vb_offsets.data());
-
-        vkCmdBindIndexBuffer(cb, splat_fill_index_buffer_, 0,
-                             VK_INDEX_TYPE_UINT32);
-
-        vkCmdDrawIndexed(cb, 4, point_count_, 0, 0, 0);
-      }
-
-      vkCmdEndRenderPass(cb);
 
       vkEndCommandBuffer(cb);
 
@@ -781,6 +1011,233 @@ class Engine::Impl {
   }
 
  private:
+  void DrawNormalPass(VkCommandBuffer cb, uint32_t frame_index, uint32_t width,
+                      uint32_t height, VkImageView target_image_view) {
+    std::vector<VkClearValue> clear_values(2);
+    clear_values[0].color.float32[0] = 0.5f;
+    clear_values[0].color.float32[1] = 0.5f;
+    clear_values[0].color.float32[2] = 0.5f;
+    clear_values[0].color.float32[3] = 1.f;
+    clear_values[1].depthStencil.depth = 1.f;
+
+    std::vector<VkImageView> render_pass_attachments = {
+        color_attachment_,
+        depth_attachment_,
+        target_image_view,
+    };
+    VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
+        VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
+    render_pass_attachments_info.attachmentCount =
+        render_pass_attachments.size();
+    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
+
+    VkRenderPassBeginInfo render_pass_begin_info = {
+        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    render_pass_begin_info.pNext = &render_pass_attachments_info;
+    render_pass_begin_info.renderPass = render_pass_;
+    render_pass_begin_info.framebuffer = framebuffer_;
+    render_pass_begin_info.renderArea.offset = {0, 0};
+    render_pass_begin_info.renderArea.extent = {width, height};
+    render_pass_begin_info.clearValueCount = clear_values.size();
+    render_pass_begin_info.pClearValues = clear_values.data();
+    vkCmdBeginRenderPass(cb, &render_pass_begin_info,
+                         VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport = {};
+    viewport.x = 0.f;
+    viewport.y = 0.f;
+    viewport.width = static_cast<float>(width);
+    viewport.height = static_cast<float>(height);
+    viewport.minDepth = 0.f;
+    viewport.maxDepth = 1.f;
+    vkCmdSetViewport(cb, 0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.offset = {0, 0};
+    scissor.extent = {width, height};
+    vkCmdSetScissor(cb, 0, 1, &scissor);
+
+    std::vector<VkDescriptorSet> descriptors = {
+        camera_descriptors_[frame_index]};
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipeline_layout_, 0, descriptors.size(),
+                            descriptors.data(), 0, nullptr);
+    // draw axes
+    /*
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, axes_pipeline_);
+
+      std::vector<VkBuffer> vbs = {axes_buffer_, transform_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                             vb_offsets.data());
+
+      vkCmdDraw(cb, 6, point_count_, 0, 0);
+    }
+    */
+
+    // draw splat outline
+    /*
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        splat_outline_pipeline_);
+
+      std::vector<VkBuffer> vbs = {splat_buffer_, gaussian2d_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+
+      vkCmdDraw(cb, splat_division_ + 1, point_count_, 0, 0);
+    }
+    */
+
+    // draw points
+    /*
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
+
+      std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                             vb_offsets.data());
+
+      vkCmdDraw(cb, point_count_, 1, 0, 0);
+    }
+    */
+
+    // draw splat
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
+
+      std::vector<VkBuffer> vbs = {splat_fill_vertex_buffer_,
+                                   gaussian2d_buffer_, color_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+
+      vkCmdBindIndexBuffer(cb, splat_fill_index_buffer_, 0,
+                           VK_INDEX_TYPE_UINT32);
+
+      vkCmdDrawIndexed(cb, 4, point_count_, 0, 0, 0);
+    }
+
+    vkCmdEndRenderPass(cb);
+  }
+
+  void DrawOitPass(VkCommandBuffer cb, uint32_t frame_index, uint32_t width,
+                   uint32_t height, VkImageView target_image_view) {
+    std::vector<VkClearValue> clear_values(4);
+    clear_values[0].depthStencil.depth = 1.f;
+
+    clear_values[1].color.float32[0] = 0.5f;
+    clear_values[1].color.float32[1] = 0.5f;
+    clear_values[1].color.float32[2] = 0.5f;
+    clear_values[1].color.float32[3] = 1.f;
+
+    clear_values[2].color.float32[0] = 0.f;
+    clear_values[2].color.float32[1] = 0.f;
+    clear_values[2].color.float32[2] = 0.f;
+    clear_values[2].color.float32[3] = 0.f;
+
+    clear_values[3].color.float32[0] = 1.f;
+
+    std::vector<VkImageView> render_pass_attachments = {
+        depth_attachment_,     color_attachment_, oit_color_attachment_,
+        oit_alpha_attachment_, target_image_view,
+    };
+    VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
+        VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
+    render_pass_attachments_info.attachmentCount =
+        render_pass_attachments.size();
+    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
+
+    VkRenderPassBeginInfo render_pass_begin_info = {
+        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    render_pass_begin_info.pNext = &render_pass_attachments_info;
+    render_pass_begin_info.renderPass = oit_render_pass_;
+    render_pass_begin_info.framebuffer = oit_framebuffer_;
+    render_pass_begin_info.renderArea.offset = {0, 0};
+    render_pass_begin_info.renderArea.extent = {width, height};
+    render_pass_begin_info.clearValueCount = clear_values.size();
+    render_pass_begin_info.pClearValues = clear_values.data();
+    vkCmdBeginRenderPass(cb, &render_pass_begin_info,
+                         VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport = {};
+    viewport.x = 0.f;
+    viewport.y = 0.f;
+    viewport.width = static_cast<float>(width);
+    viewport.height = static_cast<float>(height);
+    viewport.minDepth = 0.f;
+    viewport.maxDepth = 1.f;
+    vkCmdSetViewport(cb, 0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.offset = {0, 0};
+    scissor.extent = {width, height};
+    vkCmdSetScissor(cb, 0, 1, &scissor);
+
+    std::vector<VkDescriptorSet> descriptors = {
+        camera_descriptors_[frame_index]};
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipeline_layout_, 0, descriptors.size(),
+                            descriptors.data(), 0, nullptr);
+
+    descriptors = {input_descriptor_};
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipeline_layout_, 2, descriptors.size(),
+                            descriptors.data(), 0, nullptr);
+
+    // pass 0
+    // draw splat outline
+    /*
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        splat_outline_oit_pipeline_);
+
+      std::vector<VkBuffer> vbs = {splat_buffer_, gaussian2d_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+
+      vkCmdDraw(cb, splat_division_ + 1, point_count_, 0, 0);
+    }
+    */
+
+    // pass 1
+    vkCmdNextSubpass(cb, VK_SUBPASS_CONTENTS_INLINE);
+
+    // draw splat fill
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        splat_oit_pipeline_);
+
+      std::vector<VkBuffer> vbs = {splat_fill_vertex_buffer_,
+                                   gaussian2d_buffer_, color_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+
+      vkCmdBindIndexBuffer(cb, splat_fill_index_buffer_, 0,
+                           VK_INDEX_TYPE_UINT32);
+
+      vkCmdDrawIndexed(cb, 4, point_count_, 0, 0, 0);
+    }
+
+    // pass 2
+    vkCmdNextSubpass(cb, VK_SUBPASS_CONTENTS_INLINE);
+
+    // blend
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        blend_oit_pipeline_);
+
+      std::vector<VkBuffer> vbs = {screen_buffer_};
+      std::vector<VkDeviceSize> vb_offsets = {0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+
+      vkCmdDraw(cb, 3, 1, 0, 0);
+    }
+
+    vkCmdEndRenderPass(cb);
+  }
+
   vk::Context context_;
   std::unordered_map<GLFWwindow*, vk::Swapchain> swapchains_;
 
@@ -791,21 +1248,35 @@ class Engine::Impl {
 
   vk::DescriptorLayout camera_descriptor_layout_;
   vk::DescriptorLayout gaussian_descriptor_layout_;
+  vk::DescriptorLayout input_descriptor_layout_;
   vk::PipelineLayout pipeline_layout_;
-  vk::GraphicsPipeline point_pipeline_;
-  vk::GraphicsPipeline axes_pipeline_;
-  vk::ComputePipeline projection_pipeline_;
-  vk::GraphicsPipeline splat_pipeline_;
-  vk::GraphicsPipeline splat_fill_pipeline_;
 
+  // preprocess
+  vk::ComputePipeline projection_pipeline_;
+
+  // normal pass
   vk::Framebuffer framebuffer_;
   vk::RenderPass render_pass_;
+  vk::GraphicsPipeline point_pipeline_;
+  vk::GraphicsPipeline axes_pipeline_;
+  vk::GraphicsPipeline splat_outline_pipeline_;
+  vk::GraphicsPipeline splat_pipeline_;
+
+  // oit pass
+  vk::Framebuffer oit_framebuffer_;
+  vk::RenderPass oit_render_pass_;
+  vk::GraphicsPipeline splat_outline_oit_pipeline_;
+  vk::GraphicsPipeline splat_oit_pipeline_;
+  vk::GraphicsPipeline blend_oit_pipeline_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
+  vk::Attachment oit_color_attachment_;
+  vk::Attachment oit_alpha_attachment_;
 
   std::vector<vk::Descriptor> camera_descriptors_;
   vk::Descriptor gaussian_descriptor_;
+  vk::Descriptor input_descriptor_;
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
   vk::Buffer position_buffer_;
   vk::Buffer color_buffer_;
@@ -819,6 +1290,7 @@ class Engine::Impl {
   vk::Buffer splat_buffer_;
   vk::Buffer splat_fill_vertex_buffer_;
   vk::Buffer splat_fill_index_buffer_;
+  vk::Buffer screen_buffer_;
   vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;
   int point_count_ = 0;
   bool on_transfer_ = false;

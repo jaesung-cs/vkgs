@@ -17,7 +17,8 @@ class Attachment {
  public:
   Attachment();
 
-  Attachment(Context context, VkFormat format, VkSampleCountFlagBits samples);
+  Attachment(Context context, VkFormat format, VkSampleCountFlagBits samples,
+             bool input_attachment);
 
   ~Attachment();
 

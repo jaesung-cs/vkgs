@@ -23,6 +23,7 @@ struct GraphicsPipelineCreateInfo {
   std::vector<VkVertexInputAttributeDescription> input_attributes;
   bool depth_test = false;
   bool depth_write = false;
+  std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments;
 };
 
 class GraphicsPipeline {

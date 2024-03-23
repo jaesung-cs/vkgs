@@ -15,7 +15,8 @@ constexpr uint32_t max_height = 2160;
 
 class Attachment::Impl {
  public:
-  Impl::Impl(Context context, VkFormat format, VkSampleCountFlagBits samples)
+  Impl::Impl(Context context, VkFormat format, VkSampleCountFlagBits samples,
+             bool input_attachment)
       : context_(context), format_(format) {
     width_ = max_width;
     height_ = max_height;
@@ -38,6 +39,10 @@ class Attachment::Impl {
                  VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         break;
+    }
+
+    if (input_attachment) {
+      usage_ |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
     }
 
     VkImageCreateInfo image_info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -94,8 +99,9 @@ class Attachment::Impl {
 Attachment::Attachment() = default;
 
 Attachment::Attachment(Context context, VkFormat format,
-                       VkSampleCountFlagBits samples)
-    : impl_(std::make_shared<Impl>(context, format, samples)) {}
+                       VkSampleCountFlagBits samples, bool input_attachment)
+    : impl_(
+          std::make_shared<Impl>(context, format, samples, input_attachment)) {}
 
 Attachment::~Attachment() = default;
 
