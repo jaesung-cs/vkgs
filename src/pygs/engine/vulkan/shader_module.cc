@@ -28,7 +28,10 @@ VkShaderModule CreateShaderModule(VkDevice device, VkShaderStageFlagBits stage,
   shaderc::Compiler compiler;
   shaderc::CompileOptions options;
 
-  options.SetOptimizationLevel(shaderc_optimization_level_size);
+  options.SetOptimizationLevel(shaderc_optimization_level_performance);
+  options.SetTargetSpirv(shaderc_spirv_version_1_6);
+  options.SetTargetEnvironment(shaderc_target_env_vulkan,
+                               shaderc_env_version_vulkan_1_3);
 
   shaderc::SpvCompilationResult module =
       compiler.CompileGlslToSpv(source, kind, "shader_src", options);

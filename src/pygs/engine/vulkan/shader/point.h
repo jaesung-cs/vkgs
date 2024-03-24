@@ -6,7 +6,7 @@ namespace vk {
 namespace shader {
 
 const char* point_vert = R"shader(
-#version 450 core
+#version 460
 
 layout (location = 0) in vec3 position;
 layout (location = 1) in vec4 color;
@@ -28,7 +28,7 @@ void main() {
 )shader";
 
 const char* point_frag = R"shader(
-#version 450 core
+#version 460
 
 layout (location = 0) in vec4 color;
 

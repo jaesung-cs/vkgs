@@ -16,6 +16,8 @@ class PipelineLayout::Impl {
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     layout_info.setLayoutCount = layouts.size();
     layout_info.pSetLayouts = layouts.data();
+    layout_info.pushConstantRangeCount = create_info.push_constants.size();
+    layout_info.pPushConstantRanges = create_info.push_constants.data();
     vkCreatePipelineLayout(context.device(), &layout_info, NULL, &layout_);
   }
 

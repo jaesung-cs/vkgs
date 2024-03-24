@@ -26,10 +26,12 @@
 #include "vulkan/descriptor.h"
 #include "vulkan/buffer.h"
 #include "vulkan/uniform_buffer.h"
+#include "vulkan/radixsort.h"
 #include "vulkan/shader/uniforms.h"
 #include "vulkan/shader/point.h"
 #include "vulkan/shader/axes.h"
 #include "vulkan/shader/projection.h"
+#include "vulkan/shader/order.h"
 #include "vulkan/shader/splat.h"
 #include "vulkan/shader/splat_outline.h"
 #include "vulkan/shader/splat_oit.h"
@@ -96,6 +98,23 @@ class Engine::Impl {
     input_descriptor_layout_ =
         vk::DescriptorLayout(context_, input_layout_info);
 
+    vk::DescriptorLayoutCreateInfo radixsort_layout_info = {};
+    radixsort_layout_info.bindings.resize(2);
+    radixsort_layout_info.bindings[0] = {};
+    radixsort_layout_info.bindings[0].binding = 0;
+    radixsort_layout_info.bindings[0].descriptor_type =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    radixsort_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    radixsort_layout_info.bindings[1] = {};
+    radixsort_layout_info.bindings[1].binding = 1;
+    radixsort_layout_info.bindings[1].descriptor_type =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    radixsort_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    radixsort_descriptor_layout_ =
+        vk::DescriptorLayout(context_, radixsort_layout_info);
+
     camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
     camera_descriptors_.resize(2);
     for (int i = 0; i < 2; i++) {
@@ -111,9 +130,9 @@ class Engine::Impl {
     oit_render_pass_ = vk::RenderPass(context_, vk::RenderPassType::OIT);
 
     vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
-    pipeline_layout_info.layouts = {camera_descriptor_layout_,
-                                    gaussian_descriptor_layout_,
-                                    input_descriptor_layout_};
+    pipeline_layout_info.layouts = {
+        camera_descriptor_layout_, gaussian_descriptor_layout_,
+        input_descriptor_layout_, radixsort_descriptor_layout_};
     pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
 
     // point pipeline
@@ -600,6 +619,14 @@ class Engine::Impl {
       projection_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
+    // order pipeline
+    {
+      vk::ComputePipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.compute_shader = vk::shader::order_comp;
+      order_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
+    }
+
     draw_command_buffers_.resize(3);
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -833,6 +860,26 @@ class Engine::Impl {
                                 gaussian3d_buffer_.size());
     gaussian_descriptor_.Update(2, gaussian2d_buffer_, 0,
                                 gaussian2d_buffer_.size());
+
+    {
+      // initialize
+      radixsort_value_buffer_ =
+          vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      radixsort_index_buffer_ =
+          vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+      radixsort_initialize_descriptor_ =
+          vk::Descriptor(context_, radixsort_descriptor_layout_);
+      radixsort_initialize_descriptor_.Update(0, radixsort_value_buffer_, 0,
+                                              radixsort_value_buffer_.size());
+      radixsort_initialize_descriptor_.Update(1, radixsort_index_buffer_, 0,
+                                              radixsort_index_buffer_.size());
+
+      radix_sorter_ = vk::Radixsort(context_, point_count_);
+    }
   }
 
   void Draw(Window window, const Camera& camera) {
@@ -912,35 +959,129 @@ class Engine::Impl {
       command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       vkBeginCommandBuffer(cb, &command_begin_info);
 
-      // projection pipeline
+      // projection
+      {
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].buffer = gaussian2d_buffer_;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = gaussian2d_buffer_.size();
+
+        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+
+        std::vector<VkDescriptorSet> descriptors = {
+            camera_descriptors_[frame_index], gaussian_descriptor_};
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                pipeline_layout_, 0, descriptors.size(),
+                                descriptors.data(), 0, nullptr);
+
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          projection_pipeline_);
+
+        constexpr int local_size = 256;
+        vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+      }
+
+      // order
+      {
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers(2);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].buffer = radixsort_value_buffer_;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = radixsort_value_buffer_.size();
+
+        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
+        buffer_barriers[1].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[1].buffer = radixsort_index_buffer_;
+        buffer_barriers[1].offset = 0;
+        buffer_barriers[1].size = radixsort_index_buffer_.size();
+
+        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+
+        std::vector<VkDescriptorSet> descriptors = {
+            radixsort_initialize_descriptor_};
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                pipeline_layout_, 3, descriptors.size(),
+                                descriptors.data(), 0, nullptr);
+
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, order_pipeline_);
+
+        constexpr int local_size = 256;
+        vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+      }
+
+      // radixsort
+      {
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers(2);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[0].buffer = radixsort_value_buffer_;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = radixsort_value_buffer_.size();
+
+        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[1].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[1].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[1].buffer = radixsort_index_buffer_;
+        buffer_barriers[1].offset = 0;
+        buffer_barriers[1].size = radixsort_index_buffer_.size();
+
+        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+
+        radix_sorter_.Sort(cb, frame_index, point_count_,
+                           radixsort_value_buffer_, radixsort_index_buffer_);
+
+        buffer_barriers.resize(1);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
+        buffer_barriers[0].buffer = radixsort_index_buffer_;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = radixsort_index_buffer_.size();
+
+        barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+      }
+
       std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
-      buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-      buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-      buffer_barriers[0].buffer = gaussian2d_buffer_;
-      buffer_barriers[0].offset = 0;
-      buffer_barriers[0].size = gaussian2d_buffer_.size();
-
-      VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-      barrier.pBufferMemoryBarriers = buffer_barriers.data();
-      vkCmdPipelineBarrier2(cb, &barrier);
-
-      std::vector<VkDescriptorSet> descriptors = {
-          camera_descriptors_[frame_index], gaussian_descriptor_};
-      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                              pipeline_layout_, 0, descriptors.size(),
-                              descriptors.data(), 0, nullptr);
-
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        projection_pipeline_);
-
-      // dispatch
-      constexpr int local_size = 256;
-      vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
-
       buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
       buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
       buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -950,7 +1091,7 @@ class Engine::Impl {
       buffer_barriers[0].offset = 0;
       buffer_barriers[0].size = gaussian2d_buffer_.size();
 
-      barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
       barrier.bufferMemoryBarrierCount = buffer_barriers.size();
       barrier.pBufferMemoryBarriers = buffer_barriers.data();
       vkCmdPipelineBarrier2(cb, &barrier);
@@ -1250,6 +1391,14 @@ class Engine::Impl {
   vk::DescriptorLayout gaussian_descriptor_layout_;
   vk::DescriptorLayout input_descriptor_layout_;
   vk::PipelineLayout pipeline_layout_;
+
+  // radixsort
+  vk::ComputePipeline order_pipeline_;
+  vk::Radixsort radix_sorter_;
+  vk::Buffer radixsort_value_buffer_;
+  vk::Buffer radixsort_index_buffer_;
+  vk::DescriptorLayout radixsort_descriptor_layout_;
+  vk::Descriptor radixsort_initialize_descriptor_;
 
   // preprocess
   vk::ComputePipeline projection_pipeline_;

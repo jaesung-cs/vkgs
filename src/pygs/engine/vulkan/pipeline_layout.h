@@ -14,6 +14,7 @@ namespace vk {
 
 struct PipelineLayoutCreateInfo {
   std::vector<DescriptorLayout> layouts;
+  std::vector<VkPushConstantRange> push_constants;
 };
 
 class PipelineLayout {

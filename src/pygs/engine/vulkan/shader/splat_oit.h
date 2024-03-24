@@ -6,7 +6,7 @@ namespace vk {
 namespace shader {
 
 const char* splat_oit_vert = R"shader(
-#version 450 core
+#version 460
 
 // vertex
 layout (location = 0) in vec2 position;
@@ -47,7 +47,7 @@ void main() {
 )shader";
 
 const char* splat_oit_frag = R"shader(
-#version 450 core
+#version 460
 
 layout (location = 0) in vec4 color;
 layout (location = 1) in vec2 position;

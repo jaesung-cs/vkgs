@@ -6,7 +6,7 @@ namespace vk {
 namespace shader {
 
 const char* blend_oit_vert = R"shader(
-#version 450 core
+#version 460
 
 layout (location = 0) in vec2 position;
 
@@ -17,7 +17,7 @@ void main() {
 )shader";
 
 const char* blend_oit_frag = R"shader(
-#version 450 core
+#version 460
 
 layout (input_attachment_index = 0, set = 2, binding = 0) uniform subpassInputMS input_color;  // sum (Cw, aw)
 layout (input_attachment_index = 1, set = 2, binding = 1) uniform subpassInputMS input_alpha;  // prod (1-alpha)
