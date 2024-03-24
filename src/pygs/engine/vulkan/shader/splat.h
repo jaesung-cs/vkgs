@@ -39,7 +39,6 @@ void main() {
   float confidence_radius = 4.f;
 
   gl_Position = vec4(ndc_position + vec3(rot * scale * position * confidence_radius, 0.f), 1.f);
-  //gl_Position = vec4(ndc_position + vec3(position * 0.01, 0.f), 1.f);
   out_color = color;
   out_position = position * confidence_radius;
 }
@@ -55,7 +54,7 @@ layout (location = 0) out vec4 out_color;
 
 void main() {
   // TODO: premultiplied alpha
-  float gaussian_alpha = exp(-0.5f * length(position));
+  float gaussian_alpha = exp(-0.5f * dot(position, position));
   out_color = vec4(color.rgb, color.a * gaussian_alpha);
 }
 )shader";

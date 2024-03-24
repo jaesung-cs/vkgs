@@ -19,15 +19,23 @@ layout (set = 1, binding = 0) uniform Info {
   uint point_count;
 };
 
-layout (std430, set = 1, binding = 1) readonly buffer Gaussian3d {
-  float gaussian3d[];
+layout (std430, set = 1, binding = 1) readonly buffer GaussianPosition {
+  float gaussian_position[];  // (N, 3)
 };
 
-layout (std430, set = 3, binding = 0) writeonly buffer RadixsortValue {
-  uint depth[];
+layout (std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
+  uint indexCount;
+  uint instanceCount;
+  uint firstIndex;
+  int vertexOffset;
+  uint firstInstance;
 };
 
-layout (std430, set = 3, binding = 1) writeonly buffer RadixsortIndex {
+layout (std430, set = 2, binding = 2) writeonly buffer InstanceKey {
+  uint key[];
+};
+
+layout (std430, set = 2, binding = 3) writeonly buffer InstanceIndex {
   uint index[];
 };
 
@@ -35,16 +43,15 @@ void main() {
   uint id = gl_GlobalInvocationID.x;
   if (id >= point_count) return;
 
-  vec4 pos = vec4(gaussian3d[id * 9 + 6], gaussian3d[id * 9 + 7], gaussian3d[id * 9 + 8], 1.f);
+  vec4 pos = vec4(gaussian_position[id * 3 + 0], gaussian_position[id * 3 + 1], gaussian_position[id * 3 + 2], 1.f);
   pos = projection * view * pos;
   pos = pos / pos.w;
 
   // valid only when center is inside NDC clip space.
-  index[id] = id;
-  if (abs(pos.x) > 1.f || abs(pos.y) > 1.f || pos.z < 0.f || pos.z > 1.f) {
-    depth[id] = -1;
-  } else {
-    depth[id] = floatBitsToUint(pos.z);
+  if (abs(pos.x) <= 1.f || abs(pos.y) <= 1.f || pos.z >= 0.f || pos.z <= 1.f) {
+    uint instance_index = atomicAdd(instanceCount, 1);
+    key[instance_index] = floatBitsToUint(pos.z);
+    index[instance_index] = instance_index;
   }
 }
 )shader";

@@ -15,10 +15,6 @@ layout (set = 0, binding = 0) uniform Camera {
   mat4 view;
 };
 
-layout (set = 1, binding = 0) uniform Info {
-  uint point_count;
-};
-
 layout (std430, set = 1, binding = 1) readonly buffer GaussianPosition {
   float gaussian_position[];  // (N, 3)
 };
@@ -32,7 +28,7 @@ layout (std430, set = 1, binding = 3) readonly buffer GaussianColor {
   float gaussian_color[];  // (N, 4), rgba.
 };
 
-layout (std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
+layout (std430, set = 2, binding = 0) readonly buffer DrawIndirect {
   uint indexCount;
   uint instanceCount;
   uint firstIndex;
@@ -44,13 +40,19 @@ layout (std430, set = 2, binding = 1) writeonly buffer Instances {
   float instances[];  // (M, 10). 3 for ndc position, 3 for cov2d, 4 for color
 };
 
+layout (std430, set = 2, binding = 3) readonly buffer InstanceIndex {
+  uint index[];
+};
+
 void main() {
   uint id = gl_GlobalInvocationID.x;
-  if (id >= point_count) return;
+  if (id >= instanceCount) return;
 
-  vec3 v0 = vec3(gaussian_cov3d[id * 6 + 0], gaussian_cov3d[id * 6 + 1], gaussian_cov3d[id * 6 + 2]);
-  vec3 v1 = vec3(gaussian_cov3d[id * 6 + 3], gaussian_cov3d[id * 6 + 4], gaussian_cov3d[id * 6 + 5]);
-  vec4 pos = vec4(gaussian_position[id * 3 + 0], gaussian_position[id * 3 + 1], gaussian_position[id * 3 + 2], 1.f);
+  uint gaussian_id = index[id];
+
+  vec3 v0 = vec3(gaussian_cov3d[gaussian_id * 6 + 0], gaussian_cov3d[gaussian_id * 6 + 1], gaussian_cov3d[gaussian_id * 6 + 2]);
+  vec3 v1 = vec3(gaussian_cov3d[gaussian_id * 6 + 3], gaussian_cov3d[gaussian_id * 6 + 4], gaussian_cov3d[gaussian_id * 6 + 5]);
+  vec4 pos = vec4(gaussian_position[gaussian_id * 3 + 0], gaussian_position[gaussian_id * 3 + 1], gaussian_position[gaussian_id * 3 + 2], 1.f);
   // [v0.x v0.y v0.z]
   // [v0.y v1.x v1.y]
   // [v0.z v1.y v1.z]
@@ -77,24 +79,24 @@ void main() {
   pos = projection * pos;
   pos = pos / pos.w;
 
-  // valid only when center is inside NDC clip space.
-  if (abs(pos.x) <= 1.f && abs(pos.y) <= 1.f && pos.z >= 0.f && pos.z <= 1.f) {
-    uint instance_index = atomicAdd(instanceCount, 1);
+  // TODO: calculate spherical harmonics
+  vec4 color = vec4(
+    gaussian_color[gaussian_id * 4 + 0],
+    gaussian_color[gaussian_id * 4 + 1],
+    gaussian_color[gaussian_id * 4 + 2],
+    gaussian_color[gaussian_id * 4 + 3]
+  );
 
-    // TODO: calculate spherical harmonics
-    vec4 color = vec4(gaussian_color[id * 4 + 0], gaussian_color[id * 4 + 1], gaussian_color[id * 4 + 2], gaussian_color[id * 4 + 3]);
-
-    instances[instance_index * 10 + 0] = pos.x;
-    instances[instance_index * 10 + 1] = pos.y;
-    instances[instance_index * 10 + 2] = pos.z;
-    instances[instance_index * 10 + 3] = cov2d[0][0];
-    instances[instance_index * 10 + 4] = cov2d[1][0];
-    instances[instance_index * 10 + 5] = cov2d[1][1];
-    instances[instance_index * 10 + 6] = color.r;
-    instances[instance_index * 10 + 7] = color.g;
-    instances[instance_index * 10 + 8] = color.b;
-    instances[instance_index * 10 + 9] = color.a;
-  }
+  instances[id * 10 + 0] = pos.x;
+  instances[id * 10 + 1] = pos.y;
+  instances[id * 10 + 2] = pos.z;
+  instances[id * 10 + 3] = cov2d[0][0];
+  instances[id * 10 + 4] = cov2d[1][0];
+  instances[id * 10 + 5] = cov2d[1][1];
+  instances[id * 10 + 6] = color.r;
+  instances[id * 10 + 7] = color.g;
+  instances[id * 10 + 8] = color.b;
+  instances[id * 10 + 9] = color.a;
 }
 
 )shader";
