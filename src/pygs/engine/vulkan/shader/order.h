@@ -48,10 +48,10 @@ void main() {
   pos = pos / pos.w;
 
   // valid only when center is inside NDC clip space.
-  if (abs(pos.x) <= 1.f || abs(pos.y) <= 1.f || pos.z >= 0.f || pos.z <= 1.f) {
+  if (abs(pos.x) <= 1.f && abs(pos.y) <= 1.f && pos.z >= 0.f && pos.z <= 1.f) {
     uint instance_index = atomicAdd(instanceCount, 1);
-    key[instance_index] = floatBitsToUint(pos.z);
-    index[instance_index] = instance_index;
+    key[instance_index] = floatBitsToUint(1.f - pos.z);
+    index[instance_index] = id;
   }
 }
 )shader";

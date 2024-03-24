@@ -18,8 +18,9 @@ class Radixsort {
 
   ~Radixsort();
 
+  // Sort, num elements indirect
   void Sort(VkCommandBuffer command_buffer, uint32_t frame_index,
-            size_t num_elements, VkBuffer values, VkBuffer indices);
+            VkBuffer num_elements_buffer, VkBuffer values, VkBuffer indices);
 
  private:
   class Impl;

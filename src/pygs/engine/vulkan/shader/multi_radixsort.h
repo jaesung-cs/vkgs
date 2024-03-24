@@ -9,14 +9,49 @@ namespace shader {
 namespace radixsort {
 
 struct PushConstants {
-  uint32_t g_num_elements;    // == NUM_ELEMENTS
-  uint32_t g_shift;           // (*)
-  uint32_t g_num_workgroups;  // == NUMBER_OF_WORKGROUPS as defined in the
-                              // section above
-  uint32_t g_num_blocks_per_workgroup;  // == NUM_BLOCKS_PER_WORKGROUP
+  uint32_t g_shift;
+  uint32_t g_num_blocks_per_workgroup;
 };
 
 }  // namespace radixsort
+
+const char* multi_radixsort_indirect_comp = R"shader(
+#version 460
+#extension GL_GOOGLE_include_directive: enable
+
+#define WORKGROUP_SIZE 256
+
+layout (local_size_x = 1) in;
+
+layout (push_constant, std430) uniform PushConstants {
+    uint g_shift;
+    uint g_num_blocks_per_workgroup;
+};
+
+layout (std430, set = 1, binding = 0) buffer Indirect {
+    uint dispatch_indirect_x;
+    uint dispatch_indirect_y;
+    uint dispatch_indirect_z;
+    uint g_num_elements;
+    uint g_num_workgroups;
+};
+
+layout (std430, set = 1, binding = 1) buffer Input {
+    uint dummy;
+    uint num_elements;
+};
+
+void main() {
+    // indirect
+    dispatch_indirect_x = (num_elements + g_num_blocks_per_workgroup - 1) / g_num_blocks_per_workgroup;
+    dispatch_indirect_y = 1;
+    dispatch_indirect_z = 1;
+
+    // constants
+    g_num_elements = num_elements;
+    g_num_workgroups = (dispatch_indirect_x + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+}
+)shader";
 
 const char* multi_radixsort_histograms_comp = R"shader(
 /**
@@ -32,9 +67,7 @@ const char* multi_radixsort_histograms_comp = R"shader(
 layout (local_size_x = WORKGROUP_SIZE) in;
 
 layout (push_constant, std430) uniform PushConstants {
-    uint g_num_elements;
     uint g_shift;
-    uint g_num_workgroups;
     uint g_num_blocks_per_workgroup;
 };
 
@@ -45,6 +78,14 @@ layout (std430, set = 0, binding = 0) buffer elements_in {
 layout (std430, set = 0, binding = 2) buffer histograms {
     // [histogram_of_workgroup_0 | histogram_of_workgroup_1 | ... ]
     uint g_histograms[]; // |g_histograms| = RADIX_SORT_BINS * #WORKGROUPS
+};
+
+layout (std430, set = 1, binding = 0) buffer Indirect {
+    uint dispatch_indirect_x;
+    uint dispatch_indirect_y;
+    uint dispatch_indirect_z;
+    uint g_num_elements;
+    uint g_num_workgroups;
 };
 
 shared uint[RADIX_SORT_BINS] histogram;
@@ -97,9 +138,7 @@ const char* multi_radixsort_comp = R"shader(
 layout (local_size_x = WORKGROUP_SIZE) in;
 
 layout (push_constant, std430) uniform PushConstants {
-    uint g_num_elements;
     uint g_shift;
-    uint g_num_workgroups;
     uint g_num_blocks_per_workgroup;
 };
 
@@ -122,6 +161,14 @@ layout (std430, set = 0, binding = 3) buffer index_in {
 
 layout (std430, set = 0, binding = 4) buffer index_out {
     uint g_index_out[];
+};
+
+layout (std430, set = 1, binding = 0) buffer Indirect {
+    uint dispatch_indirect_x;
+    uint dispatch_indirect_y;
+    uint dispatch_indirect_z;
+    uint g_num_elements;
+    uint g_num_workgroups;
 };
 
 shared uint[RADIX_SORT_BINS / SUBGROUP_SIZE] sums;// subgroup reductions

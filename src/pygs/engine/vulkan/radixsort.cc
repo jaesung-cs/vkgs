@@ -15,7 +15,8 @@ class Radixsort::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, size_t max_num_elements) : context_(context) {
+  Impl(Context context, size_t max_num_elements)
+      : context_(context), max_num_elements_(max_num_elements) {
     DescriptorLayoutCreateInfo descriptor_layout_info = {};
     descriptor_layout_info.bindings.resize(5);
     descriptor_layout_info.bindings[0].binding = 0;
@@ -45,14 +46,32 @@ class Radixsort::Impl {
         VK_SHADER_STAGE_COMPUTE_BIT;
     descriptor_layout_ = DescriptorLayout(context_, descriptor_layout_info);
 
+    descriptor_layout_info.bindings.resize(2);
+    descriptor_layout_info.bindings[0].binding = 0;
+    descriptor_layout_info.bindings[0].descriptor_type =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptor_layout_info.bindings[0].stage_flags =
+        VK_SHADER_STAGE_COMPUTE_BIT;
+    descriptor_layout_info.bindings[1].binding = 1;
+    descriptor_layout_info.bindings[1].descriptor_type =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptor_layout_info.bindings[1].stage_flags =
+        VK_SHADER_STAGE_COMPUTE_BIT;
+    indirect_layout_ = DescriptorLayout(context_, descriptor_layout_info);
+
     // 2 frames, 2 ping-pong descriptors
     descriptors_.resize(4);
     for (int i = 0; i < 4; i++) {
       descriptors_[i] = Descriptor(context_, descriptor_layout_);
     }
 
+    indirect_descriptors_.resize(2);
+    for (int i = 0; i < 2; i++) {
+      indirect_descriptors_[i] = Descriptor(context_, indirect_layout_);
+    }
+
     PipelineLayoutCreateInfo pipeline_layout_info = {};
-    pipeline_layout_info.layouts = {descriptor_layout_};
+    pipeline_layout_info.layouts = {descriptor_layout_, indirect_layout_};
     pipeline_layout_info.push_constants.resize(1);
     pipeline_layout_info.push_constants[0].stageFlags =
         VK_SHADER_STAGE_COMPUTE_BIT;
@@ -63,12 +82,17 @@ class Radixsort::Impl {
 
     ComputePipelineCreateInfo pipeline_info;
     pipeline_info.layout = pipeline_layout_;
+    pipeline_info.compute_shader = shader::multi_radixsort_indirect_comp;
+    indirect_pipeline_ = ComputePipeline(context_, pipeline_info);
     pipeline_info.compute_shader = shader::multi_radixsort_histograms_comp;
     histogram_pipeline_ = ComputePipeline(context_, pipeline_info);
     pipeline_info.compute_shader = shader::multi_radixsort_comp;
     radixsort_pipeline_ = ComputePipeline(context_, pipeline_info);
 
     // Preallocate buffers
+    indirect_buffer_ = Buffer(context_, 5 * sizeof(uint32_t),
+                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                  VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
     value_buffer_ = Buffer(context_, max_num_elements * sizeof(uint32_t),
                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     index_buffer_ = Buffer(context_, max_num_elements * sizeof(uint32_t),
@@ -88,18 +112,9 @@ class Radixsort::Impl {
   ~Impl() {}
 
   void Sort(VkCommandBuffer command_buffer, uint32_t frame_index,
-            size_t num_elements, VkBuffer values, VkBuffer indices) {
-    // constants
-    uint32_t globalInvocationSize = num_elements / NUM_BLOCKS_PER_WORKGROUP;
-    uint32_t remainder = num_elements % NUM_BLOCKS_PER_WORKGROUP;
-    globalInvocationSize += remainder > 0 ? 1 : 0;
-
-    uint32_t NUMBER_OF_WORKGROUPS =
-        (globalInvocationSize + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-
-    auto buffer_size = sizeof(uint32_t) * num_elements;
-    auto histogram_buffer_size =
-        NUMBER_OF_WORKGROUPS * RADIX_SORT_BINS * sizeof(uint32_t);
+            VkBuffer num_elements_buffer, VkBuffer values, VkBuffer indices) {
+    VkDeviceSize buffer_size = value_buffer_.size();
+    VkDeviceSize histogram_buffer_size = histogram_buffer_.size();
 
     // update descriptors
     descriptors_[frame_index * 2 + 0].Update(0, values, 0, buffer_size);
@@ -116,6 +131,60 @@ class Radixsort::Impl {
     descriptors_[frame_index * 2 + 1].Update(3, index_buffer_, 0, buffer_size);
     descriptors_[frame_index * 2 + 1].Update(4, indices, 0, buffer_size);
 
+    indirect_descriptors_[frame_index].Update(0, indirect_buffer_, 0,
+                                              indirect_buffer_.size());
+    indirect_descriptors_[frame_index].Update(1, num_elements_buffer, 0,
+                                              4 * sizeof(uint32_t));
+
+    // calculate indirect
+    std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+    buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    buffer_barriers[0].srcAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+    buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    buffer_barriers[0].buffer = indirect_buffer_;
+    buffer_barriers[0].offset = 0;
+    buffer_barriers[0].size = indirect_buffer_.size();
+
+    VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependency_info.bufferMemoryBarrierCount = buffer_barriers.size();
+    dependency_info.pBufferMemoryBarriers = buffer_barriers.data();
+    vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+
+    std::vector<VkDescriptorSet> descriptors = {
+        indirect_descriptors_[frame_index]};
+    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            pipeline_layout_, 1, descriptors.size(),
+                            descriptors.data(), 0, nullptr);
+
+    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                      indirect_pipeline_);
+
+    shader::radixsort::PushConstants push_constants;
+    push_constants.g_shift = 0;
+    push_constants.g_num_blocks_per_workgroup = NUM_BLOCKS_PER_WORKGROUP;
+    vkCmdPushConstants(command_buffer, pipeline_layout_,
+                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants),
+                       &push_constants);
+
+    vkCmdDispatch(command_buffer, 1, 1, 1);
+
+    buffer_barriers.resize(1);
+    buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    buffer_barriers[0].dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+    buffer_barriers[0].buffer = indirect_buffer_;
+    buffer_barriers[0].offset = 0;
+    buffer_barriers[0].size = indirect_buffer_.size();
+
+    dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependency_info.bufferMemoryBarrierCount = buffer_barriers.size();
+    dependency_info.pBufferMemoryBarriers = buffer_barriers.data();
+    vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+
     // dispatches
     for (int i = 0; i < 4; i++) {
       uint32_t shift = i * 8;
@@ -126,15 +195,16 @@ class Radixsort::Impl {
       VkBuffer index_dst_buffer = i % 2 == 0 ? index_buffer_ : indices;
 
       shader::radixsort::PushConstants push_constants;
-      push_constants.g_num_elements = num_elements;
       push_constants.g_shift = shift;
-      push_constants.g_num_workgroups = NUMBER_OF_WORKGROUPS;
       push_constants.g_num_blocks_per_workgroup = NUM_BLOCKS_PER_WORKGROUP;
 
       // histogram
-      VkDescriptorSet descriptor = descriptors_[frame_index * 2 + (i % 2)];
+      std::vector<VkDescriptorSet> descriptors = {
+          descriptors_[frame_index * 2 + (i % 2)],
+          indirect_descriptors_[frame_index]};
       vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                              pipeline_layout_, 0, 1, &descriptor, 0, nullptr);
+                              pipeline_layout_, 0, descriptors.size(),
+                              descriptors.data(), 0, nullptr);
 
       vkCmdPushConstants(command_buffer, pipeline_layout_,
                          VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_constants),
@@ -143,7 +213,7 @@ class Radixsort::Impl {
       vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                         histogram_pipeline_);
 
-      vkCmdDispatch(command_buffer, globalInvocationSize, 1, 1);
+      vkCmdDispatchIndirect(command_buffer, indirect_buffer_, 0);
 
       // barrier
       std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
@@ -165,7 +235,7 @@ class Radixsort::Impl {
       vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                         radixsort_pipeline_);
 
-      vkCmdDispatch(command_buffer, globalInvocationSize, 1, 1);
+      vkCmdDispatchIndirect(command_buffer, indirect_buffer_, 0);
 
       // barriers
       if (i < 3) {
@@ -235,11 +305,17 @@ class Radixsort::Impl {
 
  private:
   Context context_;
+  size_t max_num_elements_ = 0;
+
   DescriptorLayout descriptor_layout_;
+  DescriptorLayout indirect_layout_;
   PipelineLayout pipeline_layout_;
+  ComputePipeline indirect_pipeline_;
   ComputePipeline histogram_pipeline_;
   ComputePipeline radixsort_pipeline_;
+
   std::vector<Descriptor> descriptors_;
+  std::vector<Descriptor> indirect_descriptors_;
 
   static constexpr uint32_t WORKGROUP_SIZE = 256;
   static constexpr uint32_t RADIX_SORT_BINS = 256;
@@ -248,6 +324,7 @@ class Radixsort::Impl {
   Buffer histogram_buffer_;
   Buffer value_buffer_;
   Buffer index_buffer_;
+  Buffer indirect_buffer_;
 };
 
 Radixsort::Radixsort() = default;
@@ -258,8 +335,10 @@ Radixsort::Radixsort(Context context, size_t max_num_elements)
 Radixsort::~Radixsort() = default;
 
 void Radixsort::Sort(VkCommandBuffer command_buffer, uint32_t frame_index,
-                     size_t num_elements, VkBuffer values, VkBuffer indices) {
-  impl_->Sort(command_buffer, frame_index, num_elements, values, indices);
+                     VkBuffer num_elements_buffer, VkBuffer values,
+                     VkBuffer indices) {
+  impl_->Sort(command_buffer, frame_index, num_elements_buffer, values,
+              indices);
 }
 
 }  // namespace vk
