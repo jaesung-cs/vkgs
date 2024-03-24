@@ -28,14 +28,10 @@
 #include "vulkan/uniform_buffer.h"
 #include "vulkan/radixsort.h"
 #include "vulkan/shader/uniforms.h"
-#include "vulkan/shader/point.h"
-#include "vulkan/shader/axes.h"
 #include "vulkan/shader/projection.h"
 #include "vulkan/shader/order.h"
 #include "vulkan/shader/splat.h"
 #include "vulkan/shader/splat_outline.h"
-#include "vulkan/shader/splat_oit.h"
-#include "vulkan/shader/blend_oit.h"
 
 namespace pygs {
 
@@ -47,310 +43,121 @@ class Engine::Impl {
 
     context_ = vk::Context(0);
 
-    vk::DescriptorLayoutCreateInfo camera_layout_info = {};
-    camera_layout_info.bindings.resize(1);
-    camera_layout_info.bindings[0] = {};
-    camera_layout_info.bindings[0].binding = 0;
-    camera_layout_info.bindings[0].descriptor_type =
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    camera_layout_info.bindings[0].stage_flags =
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-    camera_descriptor_layout_ =
-        vk::DescriptorLayout(context_, camera_layout_info);
-
-    vk::DescriptorLayoutCreateInfo gaussian_layout_info = {};
-    gaussian_layout_info.bindings.resize(3);
-    gaussian_layout_info.bindings[0] = {};
-    gaussian_layout_info.bindings[0].binding = 0;
-    gaussian_layout_info.bindings[0].descriptor_type =
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    gaussian_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    gaussian_layout_info.bindings[1] = {};
-    gaussian_layout_info.bindings[1].binding = 1;
-    gaussian_layout_info.bindings[1].descriptor_type =
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    gaussian_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    gaussian_layout_info.bindings[2] = {};
-    gaussian_layout_info.bindings[2].binding = 2;
-    gaussian_layout_info.bindings[2].descriptor_type =
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    gaussian_layout_info.bindings[2].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    gaussian_descriptor_layout_ =
-        vk::DescriptorLayout(context_, gaussian_layout_info);
-
-    vk::DescriptorLayoutCreateInfo input_layout_info = {};
-    input_layout_info.bindings.resize(2);
-    input_layout_info.bindings[0] = {};
-    input_layout_info.bindings[0].binding = 0;
-    input_layout_info.bindings[0].descriptor_type =
-        VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-    input_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    input_layout_info.bindings[1] = {};
-    input_layout_info.bindings[1].binding = 1;
-    input_layout_info.bindings[1].descriptor_type =
-        VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-    input_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    input_descriptor_layout_ =
-        vk::DescriptorLayout(context_, input_layout_info);
-
-    vk::DescriptorLayoutCreateInfo radixsort_layout_info = {};
-    radixsort_layout_info.bindings.resize(2);
-    radixsort_layout_info.bindings[0] = {};
-    radixsort_layout_info.bindings[0].binding = 0;
-    radixsort_layout_info.bindings[0].descriptor_type =
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    radixsort_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    radixsort_layout_info.bindings[1] = {};
-    radixsort_layout_info.bindings[1].binding = 1;
-    radixsort_layout_info.bindings[1].descriptor_type =
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    radixsort_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    radixsort_descriptor_layout_ =
-        vk::DescriptorLayout(context_, radixsort_layout_info);
-
-    camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
-    camera_descriptors_.resize(2);
-    for (int i = 0; i < 2; i++) {
-      camera_descriptors_[i] =
-          vk::Descriptor(context_, camera_descriptor_layout_);
-      camera_descriptors_[i].Update(0, camera_buffer_, camera_buffer_.offset(i),
-                                    camera_buffer_.element_size());
-    }
-
-    splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
-
+    // render pass
     render_pass_ = vk::RenderPass(context_, vk::RenderPassType::NORMAL);
-    oit_render_pass_ = vk::RenderPass(context_, vk::RenderPassType::OIT);
 
-    vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
-    pipeline_layout_info.layouts = {
-        camera_descriptor_layout_, gaussian_descriptor_layout_,
-        input_descriptor_layout_, radixsort_descriptor_layout_};
-    pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
+    // attachments
+    color_attachment_ = vk::Attachment(context_, VK_FORMAT_B8G8R8A8_SRGB,
+                                       VK_SAMPLE_COUNT_4_BIT, false);
+    depth_attachment_ = vk::Attachment(context_, VK_FORMAT_D24_UNORM_S8_UINT,
+                                       VK_SAMPLE_COUNT_4_BIT, false);
 
-    // point pipeline
     {
-      std::vector<VkVertexInputBindingDescription> input_bindings(2);
-      input_bindings[0].binding = 0;
-      input_bindings[0].stride = sizeof(float) * 3;
-      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-      input_bindings[1].binding = 1;
-      input_bindings[1].stride = sizeof(float) * 4;
-      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-      std::vector<VkVertexInputAttributeDescription> input_attributes(2);
-      input_attributes[0].location = 0;
-      input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[0].offset = 0;
-
-      input_attributes[1].location = 1;
-      input_attributes[1].binding = 1;
-      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[1].offset = 0;
-
-      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
-          1);
-      color_blend_attachments[0] = {};
-      color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor =
-          VK_BLEND_FACTOR_SRC_ALPHA;
-      color_blend_attachments[0].dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].colorWriteMask =
-          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-      vk::GraphicsPipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
-      pipeline_info.vertex_shader = vk::shader::point_vert;
-      pipeline_info.fragment_shader = vk::shader::point_frag;
-      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-      pipeline_info.input_bindings = std::move(input_bindings);
-      pipeline_info.input_attributes = std::move(input_attributes);
-      pipeline_info.depth_test = true;
-      pipeline_info.depth_write = false;
-      pipeline_info.color_blend_attachments =
-          std::move(color_blend_attachments);
-      point_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
+      descriptor_layout_info.bindings.resize(1);
+      descriptor_layout_info.bindings[0] = {};
+      descriptor_layout_info.bindings[0].binding = 0;
+      descriptor_layout_info.bindings[0].descriptor_type =
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      descriptor_layout_info.bindings[0].stage_flags =
+          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+      camera_descriptor_layout_ =
+          vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
-    // axes pipeline
     {
-      std::vector<VkVertexInputBindingDescription> input_bindings(2);
-      // xyzrgb
-      input_bindings[0].binding = 0;
-      input_bindings[0].stride = sizeof(float) * 6;
-      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
+      descriptor_layout_info.bindings.resize(4);
+      descriptor_layout_info.bindings[0] = {};
+      descriptor_layout_info.bindings[0].binding = 0;
+      descriptor_layout_info.bindings[0].descriptor_type =
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      descriptor_layout_info.bindings[0].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
 
-      input_bindings[1].binding = 1;
-      input_bindings[1].stride = sizeof(float) * 16;
-      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+      descriptor_layout_info.bindings[1] = {};
+      descriptor_layout_info.bindings[1].binding = 1;
+      descriptor_layout_info.bindings[1].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[1].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
 
-      std::vector<VkVertexInputAttributeDescription> input_attributes(6);
-      // vertex position
-      input_attributes[0].location = 0;
-      input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[0].offset = 0;
+      descriptor_layout_info.bindings[2] = {};
+      descriptor_layout_info.bindings[2].binding = 2;
+      descriptor_layout_info.bindings[2].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[2].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
 
-      // vertex color
-      input_attributes[1].location = 1;
-      input_attributes[1].binding = 0;
-      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[1].offset = sizeof(float) * 3;
+      descriptor_layout_info.bindings[3] = {};
+      descriptor_layout_info.bindings[3].binding = 3;
+      descriptor_layout_info.bindings[3].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[3].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
 
-      // instance mat4
-      input_attributes[2].location = 2;
-      input_attributes[2].binding = 1;
-      input_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[2].offset = 0;
-      input_attributes[3].location = 3;
-      input_attributes[3].binding = 1;
-      input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[3].offset = sizeof(float) * 4;
-      input_attributes[4].location = 4;
-      input_attributes[4].binding = 1;
-      input_attributes[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[4].offset = sizeof(float) * 8;
-      input_attributes[5].location = 5;
-      input_attributes[5].binding = 1;
-      input_attributes[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[5].offset = sizeof(float) * 12;
-
-      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
-          1);
-      color_blend_attachments[0] = {};
-      color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor =
-          VK_BLEND_FACTOR_SRC_ALPHA;
-      color_blend_attachments[0].dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].colorWriteMask =
-          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-      vk::GraphicsPipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
-      pipeline_info.vertex_shader = vk::shader::axes_vert;
-      pipeline_info.fragment_shader = vk::shader::axes_frag;
-      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-      pipeline_info.input_bindings = std::move(input_bindings);
-      pipeline_info.input_attributes = std::move(input_attributes);
-      pipeline_info.depth_test = true;
-      pipeline_info.depth_write = true;
-      pipeline_info.color_blend_attachments =
-          std::move(color_blend_attachments);
-      axes_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      gaussian_descriptor_layout_ =
+          vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
-    // splat outline pipeline
     {
-      std::vector<VkVertexInputBindingDescription> input_bindings(2);
-      // xy, rgba
-      input_bindings[0].binding = 0;
-      input_bindings[0].stride = sizeof(float) * 6;
-      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
+      descriptor_layout_info.bindings.resize(2);
+      descriptor_layout_info.bindings[0] = {};
+      descriptor_layout_info.bindings[0].binding = 0;
+      descriptor_layout_info.bindings[0].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[0].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
 
-      // cov2d, projected position
-      input_bindings[1].binding = 1;
-      input_bindings[1].stride = sizeof(float) * 6;
-      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+      descriptor_layout_info.bindings[1] = {};
+      descriptor_layout_info.bindings[1].binding = 1;
+      descriptor_layout_info.bindings[1].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[1].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
 
-      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
-      // vertex position
-      input_attributes[0].location = 0;
-      input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
-      input_attributes[0].offset = 0;
+      instance_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
+    }
 
-      // vertex color
-      input_attributes[1].location = 1;
-      input_attributes[1].binding = 0;
-      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[1].offset = sizeof(float) * 2;
+    // compute pipeline layout
+    {
+      vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
+      pipeline_layout_info.layouts = {camera_descriptor_layout_,
+                                      gaussian_descriptor_layout_,
+                                      instance_layout_};
+      compute_pipeline_layout_ =
+          vk::PipelineLayout(context_, pipeline_layout_info);
+    }
 
-      // cov2d
-      input_attributes[2].location = 2;
-      input_attributes[2].binding = 1;
-      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[2].offset = 0;
+    // graphics pipeline layout
+    {
+      vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
+      pipeline_layout_info.layouts = {camera_descriptor_layout_};
+      graphics_pipeline_layout_ =
+          vk::PipelineLayout(context_, pipeline_layout_info);
+    }
 
-      // projected position
-      input_attributes[3].location = 3;
-      input_attributes[3].binding = 1;
-      input_attributes[3].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[3].offset = sizeof(float) * 3;
-
-      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
-          1);
-      color_blend_attachments[0] = {};
-      color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor =
-          VK_BLEND_FACTOR_SRC_ALPHA;
-      color_blend_attachments[0].dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].colorWriteMask =
-          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-      vk::GraphicsPipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
-      pipeline_info.vertex_shader = vk::shader::splat_outline_vert;
-      pipeline_info.fragment_shader = vk::shader::splat_outline_frag;
-      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
-      pipeline_info.input_bindings = std::move(input_bindings);
-      pipeline_info.input_attributes = std::move(input_attributes);
-      pipeline_info.depth_test = true;
-      pipeline_info.depth_write = true;
-      pipeline_info.color_blend_attachments =
-          std::move(color_blend_attachments);
-      splat_outline_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    // gaussian pipeline
+    {
+      vk::ComputePipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = compute_pipeline_layout_;
+      pipeline_info.compute_shader = vk::shader::projection_comp;
+      projection_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
     // splat pipeline
     {
-      std::vector<VkVertexInputBindingDescription> input_bindings(3);
-      // xy, rgba
+      std::vector<VkVertexInputBindingDescription> input_bindings(2);
+      // xy
       input_bindings[0].binding = 0;
       input_bindings[0].stride = sizeof(float) * 2;
       input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-      // cov2d, projected position
+      // ndc position, cov2d, rgba
       input_bindings[1].binding = 1;
-      input_bindings[1].stride = sizeof(float) * 6;
+      input_bindings[1].stride = sizeof(float) * 10;
       input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-      // point rgba
-      input_bindings[2].binding = 2;
-      input_bindings[2].stride = sizeof(float) * 4;
-      input_bindings[2].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
       std::vector<VkVertexInputAttributeDescription> input_attributes(4);
       // vertex position
@@ -373,9 +180,9 @@ class Engine::Impl {
 
       // point rgba
       input_attributes[3].location = 3;
-      input_attributes[3].binding = 2;
+      input_attributes[3].binding = 1;
       input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[3].offset = 0;
+      input_attributes[3].offset = sizeof(float) * 6;
 
       std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
           1);
@@ -395,7 +202,7 @@ class Engine::Impl {
           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
+      pipeline_info.layout = graphics_pipeline_layout_;
       pipeline_info.render_pass = render_pass_;
       pipeline_info.vertex_shader = vk::shader::splat_vert;
       pipeline_info.fragment_shader = vk::shader::splat_frag;
@@ -409,224 +216,24 @@ class Engine::Impl {
       splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
-    // splat outline oit pipeline
-    {
-      std::vector<VkVertexInputBindingDescription> input_bindings(2);
-      // xy, rgba
-      input_bindings[0].binding = 0;
-      input_bindings[0].stride = sizeof(float) * 6;
-      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-      // cov2d, projected position
-      input_bindings[1].binding = 1;
-      input_bindings[1].stride = sizeof(float) * 6;
-      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
-      // vertex position
-      input_attributes[0].location = 0;
-      input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
-      input_attributes[0].offset = 0;
-
-      // vertex color
-      input_attributes[1].location = 1;
-      input_attributes[1].binding = 0;
-      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[1].offset = sizeof(float) * 2;
-
-      // cov2d
-      input_attributes[2].location = 2;
-      input_attributes[2].binding = 1;
-      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[2].offset = 0;
-
-      // projected position
-      input_attributes[3].location = 3;
-      input_attributes[3].binding = 1;
-      input_attributes[3].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[3].offset = sizeof(float) * 3;
-
-      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
-          1);
-      color_blend_attachments[0] = {};
-      color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor =
-          VK_BLEND_FACTOR_SRC_ALPHA;
-      color_blend_attachments[0].dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].colorWriteMask =
-          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-      vk::GraphicsPipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.render_pass = oit_render_pass_;
-      pipeline_info.subpass = 0;
-      pipeline_info.vertex_shader = vk::shader::splat_outline_vert;
-      pipeline_info.fragment_shader = vk::shader::splat_outline_frag;
-      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
-      pipeline_info.input_bindings = std::move(input_bindings);
-      pipeline_info.input_attributes = std::move(input_attributes);
-      pipeline_info.depth_test = true;
-      pipeline_info.depth_write = true;
-      pipeline_info.color_blend_attachments =
-          std::move(color_blend_attachments);
-      splat_outline_oit_pipeline_ =
-          vk::GraphicsPipeline(context_, pipeline_info);
+    // uniforms and descriptors
+    camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
+    camera_descriptors_.resize(2);
+    for (int i = 0; i < 2; i++) {
+      camera_descriptors_[i] =
+          vk::Descriptor(context_, camera_descriptor_layout_);
+      camera_descriptors_[i].Update(0, camera_buffer_, camera_buffer_.offset(i),
+                                    camera_buffer_.element_size());
     }
 
-    // splat oit pipeline
-    {
-      std::vector<VkVertexInputBindingDescription> input_bindings(3);
-      // xy, rgba
-      input_bindings[0].binding = 0;
-      input_bindings[0].stride = sizeof(float) * 2;
-      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
 
-      // cov2d, projected position
-      input_bindings[1].binding = 1;
-      input_bindings[1].stride = sizeof(float) * 6;
-      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    splat_indirect_buffer_ = vk::Buffer(
+        context_, 5 * sizeof(int),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 
-      // point rgba
-      input_bindings[2].binding = 2;
-      input_bindings[2].stride = sizeof(float) * 4;
-      input_bindings[2].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
-      // vertex position
-      input_attributes[0].location = 0;
-      input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
-      input_attributes[0].offset = 0;
-
-      // cov2d
-      input_attributes[1].location = 1;
-      input_attributes[1].binding = 1;
-      input_attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[1].offset = 0;
-
-      // projected position
-      input_attributes[2].location = 2;
-      input_attributes[2].binding = 1;
-      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[2].offset = sizeof(float) * 3;
-
-      // point rgba
-      input_attributes[3].location = 3;
-      input_attributes[3].binding = 2;
-      input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[3].offset = 0;
-
-      // WBOIT blend operators
-      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
-          2);
-      color_blend_attachments[0] = {};
-      color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].colorWriteMask =
-          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-      color_blend_attachments[1] = {};
-      color_blend_attachments[1].blendEnable = VK_TRUE;
-      color_blend_attachments[1].srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-      color_blend_attachments[1].dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-      color_blend_attachments[1].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
-
-      vk::GraphicsPipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.render_pass = oit_render_pass_;
-      pipeline_info.subpass = 1;
-      pipeline_info.vertex_shader = vk::shader::splat_oit_vert;
-      pipeline_info.fragment_shader = vk::shader::splat_oit_frag;
-      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-      pipeline_info.input_bindings = std::move(input_bindings);
-      pipeline_info.input_attributes = std::move(input_attributes);
-      pipeline_info.depth_test = true;
-      pipeline_info.depth_write = false;
-      pipeline_info.color_blend_attachments =
-          std::move(color_blend_attachments);
-      splat_oit_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
-    }
-
-    // blend oit pipeline
-    {
-      std::vector<VkVertexInputBindingDescription> input_bindings(1);
-      // xy
-      input_bindings[0].binding = 0;
-      input_bindings[0].stride = sizeof(float) * 2;
-      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-      std::vector<VkVertexInputAttributeDescription> input_attributes(1);
-      // xy
-      input_attributes[0].location = 0;
-      input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
-      input_attributes[0].offset = 0;
-
-      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
-          1);
-      color_blend_attachments[0] = {};
-      color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor =
-          VK_BLEND_FACTOR_SRC_ALPHA;
-      color_blend_attachments[0].dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      color_blend_attachments[0].dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].colorWriteMask =
-          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-      vk::GraphicsPipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.render_pass = oit_render_pass_;
-      pipeline_info.subpass = 2;
-      pipeline_info.vertex_shader = vk::shader::blend_oit_vert;
-      pipeline_info.fragment_shader = vk::shader::blend_oit_frag;
-      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-      pipeline_info.input_bindings = std::move(input_bindings);
-      pipeline_info.input_attributes = std::move(input_attributes);
-      pipeline_info.depth_test = false;
-      pipeline_info.depth_write = false;
-      pipeline_info.color_blend_attachments =
-          std::move(color_blend_attachments);
-      blend_oit_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
-    }
-
-    // gaussian pipeline
-    {
-      vk::ComputePipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::projection_comp;
-      projection_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
-    }
-
-    // order pipeline
-    {
-      vk::ComputePipelineCreateInfo pipeline_info = {};
-      pipeline_info.layout = pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::order_comp;
-      order_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
-    }
-
+    // commands and synchronizations
     draw_command_buffers_.resize(3);
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -655,19 +262,6 @@ class Engine::Impl {
 
     vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
                       &transfer_semaphore_);
-
-    color_attachment_ = vk::Attachment(context_, VK_FORMAT_B8G8R8A8_SRGB,
-                                       VK_SAMPLE_COUNT_4_BIT, false);
-    depth_attachment_ = vk::Attachment(context_, VK_FORMAT_D24_UNORM_S8_UINT,
-                                       VK_SAMPLE_COUNT_4_BIT, false);
-    oit_color_attachment_ = vk::Attachment(
-        context_, VK_FORMAT_R32G32B32A32_SFLOAT, VK_SAMPLE_COUNT_4_BIT, true);
-    oit_alpha_attachment_ = vk::Attachment(context_, VK_FORMAT_R32_SFLOAT,
-                                           VK_SAMPLE_COUNT_4_BIT, true);
-
-    input_descriptor_ = vk::Descriptor(context_, input_descriptor_layout_);
-    input_descriptor_.UpdateInputAttachment(0, oit_color_attachment_);
-    input_descriptor_.UpdateInputAttachment(1, oit_alpha_attachment_);
   }
 
   ~Impl() {
@@ -691,28 +285,12 @@ class Engine::Impl {
     const auto& rotation = splats.rots();
     const auto& scale = splats.scales();
 
-    std::vector<float> transform;
-    transform.reserve(16 * point_count_);
-    for (int i = 0; i < point_count_; i++) {
-      glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
-                  rotation[i * 4 + 3]);
-      glm::mat4 r = glm::toMat4(q);
-      glm::mat4 s = glm::mat4(1.f);
-      s[0][0] = scale[i * 3 + 0];
-      s[1][1] = scale[i * 3 + 1];
-      s[2][2] = scale[i * 3 + 2];
-      glm::mat4 m = r * s;
-      m[3][0] = position[i * 3 + 0];
-      m[3][1] = position[i * 3 + 1];
-      m[3][2] = position[i * 3 + 2];
-
-      for (int c = 0; c < 4; c++) {
-        for (int r = 0; r < 4; r++) transform.push_back(m[c][r]);
-      }
-    }
-
-    std::vector<float> gaussian3d;
-    gaussian3d.reserve(9 * point_count_);  // 3 for position, 6 for cov3d
+    std::vector<float> gaussian_cov3d;
+    std::vector<float> gaussian_position;
+    std::vector<float> gaussian_color;
+    gaussian_cov3d.reserve(6 * point_count_);
+    gaussian_position.reserve(6 * point_count_);
+    gaussian_color.reserve(6 * point_count_);
     for (int i = 0; i < point_count_; i++) {
       glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
                   rotation[i * 4 + 3]);
@@ -723,84 +301,47 @@ class Engine::Impl {
       s[2][2] = scale[i * 3 + 2];
       glm::mat3 m = r * s * s * glm::transpose(r);  // cov = RSSR^T
 
-      gaussian3d.push_back(m[0][0]);
-      gaussian3d.push_back(m[1][0]);
-      gaussian3d.push_back(m[2][0]);
-      gaussian3d.push_back(m[1][1]);
-      gaussian3d.push_back(m[2][1]);
-      gaussian3d.push_back(m[2][2]);
-      gaussian3d.push_back(position[i * 3 + 0]);
-      gaussian3d.push_back(position[i * 3 + 1]);
-      gaussian3d.push_back(position[i * 3 + 2]);
+      gaussian_cov3d.push_back(m[0][0]);
+      gaussian_cov3d.push_back(m[1][0]);
+      gaussian_cov3d.push_back(m[2][0]);
+      gaussian_cov3d.push_back(m[1][1]);
+      gaussian_cov3d.push_back(m[2][1]);
+      gaussian_cov3d.push_back(m[2][2]);
+      gaussian_position.push_back(position[i * 3 + 0]);
+      gaussian_position.push_back(position[i * 3 + 1]);
+      gaussian_position.push_back(position[i * 3 + 2]);
+      gaussian_color.push_back(color[i * 4 + 0]);
+      gaussian_color.push_back(color[i * 4 + 1]);
+      gaussian_color.push_back(color[i * 4 + 2]);
+      gaussian_color.push_back(color[i * 4 + 3]);
     }
 
-    std::vector<float> axes = {
-        // xyz, rgb
-        -1.f, 0.f,  0.f,  1.f, 0.f, 0.f,  // 0
-        1.f,  0.f,  0.f,  1.f, 0.f, 0.f,  // 1
-        0.f,  -1.f, 0.f,  0.f, 1.f, 0.f,  // 2
-        0.f,  1.f,  0.f,  0.f, 1.f, 0.f,  // 3
-        0.f,  0.f,  -1.f, 0.f, 0.f, 1.f,  // 4
-        0.f,  0.f,  1.f,  0.f, 0.f, 1.f,  // 5
-    };
-
-    std::vector<float> splat;
-    for (int i = 0; i <= splat_division_; i++) {
-      float t = static_cast<float>(i) / splat_division_;
-      splat.push_back(std::cos(2.f * glm::pi<float>() * t));
-      splat.push_back(std::sin(2.f * glm::pi<float>() * t));
-      splat.push_back(1.f);
-      splat.push_back(1.f);
-      splat.push_back(0.f);
-      splat.push_back(1.f);
-    }
-
-    std::vector<float> splat_fill_vertex = {
+    std::vector<float> splat_vertex = {
         // xy, ccw in NDC space.
         -1.f, -1.f,  // 0
         -1.f, 1.f,   // 1
         1.f,  -1.f,  // 2
         1.f,  1.f,   // 3
     };
-    std::vector<uint32_t> splat_fill_index = {0, 1, 2, 3};
+    std::vector<uint32_t> splat_index = {0, 1, 2, 3};
 
-    std::vector<float> screen = {
-        // xy, ccw in NDC space.
-        -1.f, -1.f,  // 0
-        -1.f, 3.f,   // 1
-        3.f,  -1.f,  // 2
-    };
-
-    position_buffer_ = vk::Buffer(
-        context_, position.size() * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    color_buffer_ = vk::Buffer(
-        context_, color.size() * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    transform_buffer_ = vk::Buffer(
-        context_, transform.size() * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    axes_buffer_ = vk::Buffer(
-        context_, axes.size() * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    splat_buffer_ = vk::Buffer(
-        context_, splat.size() * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    splat_fill_vertex_buffer_ = vk::Buffer(
-        context_, splat_fill_vertex.size() * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    splat_fill_index_buffer_ = vk::Buffer(
-        context_, splat_fill_index.size() * sizeof(uint32_t),
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    screen_buffer_ = vk::Buffer(
-        context_, screen.size() * sizeof(float),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-
-    gaussian3d_buffer_ = vk::Buffer(
-        context_, gaussian3d.size() * sizeof(float),
+    gaussian_cov3d_buffer_ = vk::Buffer(
+        context_, gaussian_cov3d.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    gaussian2d_buffer_ = vk::Buffer(
-        context_, (6 * point_count_) * sizeof(float),
+    gaussian_position_buffer_ = vk::Buffer(
+        context_, gaussian_position.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    gaussian_color_buffer_ = vk::Buffer(
+        context_, gaussian_color.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    splat_vertex_buffer_ = vk::Buffer(
+        context_, splat_vertex.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    splat_index_buffer_ = vk::Buffer(
+        context_, splat_index.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    splat_instance_buffer_ = vk::Buffer(
+        context_, point_count_ * 10 * sizeof(float),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
     splat_info_buffer_[0].point_count = point_count_;
@@ -818,15 +359,11 @@ class Engine::Impl {
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cb, &begin_info);
 
-    position_buffer_.FromCpu(cb, position);
-    color_buffer_.FromCpu(cb, color);
-    transform_buffer_.FromCpu(cb, transform);
-    axes_buffer_.FromCpu(cb, axes);
-    splat_buffer_.FromCpu(cb, splat);
-    splat_fill_vertex_buffer_.FromCpu(cb, splat_fill_vertex);
-    splat_fill_index_buffer_.FromCpu(cb, splat_fill_index);
-    screen_buffer_.FromCpu(cb, screen);
-    gaussian3d_buffer_.FromCpu(cb, gaussian3d);
+    gaussian_cov3d_buffer_.FromCpu(cb, gaussian_cov3d);
+    gaussian_position_buffer_.FromCpu(cb, gaussian_position);
+    gaussian_color_buffer_.FromCpu(cb, gaussian_color);
+    splat_vertex_buffer_.FromCpu(cb, splat_vertex);
+    splat_index_buffer_.FromCpu(cb, splat_index);
 
     vkEndCommandBuffer(cb);
 
@@ -856,30 +393,18 @@ class Engine::Impl {
         vk::Descriptor(context_, gaussian_descriptor_layout_);
     gaussian_descriptor_.Update(0, splat_info_buffer_, 0,
                                 splat_info_buffer_.element_size());
-    gaussian_descriptor_.Update(1, gaussian3d_buffer_, 0,
-                                gaussian3d_buffer_.size());
-    gaussian_descriptor_.Update(2, gaussian2d_buffer_, 0,
-                                gaussian2d_buffer_.size());
+    gaussian_descriptor_.Update(1, gaussian_position_buffer_, 0,
+                                gaussian_position_buffer_.size());
+    gaussian_descriptor_.Update(2, gaussian_cov3d_buffer_, 0,
+                                gaussian_cov3d_buffer_.size());
+    gaussian_descriptor_.Update(3, gaussian_color_buffer_, 0,
+                                gaussian_color_buffer_.size());
 
-    {
-      // initialize
-      radixsort_value_buffer_ =
-          vk::Buffer(context_, point_count_ * sizeof(uint32_t),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-      radixsort_index_buffer_ =
-          vk::Buffer(context_, point_count_ * sizeof(uint32_t),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-
-      radixsort_initialize_descriptor_ =
-          vk::Descriptor(context_, radixsort_descriptor_layout_);
-      radixsort_initialize_descriptor_.Update(0, radixsort_value_buffer_, 0,
-                                              radixsort_value_buffer_.size());
-      radixsort_initialize_descriptor_.Update(1, radixsort_index_buffer_, 0,
-                                              radixsort_index_buffer_.size());
-
-      radix_sorter_ = vk::Radixsort(context_, point_count_);
-    }
+    splat_instance_descriptor_ = vk::Descriptor(context_, instance_layout_);
+    splat_instance_descriptor_.Update(0, splat_indirect_buffer_, 0,
+                                      splat_indirect_buffer_.size());
+    splat_instance_descriptor_.Update(1, splat_instance_buffer_, 0,
+                                      splat_instance_buffer_.size());
   }
 
   void Draw(Window window, const Camera& camera) {
@@ -904,13 +429,6 @@ class Engine::Impl {
                                       depth_attachment_.image_spec(),
                                       swapchain.image_spec()};
       framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
-
-      framebuffer_info.render_pass = oit_render_pass_;
-      framebuffer_info.image_specs = {
-          depth_attachment_.image_spec(), color_attachment_.image_spec(),
-          oit_color_attachment_.image_spec(),
-          oit_alpha_attachment_.image_spec(), swapchain.image_spec()};
-      oit_framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     auto swapchain = swapchains_[window_ptr];
@@ -928,13 +446,6 @@ class Engine::Impl {
                                       depth_attachment_.image_spec(),
                                       swapchain.image_spec()};
       framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
-
-      framebuffer_info.render_pass = oit_render_pass_;
-      framebuffer_info.image_specs = {
-          depth_attachment_.image_spec(), color_attachment_.image_spec(),
-          oit_color_attachment_.image_spec(),
-          oit_alpha_attachment_.image_spec(), swapchain.image_spec()};
-      oit_framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     int32_t frame_index = frame_counter_ % 2;
@@ -963,24 +474,64 @@ class Engine::Impl {
       {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].buffer = gaussian2d_buffer_;
+        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        buffer_barriers[0].srcAccessMask =
+            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        buffer_barriers[0].buffer = splat_indirect_buffer_;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = gaussian2d_buffer_.size();
+        buffer_barriers[0].size = splat_indirect_buffer_.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
+        VkDrawIndexedIndirectCommand draw_indexed_indirect = {};
+        draw_indexed_indirect.indexCount = 4;     // quad
+        draw_indexed_indirect.instanceCount = 0;  // to be accumulated
+        draw_indexed_indirect.firstIndex = 0;
+        draw_indexed_indirect.vertexOffset = 0;
+        draw_indexed_indirect.firstInstance = 0;
+        vkCmdUpdateBuffer(cb, splat_indirect_buffer_, 0,
+                          sizeof(draw_indexed_indirect),
+                          &draw_indexed_indirect);
+
+        buffer_barriers.resize(2);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].dstAccessMask =
+            VK_ACCESS_2_SHADER_READ_BIT;  // atomicAdd will read then write?
+        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = splat_indirect_buffer_.size();
+
+        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[1].srcStageMask =
+            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+        buffer_barriers[1].srcAccessMask =
+            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        buffer_barriers[1].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[1].buffer = splat_instance_buffer_;
+        buffer_barriers[1].offset = 0;
+        buffer_barriers[1].size = splat_instance_buffer_.size();
+
+        barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+
         std::vector<VkDescriptorSet> descriptors = {
-            camera_descriptors_[frame_index], gaussian_descriptor_};
+            camera_descriptors_[frame_index], gaussian_descriptor_,
+            splat_instance_descriptor_};
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                pipeline_layout_, 0, descriptors.size(),
+                                compute_pipeline_layout_, 0, descriptors.size(),
                                 descriptors.data(), 0, nullptr);
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -990,118 +541,40 @@ class Engine::Impl {
         vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
       }
 
-      // order
+      // draw
       {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(2);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[0].srcStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].buffer = radixsort_value_buffer_;
+        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        buffer_barriers[0].dstAccessMask =
+            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        buffer_barriers[0].buffer = splat_indirect_buffer_;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = radixsort_value_buffer_.size();
-
-        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
-        buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].buffer = radixsort_index_buffer_;
-        buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = radixsort_index_buffer_.size();
-
-        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
-
-        std::vector<VkDescriptorSet> descriptors = {
-            radixsort_initialize_descriptor_};
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                pipeline_layout_, 3, descriptors.size(),
-                                descriptors.data(), 0, nullptr);
-
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, order_pipeline_);
-
-        constexpr int local_size = 256;
-        vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
-      }
-
-      // radixsort
-      {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(2);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = radixsort_value_buffer_;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = radixsort_value_buffer_.size();
+        buffer_barriers[0].size = splat_indirect_buffer_.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
         buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = radixsort_index_buffer_;
+            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+        buffer_barriers[1].dstAccessMask =
+            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        buffer_barriers[1].buffer = splat_instance_buffer_;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = radixsort_index_buffer_.size();
+        buffer_barriers[1].size = splat_instance_buffer_.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        radix_sorter_.Sort(cb, frame_index, point_count_,
-                           radixsort_value_buffer_, radixsort_index_buffer_);
-
-        buffer_barriers.resize(1);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
-        buffer_barriers[0].buffer = radixsort_index_buffer_;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = radixsort_index_buffer_.size();
-
-        barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+        DrawNormalPass(cb, frame_index, swapchain.width(), swapchain.height(),
+                       swapchain.image_view(image_index));
       }
-
-      std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
-      buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-      buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-      buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      buffer_barriers[0].buffer = gaussian2d_buffer_;
-      buffer_barriers[0].offset = 0;
-      buffer_barriers[0].size = gaussian2d_buffer_.size();
-
-      VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-      barrier.pBufferMemoryBarriers = buffer_barriers.data();
-      vkCmdPipelineBarrier2(cb, &barrier);
-
-      DrawNormalPass(cb, frame_index, swapchain.width(), swapchain.height(),
-                     swapchain.image_view(image_index));
-      /*
-      DrawOitPass(cb, frame_index, swapchain.width(), swapchain.height(),
-                  swapchain.image_view(image_index));
-      */
 
       vkEndCommandBuffer(cb);
 
@@ -1201,179 +674,21 @@ class Engine::Impl {
     std::vector<VkDescriptorSet> descriptors = {
         camera_descriptors_[frame_index]};
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline_layout_, 0, descriptors.size(),
+                            graphics_pipeline_layout_, 0, descriptors.size(),
                             descriptors.data(), 0, nullptr);
-    // draw axes
-    /*
-    {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, axes_pipeline_);
-
-      std::vector<VkBuffer> vbs = {axes_buffer_, transform_buffer_};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
-                             vb_offsets.data());
-
-      vkCmdDraw(cb, 6, point_count_, 0, 0);
-    }
-    */
-
-    // draw splat outline
-    /*
-    {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        splat_outline_pipeline_);
-
-      std::vector<VkBuffer> vbs = {splat_buffer_, gaussian2d_buffer_};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
-
-      vkCmdDraw(cb, splat_division_ + 1, point_count_, 0, 0);
-    }
-    */
-
-    // draw points
-    /*
-    {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, point_pipeline_);
-
-      std::vector<VkBuffer> vbs = {position_buffer_, color_buffer_};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
-                             vb_offsets.data());
-
-      vkCmdDraw(cb, point_count_, 1, 0, 0);
-    }
-    */
 
     // draw splat
     {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
 
-      std::vector<VkBuffer> vbs = {splat_fill_vertex_buffer_,
-                                   gaussian2d_buffer_, color_buffer_};
+      std::vector<VkBuffer> vbs = {splat_vertex_buffer_,
+                                   splat_instance_buffer_};
       std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
       vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
 
-      vkCmdBindIndexBuffer(cb, splat_fill_index_buffer_, 0,
-                           VK_INDEX_TYPE_UINT32);
+      vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
 
-      vkCmdDrawIndexed(cb, 4, point_count_, 0, 0, 0);
-    }
-
-    vkCmdEndRenderPass(cb);
-  }
-
-  void DrawOitPass(VkCommandBuffer cb, uint32_t frame_index, uint32_t width,
-                   uint32_t height, VkImageView target_image_view) {
-    std::vector<VkClearValue> clear_values(4);
-    clear_values[0].depthStencil.depth = 1.f;
-
-    clear_values[1].color.float32[0] = 0.5f;
-    clear_values[1].color.float32[1] = 0.5f;
-    clear_values[1].color.float32[2] = 0.5f;
-    clear_values[1].color.float32[3] = 1.f;
-
-    clear_values[2].color.float32[0] = 0.f;
-    clear_values[2].color.float32[1] = 0.f;
-    clear_values[2].color.float32[2] = 0.f;
-    clear_values[2].color.float32[3] = 0.f;
-
-    clear_values[3].color.float32[0] = 1.f;
-
-    std::vector<VkImageView> render_pass_attachments = {
-        depth_attachment_,     color_attachment_, oit_color_attachment_,
-        oit_alpha_attachment_, target_image_view,
-    };
-    VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
-        VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info.attachmentCount =
-        render_pass_attachments.size();
-    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
-
-    VkRenderPassBeginInfo render_pass_begin_info = {
-        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    render_pass_begin_info.pNext = &render_pass_attachments_info;
-    render_pass_begin_info.renderPass = oit_render_pass_;
-    render_pass_begin_info.framebuffer = oit_framebuffer_;
-    render_pass_begin_info.renderArea.offset = {0, 0};
-    render_pass_begin_info.renderArea.extent = {width, height};
-    render_pass_begin_info.clearValueCount = clear_values.size();
-    render_pass_begin_info.pClearValues = clear_values.data();
-    vkCmdBeginRenderPass(cb, &render_pass_begin_info,
-                         VK_SUBPASS_CONTENTS_INLINE);
-
-    VkViewport viewport = {};
-    viewport.x = 0.f;
-    viewport.y = 0.f;
-    viewport.width = static_cast<float>(width);
-    viewport.height = static_cast<float>(height);
-    viewport.minDepth = 0.f;
-    viewport.maxDepth = 1.f;
-    vkCmdSetViewport(cb, 0, 1, &viewport);
-
-    VkRect2D scissor = {};
-    scissor.offset = {0, 0};
-    scissor.extent = {width, height};
-    vkCmdSetScissor(cb, 0, 1, &scissor);
-
-    std::vector<VkDescriptorSet> descriptors = {
-        camera_descriptors_[frame_index]};
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline_layout_, 0, descriptors.size(),
-                            descriptors.data(), 0, nullptr);
-
-    descriptors = {input_descriptor_};
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline_layout_, 2, descriptors.size(),
-                            descriptors.data(), 0, nullptr);
-
-    // pass 0
-    // draw splat outline
-    /*
-    {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        splat_outline_oit_pipeline_);
-
-      std::vector<VkBuffer> vbs = {splat_buffer_, gaussian2d_buffer_};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
-
-      vkCmdDraw(cb, splat_division_ + 1, point_count_, 0, 0);
-    }
-    */
-
-    // pass 1
-    vkCmdNextSubpass(cb, VK_SUBPASS_CONTENTS_INLINE);
-
-    // draw splat fill
-    {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        splat_oit_pipeline_);
-
-      std::vector<VkBuffer> vbs = {splat_fill_vertex_buffer_,
-                                   gaussian2d_buffer_, color_buffer_};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
-
-      vkCmdBindIndexBuffer(cb, splat_fill_index_buffer_, 0,
-                           VK_INDEX_TYPE_UINT32);
-
-      vkCmdDrawIndexed(cb, 4, point_count_, 0, 0, 0);
-    }
-
-    // pass 2
-    vkCmdNextSubpass(cb, VK_SUBPASS_CONTENTS_INLINE);
-
-    // blend
-    {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        blend_oit_pipeline_);
-
-      std::vector<VkBuffer> vbs = {screen_buffer_};
-      std::vector<VkDeviceSize> vb_offsets = {0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
-
-      vkCmdDraw(cb, 3, 1, 0, 0);
+      vkCmdDrawIndexedIndirect(cb, splat_indirect_buffer_, 0, 1, 0);
     }
 
     vkCmdEndRenderPass(cb);
@@ -1389,58 +704,36 @@ class Engine::Impl {
 
   vk::DescriptorLayout camera_descriptor_layout_;
   vk::DescriptorLayout gaussian_descriptor_layout_;
-  vk::DescriptorLayout input_descriptor_layout_;
-  vk::PipelineLayout pipeline_layout_;
-
-  // radixsort
-  vk::ComputePipeline order_pipeline_;
-  vk::Radixsort radix_sorter_;
-  vk::Buffer radixsort_value_buffer_;
-  vk::Buffer radixsort_index_buffer_;
-  vk::DescriptorLayout radixsort_descriptor_layout_;
-  vk::Descriptor radixsort_initialize_descriptor_;
+  vk::DescriptorLayout instance_layout_;
+  vk::PipelineLayout compute_pipeline_layout_;
+  vk::PipelineLayout graphics_pipeline_layout_;
 
   // preprocess
   vk::ComputePipeline projection_pipeline_;
+  // TODO: radix sort
 
   // normal pass
   vk::Framebuffer framebuffer_;
   vk::RenderPass render_pass_;
-  vk::GraphicsPipeline point_pipeline_;
-  vk::GraphicsPipeline axes_pipeline_;
-  vk::GraphicsPipeline splat_outline_pipeline_;
   vk::GraphicsPipeline splat_pipeline_;
-
-  // oit pass
-  vk::Framebuffer oit_framebuffer_;
-  vk::RenderPass oit_render_pass_;
-  vk::GraphicsPipeline splat_outline_oit_pipeline_;
-  vk::GraphicsPipeline splat_oit_pipeline_;
-  vk::GraphicsPipeline blend_oit_pipeline_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
-  vk::Attachment oit_color_attachment_;
-  vk::Attachment oit_alpha_attachment_;
 
   std::vector<vk::Descriptor> camera_descriptors_;
   vk::Descriptor gaussian_descriptor_;
-  vk::Descriptor input_descriptor_;
+  vk::Descriptor splat_instance_descriptor_;
+
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
-  vk::Buffer position_buffer_;
-  vk::Buffer color_buffer_;
-  vk::Buffer transform_buffer_;
-  vk::Buffer axes_buffer_;
-  vk::Buffer cov3d_buffer_;
-  vk::Buffer center_buffer_;
-  vk::Buffer gaussian3d_buffer_;
-  vk::Buffer gaussian2d_buffer_;  // output of compute shader
-  static constexpr int splat_division_ = 16;
-  vk::Buffer splat_buffer_;
-  vk::Buffer splat_fill_vertex_buffer_;
-  vk::Buffer splat_fill_index_buffer_;
-  vk::Buffer screen_buffer_;
   vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;
+  vk::Buffer gaussian_position_buffer_;
+  vk::Buffer gaussian_cov3d_buffer_;
+  vk::Buffer gaussian_color_buffer_;  // TODO: spherical harmonics
+  vk::Buffer splat_vertex_buffer_;    // gaussian2d quad
+  vk::Buffer splat_index_buffer_;     // gaussian2d quad
+  vk::Buffer splat_indirect_buffer_;  // indirect command
+  vk::Buffer splat_instance_buffer_;  // output of compute shader
+
   int point_count_ = 0;
   bool on_transfer_ = false;
   VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;

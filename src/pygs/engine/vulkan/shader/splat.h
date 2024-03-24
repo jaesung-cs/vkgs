@@ -12,8 +12,8 @@ const char* splat_vert = R"shader(
 layout (location = 0) in vec2 position;
 
 // instance
-layout (location = 1) in vec3 cov2d;
-layout (location = 2) in vec3 projected_position;
+layout (location = 1) in vec3 ndc_position;
+layout (location = 2) in vec3 cov2d;
 layout (location = 3) in vec4 color;
 
 layout (location = 0) out vec4 out_color;
@@ -38,7 +38,8 @@ void main() {
 
   float confidence_radius = 4.f;
 
-  gl_Position = vec4(projected_position + vec3(rot * scale * position * confidence_radius, 0.f), 1.f);
+  gl_Position = vec4(ndc_position + vec3(rot * scale * position * confidence_radius, 0.f), 1.f);
+  //gl_Position = vec4(ndc_position + vec3(position * 0.01, 0.f), 1.f);
   out_color = color;
   out_position = position * confidence_radius;
 }
