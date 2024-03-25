@@ -7,9 +7,10 @@ namespace pygs {
 namespace vk {
 namespace shader {
 
-struct Camera {
+struct alignas(64) Camera {
   glm::mat4 projection;
   glm::mat4 view;
+  glm::vec3 camera_position;
 };
 
 struct SplatInfo {

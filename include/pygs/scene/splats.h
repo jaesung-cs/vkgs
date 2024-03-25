@@ -30,7 +30,7 @@ class Splats {
   std::vector<float> sh0_;       // (N, 3), f_dc_0,1,2
   std::vector<float> sh1_;       // (N, 3), f_rest_[0-9)
   std::vector<float> sh2_;       // (N, 3), f_rest_[9-24)
-  std::vector<float> sh3_;       // (N, 3), f_dc_[24-45)
+  std::vector<float> sh3_;       // (N, 3), f_rest_[24-45)
   std::vector<float> opacity_;   // (N, 3), opacity
   std::vector<float> scale_;     // (N, 3), scale_0,1,2
   std::vector<float> rot_;       // (N, 4), rot_0,1,2,3, in wxyz order

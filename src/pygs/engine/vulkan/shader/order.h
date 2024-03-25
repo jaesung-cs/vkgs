@@ -84,8 +84,9 @@ void main() {
     float b = cov2d[1][1];
     float c = cov2d[1][0];
     float D = sqrt((a - b) * (a - b) + 4.f * c * c);
-    float s0 = sqrt(0.5f * (a + b + D));
-    float s1 = sqrt(0.5f * (a + b - D));
+    const float low_pass_filter = 0.0000001f;
+    float s0 = sqrt(0.5f * (a + b + D) + low_pass_filter);
+    float s1 = sqrt(0.5f * (a + b - D) + low_pass_filter);
 
     // TODO: select size threshold
     float size_threshold = 0.0001f;
