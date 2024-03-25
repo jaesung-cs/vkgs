@@ -69,7 +69,7 @@ class Engine::Impl {
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
-      descriptor_layout_info.bindings.resize(4);
+      descriptor_layout_info.bindings.resize(5);
       descriptor_layout_info.bindings[0] = {};
       descriptor_layout_info.bindings[0].binding = 0;
       descriptor_layout_info.bindings[0].descriptor_type =
@@ -96,6 +96,13 @@ class Engine::Impl {
       descriptor_layout_info.bindings[3].descriptor_type =
           VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[3].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
+
+      descriptor_layout_info.bindings[4] = {};
+      descriptor_layout_info.bindings[4].binding = 4;
+      descriptor_layout_info.bindings[4].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[4].stage_flags =
           VK_SHADER_STAGE_COMPUTE_BIT;
 
       gaussian_descriptor_layout_ =
@@ -310,16 +317,13 @@ class Engine::Impl {
   void AddSplats(const Splats& splats) {
     point_count_ = splats.size();
     const auto& position = splats.positions();
-    const auto& color = splats.colors();
+    const auto& sh0 = splats.sh0();
+    const auto& opacity = splats.opacity();
     const auto& rotation = splats.rots();
     const auto& scale = splats.scales();
 
     std::vector<float> gaussian_cov3d;
-    std::vector<float> gaussian_position;
-    std::vector<float> gaussian_color;
     gaussian_cov3d.reserve(6 * point_count_);
-    gaussian_position.reserve(6 * point_count_);
-    gaussian_color.reserve(6 * point_count_);
     for (int i = 0; i < point_count_; i++) {
       glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
                   rotation[i * 4 + 3]);
@@ -336,13 +340,6 @@ class Engine::Impl {
       gaussian_cov3d.push_back(m[1][1]);
       gaussian_cov3d.push_back(m[2][1]);
       gaussian_cov3d.push_back(m[2][2]);
-      gaussian_position.push_back(position[i * 3 + 0]);
-      gaussian_position.push_back(position[i * 3 + 1]);
-      gaussian_position.push_back(position[i * 3 + 2]);
-      gaussian_color.push_back(color[i * 4 + 0]);
-      gaussian_color.push_back(color[i * 4 + 1]);
-      gaussian_color.push_back(color[i * 4 + 2]);
-      gaussian_color.push_back(color[i * 4 + 3]);
     }
 
     std::vector<float> splat_vertex = {
@@ -358,10 +355,13 @@ class Engine::Impl {
         context_, gaussian_cov3d.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     gaussian_position_buffer_ = vk::Buffer(
-        context_, gaussian_position.size() * sizeof(float),
+        context_, position.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    gaussian_color_buffer_ = vk::Buffer(
-        context_, gaussian_color.size() * sizeof(float),
+    gaussian_opacity_buffer_ = vk::Buffer(
+        context_, opacity.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    gaussian_sh0_buffer_ = vk::Buffer(
+        context_, sh0.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     splat_vertex_buffer_ = vk::Buffer(
         context_, splat_vertex.size() * sizeof(float),
@@ -397,8 +397,9 @@ class Engine::Impl {
     vkBeginCommandBuffer(cb, &begin_info);
 
     gaussian_cov3d_buffer_.FromCpu(cb, gaussian_cov3d);
-    gaussian_position_buffer_.FromCpu(cb, gaussian_position);
-    gaussian_color_buffer_.FromCpu(cb, gaussian_color);
+    gaussian_position_buffer_.FromCpu(cb, position);
+    gaussian_opacity_buffer_.FromCpu(cb, opacity);
+    gaussian_sh0_buffer_.FromCpu(cb, sh0);
     splat_vertex_buffer_.FromCpu(cb, splat_vertex);
     splat_index_buffer_.FromCpu(cb, splat_index);
 
@@ -434,8 +435,10 @@ class Engine::Impl {
                                 gaussian_position_buffer_.size());
     gaussian_descriptor_.Update(2, gaussian_cov3d_buffer_, 0,
                                 gaussian_cov3d_buffer_.size());
-    gaussian_descriptor_.Update(3, gaussian_color_buffer_, 0,
-                                gaussian_color_buffer_.size());
+    gaussian_descriptor_.Update(3, gaussian_opacity_buffer_, 0,
+                                gaussian_opacity_buffer_.size());
+    gaussian_descriptor_.Update(4, gaussian_sh0_buffer_, 0,
+                                gaussian_sh0_buffer_.size());
 
     splat_instance_descriptor_ = vk::Descriptor(context_, instance_layout_);
     splat_instance_descriptor_.Update(0, splat_indirect_buffer_, 0,
@@ -881,7 +884,8 @@ class Engine::Impl {
   vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;
   vk::Buffer gaussian_position_buffer_;
   vk::Buffer gaussian_cov3d_buffer_;
-  vk::Buffer gaussian_color_buffer_;  // TODO: spherical harmonics
+  vk::Buffer gaussian_opacity_buffer_;
+  vk::Buffer gaussian_sh0_buffer_;
 
   vk::Buffer instance_key_buffer_;
   vk::Buffer instance_index_buffer_;

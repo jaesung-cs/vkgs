@@ -23,9 +23,12 @@ layout (std430, set = 1, binding = 2) readonly buffer GaussianCov3d {
   float gaussian_cov3d[];  // (N, 6)
 };
 
-layout (std430, set = 1, binding = 3) readonly buffer GaussianColor {
-  // TODO: spherical harmonics
-  float gaussian_color[];  // (N, 4), rgba.
+layout (std430, set = 1, binding = 3) readonly buffer GaussianSh0 {
+  float gaussian_opacity[];  // (N)
+};
+
+layout (std430, set = 1, binding = 4) readonly buffer GaussianOpacity {
+  float gaussian_sh0[];  // (N, 3)
 };
 
 layout (std430, set = 2, binding = 0) readonly buffer DrawIndirect {
@@ -80,11 +83,17 @@ void main() {
   pos = pos / pos.w;
 
   // TODO: calculate spherical harmonics
+  const float C0 = 0.28209479177387814f;
+  vec3 sh0 = vec3(
+    gaussian_sh0[gaussian_id * 3 + 0],
+    gaussian_sh0[gaussian_id * 3 + 1],
+    gaussian_sh0[gaussian_id * 3 + 2]
+  );
+  sh0 = max(sh0 * C0 + 0.5f, vec3(0.f));
+
   vec4 color = vec4(
-    gaussian_color[gaussian_id * 4 + 0],
-    gaussian_color[gaussian_id * 4 + 1],
-    gaussian_color[gaussian_id * 4 + 2],
-    gaussian_color[gaussian_id * 4 + 3]
+    sh0,
+    gaussian_opacity[gaussian_id]
   );
 
   instances[id * 10 + 0] = pos.x;

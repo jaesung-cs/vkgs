@@ -52,7 +52,11 @@ Splats Splats::load(const std::string& ply_filepath) {
 
     splats.size_ = vertex_count;
     splats.position_.resize(vertex_count * 3);
-    splats.color_.resize(vertex_count * 4);
+    splats.sh0_.resize(vertex_count * 3);
+    splats.sh1_.resize(vertex_count * 9);
+    splats.sh2_.resize(vertex_count * 15);
+    splats.sh3_.resize(vertex_count * 21);
+    splats.opacity_.resize(vertex_count);
     splats.scale_.resize(vertex_count * 3);
     splats.rot_.resize(vertex_count * 4);
 
@@ -89,12 +93,30 @@ Splats Splats::load(const std::string& ply_filepath) {
       splats.position_[i * 3 + 0] = x;
       splats.position_[i * 3 + 1] = y;
       splats.position_[i * 3 + 2] = z;
-      // TODO: SH0 precomputed
-      constexpr float C0 = 0.28209479177387814f;
-      splats.color_[i * 4 + 0] = std::max((f_dc_0 * C0) + 0.5f, 0.f);
-      splats.color_[i * 4 + 1] = std::max((f_dc_1 * C0) + 0.5f, 0.f);
-      splats.color_[i * 4 + 2] = std::max((f_dc_2 * C0) + 0.5f, 0.f);
-      splats.color_[i * 4 + 3] = sigmoid(opacity);
+
+      splats.sh0_[i * 3 + 0] = f_dc_0;
+      splats.sh0_[i * 3 + 1] = f_dc_1;
+      splats.sh0_[i * 3 + 2] = f_dc_2;
+
+      for (int j = 0; j < 9; j++) {
+        splats.sh1_[i * 9 + j] = *reinterpret_cast<float*>(
+            buffer.data() + i * offset +
+            offsets.at("f_rest_" + std::to_string(j)));
+      }
+
+      for (int j = 0; j < 15; j++) {
+        splats.sh2_[i * 15 + j] = *reinterpret_cast<float*>(
+            buffer.data() + i * offset +
+            offsets.at("f_rest_" + std::to_string(9 + j)));
+      }
+
+      for (int j = 0; j < 21; j++) {
+        splats.sh3_[i * 21 + j] = *reinterpret_cast<float*>(
+            buffer.data() + i * offset +
+            offsets.at("f_rest_" + std::to_string(24 + j)));
+      }
+
+      splats.opacity_[i] = sigmoid(opacity);
       splats.scale_[i * 3 + 0] = std::exp(sx);
       splats.scale_[i * 3 + 1] = std::exp(sy);
       splats.scale_[i * 3 + 2] = std::exp(sz);
