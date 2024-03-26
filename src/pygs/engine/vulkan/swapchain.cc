@@ -9,8 +9,7 @@ class Swapchain::Impl {
 
   Impl(Context context, VkSurfaceKHR surface)
       : context_(context), surface_(surface) {
-    usage_ =
-        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    usage_ = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     format_ = VK_FORMAT_B8G8R8A8_SRGB;
 
     VkSurfaceCapabilitiesKHR surface_capabilities;

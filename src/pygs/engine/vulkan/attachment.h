@@ -17,8 +17,8 @@ class Attachment {
  public:
   Attachment();
 
-  Attachment(Context context, VkFormat format, VkSampleCountFlagBits samples,
-             bool input_attachment);
+  Attachment(Context context, uint32_t width, uint32_t height, VkFormat format,
+             VkSampleCountFlagBits samples, bool input_attachment);
 
   ~Attachment();
 

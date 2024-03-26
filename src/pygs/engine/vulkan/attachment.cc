@@ -6,21 +6,12 @@
 
 namespace pygs {
 namespace vk {
-namespace {
-
-constexpr uint32_t max_width = 3840;
-constexpr uint32_t max_height = 2160;
-
-}  // namespace
 
 class Attachment::Impl {
  public:
-  Impl::Impl(Context context, VkFormat format, VkSampleCountFlagBits samples,
-             bool input_attachment)
-      : context_(context), format_(format) {
-    width_ = max_width;
-    height_ = max_height;
-
+  Impl::Impl(Context context, uint32_t width, uint32_t height, VkFormat format,
+             VkSampleCountFlagBits samples, bool input_attachment)
+      : context_(context), width_(width), height_(height), format_(format) {
     usage_ = 0;
     VkImageAspectFlags aspect = 0;
     switch (format) {
@@ -57,8 +48,8 @@ class Attachment::Impl {
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VmaAllocationCreateInfo alloc_info = {};
+    alloc_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
     alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-
     vmaCreateImage(context.allocator(), &image_info, &alloc_info, &image_,
                    &allocation_, NULL);
 
@@ -98,10 +89,11 @@ class Attachment::Impl {
 
 Attachment::Attachment() = default;
 
-Attachment::Attachment(Context context, VkFormat format,
-                       VkSampleCountFlagBits samples, bool input_attachment)
-    : impl_(
-          std::make_shared<Impl>(context, format, samples, input_attachment)) {}
+Attachment::Attachment(Context context, uint32_t width, uint32_t height,
+                       VkFormat format, VkSampleCountFlagBits samples,
+                       bool input_attachment)
+    : impl_(std::make_shared<Impl>(context, width, height, format, samples,
+                                   input_attachment)) {}
 
 Attachment::~Attachment() = default;
 

@@ -48,12 +48,6 @@ class Engine::Impl {
     // render pass
     render_pass_ = vk::RenderPass(context_, vk::RenderPassType::NORMAL);
 
-    // attachments
-    color_attachment_ = vk::Attachment(context_, VK_FORMAT_B8G8R8A8_SRGB,
-                                       VK_SAMPLE_COUNT_4_BIT, false);
-    depth_attachment_ = vk::Attachment(context_, VK_FORMAT_D24_UNORM_S8_UINT,
-                                       VK_SAMPLE_COUNT_4_BIT, false);
-
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
       descriptor_layout_info.bindings.resize(1);
@@ -510,6 +504,13 @@ class Engine::Impl {
       auto swapchain = vk::Swapchain(context_, surface);
       swapchains_[window_ptr] = swapchain;
 
+      color_attachment_ =
+          vk::Attachment(context_, swapchain.width(), swapchain.height(),
+                         VK_FORMAT_B8G8R8A8_SRGB, VK_SAMPLE_COUNT_4_BIT, false);
+      depth_attachment_ = vk::Attachment(
+          context_, swapchain.width(), swapchain.height(),
+          VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
+
       vk::FramebufferCreateInfo framebuffer_info;
       framebuffer_info.render_pass = render_pass_;
       framebuffer_info.width = swapchain.width();
@@ -526,6 +527,13 @@ class Engine::Impl {
       vkWaitForFences(context_.device(), render_finished_fences_.size(),
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain.Recreate();
+
+      color_attachment_ =
+          vk::Attachment(context_, swapchain.width(), swapchain.height(),
+                         VK_FORMAT_B8G8R8A8_SRGB, VK_SAMPLE_COUNT_4_BIT, false);
+      depth_attachment_ = vk::Attachment(
+          context_, swapchain.width(), swapchain.height(),
+          VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
 
       vk::FramebufferCreateInfo framebuffer_info;
       framebuffer_info.render_pass = render_pass_;
