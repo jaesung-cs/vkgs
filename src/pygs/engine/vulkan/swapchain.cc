@@ -10,7 +10,7 @@ class Swapchain::Impl {
   Impl(Context context, VkSurfaceKHR surface)
       : context_(context), surface_(surface) {
     usage_ = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    format_ = VK_FORMAT_B8G8R8A8_SRGB;
+    format_ = VK_FORMAT_B8G8R8A8_UNORM;
 
     VkSurfaceCapabilitiesKHR surface_capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.physical_device(),
@@ -20,7 +20,7 @@ class Swapchain::Impl {
         VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swapchain_info.surface = surface_;
     swapchain_info.minImageCount = 3;
-    swapchain_info.imageFormat = VK_FORMAT_B8G8R8A8_SRGB;
+    swapchain_info.imageFormat = format_;
     swapchain_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     swapchain_info.imageExtent = surface_capabilities.currentExtent;
     swapchain_info.imageArrayLayers = 1;

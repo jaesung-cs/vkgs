@@ -19,7 +19,7 @@ class RenderPass {
  public:
   RenderPass();
 
-  RenderPass(Context context, RenderPassType type);
+  RenderPass(Context context);
 
   ~RenderPass();
 

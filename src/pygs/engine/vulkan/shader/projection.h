@@ -94,9 +94,10 @@ void main() {
   // projection xy
   mat2 projection_scale = mat2(projection);
   mat2 cov2d = projection_scale * mat2(cov3d) * projection_scale;
-  const float low_pass_filter = 0.0000001f;
-  cov2d[0][0] += low_pass_filter;
-  cov2d[1][1] += low_pass_filter;
+
+  // low-pass filter
+  cov2d[0][0] += 1.f / 1600.f / 1600.f;
+  cov2d[1][1] += 1.f / 900.f / 900.f;
 
   pos = projection * pos;
   pos = pos / pos.w;

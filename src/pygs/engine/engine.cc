@@ -46,7 +46,7 @@ class Engine::Impl {
     context_ = vk::Context(0);
 
     // render pass
-    render_pass_ = vk::RenderPass(context_, vk::RenderPassType::NORMAL);
+    render_pass_ = vk::RenderPass(context_);
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
@@ -504,9 +504,9 @@ class Engine::Impl {
       auto swapchain = vk::Swapchain(context_, surface);
       swapchains_[window_ptr] = swapchain;
 
-      color_attachment_ =
-          vk::Attachment(context_, swapchain.width(), swapchain.height(),
-                         VK_FORMAT_B8G8R8A8_SRGB, VK_SAMPLE_COUNT_4_BIT, false);
+      color_attachment_ = vk::Attachment(
+          context_, swapchain.width(), swapchain.height(),
+          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
       depth_attachment_ = vk::Attachment(
           context_, swapchain.width(), swapchain.height(),
           VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
@@ -528,9 +528,9 @@ class Engine::Impl {
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain.Recreate();
 
-      color_attachment_ =
-          vk::Attachment(context_, swapchain.width(), swapchain.height(),
-                         VK_FORMAT_B8G8R8A8_SRGB, VK_SAMPLE_COUNT_4_BIT, false);
+      color_attachment_ = vk::Attachment(
+          context_, swapchain.width(), swapchain.height(),
+          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
       depth_attachment_ = vk::Attachment(
           context_, swapchain.width(), swapchain.height(),
           VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
@@ -834,9 +834,9 @@ class Engine::Impl {
   void DrawNormalPass(VkCommandBuffer cb, uint32_t frame_index, uint32_t width,
                       uint32_t height, VkImageView target_image_view) {
     std::vector<VkClearValue> clear_values(2);
-    clear_values[0].color.float32[0] = 0.5f;
-    clear_values[0].color.float32[1] = 0.5f;
-    clear_values[0].color.float32[2] = 0.5f;
+    clear_values[0].color.float32[0] = 0.0f;
+    clear_values[0].color.float32[1] = 0.0f;
+    clear_values[0].color.float32[2] = 0.0f;
     clear_values[0].color.float32[3] = 1.f;
     clear_values[1].depthStencil.depth = 1.f;
 
