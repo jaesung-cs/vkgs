@@ -319,7 +319,7 @@ class Radixsort::Impl {
 
   static constexpr uint32_t WORKGROUP_SIZE = 256;
   static constexpr uint32_t RADIX_SORT_BINS = 256;
-  static constexpr uint32_t NUM_BLOCKS_PER_WORKGROUP = 32;
+  static constexpr uint32_t NUM_BLOCKS_PER_WORKGROUP = 1024;
 
   Buffer histogram_buffer_;
   Buffer value_buffer_;
