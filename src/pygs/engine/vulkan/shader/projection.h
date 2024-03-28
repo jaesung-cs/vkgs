@@ -18,6 +18,10 @@ layout (set = 0, binding = 0) uniform Camera {
   uvec2 screen_size;  // (width, height)
 };
 
+layout (push_constant, std430) uniform PushConstants {
+  mat4 model;
+};
+
 layout (std430, set = 1, binding = 1) readonly buffer GaussianPosition {
   float gaussian_position[];  // (N, 3)
 };
@@ -66,6 +70,11 @@ void main() {
   // [v0.y v1.x v1.y]
   // [v0.z v1.y v1.z]
   mat3 cov3d = mat3(v0, v0.y, v1.xy, v0.z, v1.yz);
+
+  // model matrix
+  mat3 model3d = mat3(model);
+  cov3d = model3d * cov3d * transpose(model3d);
+  pos = model * pos;
 
   // view matrix
   mat3 view3d = mat3(view);

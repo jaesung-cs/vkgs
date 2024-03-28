@@ -12,6 +12,7 @@
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <pygs/scene/camera.h>
 #include <pygs/scene/splats.h>
@@ -143,6 +144,13 @@ class Engine::Impl {
       pipeline_layout_info.layouts = {camera_descriptor_layout_,
                                       gaussian_descriptor_layout_,
                                       instance_layout_};
+
+      pipeline_layout_info.push_constants.resize(1);
+      pipeline_layout_info.push_constants[0].stageFlags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
+      pipeline_layout_info.push_constants[0].offset = 0;
+      pipeline_layout_info.push_constants[0].size = sizeof(glm::mat4);
+
       compute_pipeline_layout_ =
           vk::PipelineLayout(context_, pipeline_layout_info);
     }
@@ -528,6 +536,11 @@ class Engine::Impl {
       command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       vkBeginCommandBuffer(cb, &command_begin_info);
 
+      // default model matrix for gaussian splats model, upside down
+      glm::mat4 model(1.f);
+      model[1][1] = -1.f;
+      model[2][2] = -1.f;
+
       // order
       {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
@@ -604,6 +617,10 @@ class Engine::Impl {
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
                                 compute_pipeline_layout_, 0, descriptors.size(),
                                 descriptors.data(), 0, nullptr);
+
+        vkCmdPushConstants(cb, compute_pipeline_layout_,
+                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
+                           glm::value_ptr(model));
 
         constexpr int local_size = 256;
         vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
@@ -703,6 +720,10 @@ class Engine::Impl {
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
                           projection_pipeline_);
+
+        vkCmdPushConstants(cb, compute_pipeline_layout_,
+                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
+                           glm::value_ptr(model));
 
         constexpr int local_size = 256;
         vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);

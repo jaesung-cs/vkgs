@@ -18,6 +18,10 @@ layout (set = 0, binding = 0) uniform Camera {
   uvec2 screen_size;  // (width, height)
 };
 
+layout (push_constant, std430) uniform PushConstants {
+  mat4 model;
+};
+
 layout (set = 1, binding = 0) uniform Info {
   uint point_count;
 };
@@ -51,7 +55,7 @@ void main() {
   if (id >= point_count) return;
 
   vec4 pos = vec4(gaussian_position[id * 3 + 0], gaussian_position[id * 3 + 1], gaussian_position[id * 3 + 2], 1.f);
-  pos = projection * view * pos;
+  pos = projection * view * model * pos;
   pos = pos / pos.w;
   float depth = pos.z;
 
