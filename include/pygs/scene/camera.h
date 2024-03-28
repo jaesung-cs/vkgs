@@ -18,6 +18,8 @@ class Camera {
   glm::mat4 ProjectionMatrix() const;
   glm::mat4 ViewMatrix() const;
   glm::vec3 Eye() const;
+  uint32_t width() const noexcept { return width_; }
+  uint32_t height() const noexcept { return height_; }
 
   void Rotate(float x, float y);
   void Translate(float x, float y);

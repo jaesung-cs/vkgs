@@ -11,6 +11,7 @@ struct alignas(64) Camera {
   glm::mat4 projection;
   glm::mat4 view;
   glm::vec3 camera_position;
+  alignas(16) glm::uvec2 screen_size;
 };
 
 struct SplatInfo {

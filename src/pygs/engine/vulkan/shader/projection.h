@@ -14,6 +14,8 @@ layout (set = 0, binding = 0) uniform Camera {
   mat4 projection;
   mat4 view;
   vec3 camera_position;
+  float pad0;
+  uvec2 screen_size;  // (width, height)
 };
 
 layout (std430, set = 1, binding = 1) readonly buffer GaussianPosition {
@@ -96,8 +98,8 @@ void main() {
   mat2 cov2d = projection_scale * mat2(cov3d) * projection_scale;
 
   // low-pass filter
-  cov2d[0][0] += 1.f / 1600.f / 1600.f;
-  cov2d[1][1] += 1.f / 900.f / 900.f;
+  cov2d[0][0] += 1.f / screen_size.x / screen_size.x;
+  cov2d[1][1] += 1.f / screen_size.y / screen_size.y;
 
   pos = projection * pos;
   pos = pos / pos.w;

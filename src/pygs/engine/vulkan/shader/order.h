@@ -13,6 +13,9 @@ layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 layout (set = 0, binding = 0) uniform Camera {
   mat4 projection;
   mat4 view;
+  vec3 camera_position;
+  float pad0;
+  uvec2 screen_size;  // (width, height)
 };
 
 layout (set = 1, binding = 0) uniform Info {

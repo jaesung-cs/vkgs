@@ -562,6 +562,8 @@ class Engine::Impl {
       camera_buffer_[frame_index].projection = camera.ProjectionMatrix();
       camera_buffer_[frame_index].view = camera.ViewMatrix();
       camera_buffer_[frame_index].camera_position = camera.Eye();
+      camera_buffer_[frame_index].screen_size = {camera.width(),
+                                                 camera.height()};
 
       VkCommandBufferBeginInfo command_begin_info = {
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
