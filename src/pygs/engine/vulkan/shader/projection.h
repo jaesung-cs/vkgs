@@ -35,7 +35,7 @@ layout (std430, set = 1, binding = 3) readonly buffer GaussianOpacity {
 };
 
 layout (std430, set = 1, binding = 4) readonly buffer GaussianSh {
-  vec4 gaussian_sh[];  // (N, 3, 16), 16 packed with 4 vec4.
+  vec4 gaussian_sh[];  // (N, 3, 4, 4), 16 values packed with 4 vec4.
 };
 
 layout (std430, set = 2, binding = 0) readonly buffer DrawIndirect {

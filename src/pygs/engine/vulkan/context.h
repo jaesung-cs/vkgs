@@ -28,13 +28,14 @@ class Context {
 
   ~Context();
 
-  VkInstance instance() const noexcept;
-  VkPhysicalDevice physical_device() const noexcept;
-  VkDevice device() const noexcept;
-  VkQueue queue() const noexcept;
-  VmaAllocator allocator() const noexcept;
-  VkCommandPool command_pool() const noexcept;
-  VkDescriptorPool descriptor_pool() const noexcept;
+  VkInstance instance() const;
+  VkPhysicalDevice physical_device() const;
+  VkDevice device() const;
+  uint32_t queue_family_index() const;
+  VkQueue queue() const;
+  VmaAllocator allocator() const;
+  VkCommandPool command_pool() const;
+  VkDescriptorPool descriptor_pool() const;
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
   VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,

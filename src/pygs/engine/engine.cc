@@ -10,6 +10,10 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -37,6 +41,15 @@
 #include "vulkan/shader/splat_outline.h"
 
 namespace pygs {
+namespace {
+
+void check_vk_result(VkResult err) {
+  if (err == 0) return;
+  std::cerr << "[imgui vulkan] Error: VkResult = " << err << std::endl;
+  if (err < 0) abort();
+}
+
+}  // namespace
 
 class Engine::Impl {
  public:
@@ -313,6 +326,10 @@ class Engine::Impl {
 
     vkDestroyFence(context_.device(), sort_fence_, NULL);
 
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
     glfwTerminate();
   }
 
@@ -456,58 +473,108 @@ class Engine::Impl {
     radix_sorter_ = vk::Radixsort(context_, point_count_);
   }
 
-  void Draw(Window window, const Camera& camera) {
-    /* projection:
-    0.974279 0 0 0
-    0 -1.73205 0 0
-    0 0 -1.0001 -0.010001
-    0 0 -1 0
-    */
-    auto window_ptr = window.window();
-    if (swapchains_.count(window_ptr) == 0) {
-      VkSurfaceKHR surface;
-      glfwCreateWindowSurface(context_.instance(), window_ptr, NULL, &surface);
-      auto swapchain = vk::Swapchain(context_, surface);
-      swapchains_[window_ptr] = swapchain;
+  void Run() {
+    // create window
+    width_ = 1600;
+    height_ = 900;
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    window_ = glfwCreateWindow(width_, height_, "pygs", NULL, NULL);
 
-      color_attachment_ = vk::Attachment(
-          context_, swapchain.width(), swapchain.height(),
-          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-      depth_attachment_ = vk::Attachment(
-          context_, swapchain.width(), swapchain.height(),
-          VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
+    // create swapchain
+    VkSurfaceKHR surface;
+    glfwCreateWindowSurface(context_.instance(), window_, NULL, &surface);
+    swapchain_ = vk::Swapchain(context_, surface);
 
-      vk::FramebufferCreateInfo framebuffer_info;
-      framebuffer_info.render_pass = render_pass_;
-      framebuffer_info.width = swapchain.width();
-      framebuffer_info.height = swapchain.height();
-      framebuffer_info.image_specs = {color_attachment_.image_spec(),
-                                      depth_attachment_.image_spec(),
-                                      swapchain.image_spec()};
-      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+    color_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
+    depth_attachment_ = vk::Attachment(
+        context_, swapchain_.width(), swapchain_.height(),
+        VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
+
+    vk::FramebufferCreateInfo framebuffer_info;
+    framebuffer_info.render_pass = render_pass_;
+    framebuffer_info.width = swapchain_.width();
+    framebuffer_info.height = swapchain_.height();
+    framebuffer_info.image_specs = {color_attachment_.image_spec(),
+                                    depth_attachment_.image_spec(),
+                                    swapchain_.image_spec()};
+    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+
+    // Setup Dear ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplGlfw_InitForVulkan(window_, true);
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.Instance = context_.instance();
+    init_info.PhysicalDevice = context_.physical_device();
+    init_info.Device = context_.device();
+    init_info.QueueFamily = context_.queue_family_index();
+    init_info.Queue = context_.queue();
+    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.DescriptorPool = context_.descriptor_pool();
+    init_info.RenderPass = render_pass_;
+    init_info.Subpass = 0;
+    init_info.MinImageCount = 3;
+    init_info.ImageCount = swapchain_.image_count();
+    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
+    init_info.Allocator = VK_NULL_HANDLE;
+    init_info.CheckVkResultFn = check_vk_result;
+    ImGui_ImplVulkan_Init(&init_info);
+
+    // main loop
+    while (!glfwWindowShouldClose(window_)) {
+      glfwPollEvents();
+
+      // handle events
+      if (!io.WantCaptureMouse) {
+        bool left = io.MouseDown[ImGuiMouseButton_Left];
+        bool right = io.MouseDown[ImGuiMouseButton_Right];
+        float dx = io.MouseDelta.x;
+        float dy = io.MouseDelta.y;
+
+        if (left && !right) {
+          camera_.Rotate(dx, dy);
+        } else if (!left && right) {
+          camera_.Translate(dx, dy);
+        } else if (left && right) {
+          camera_.Zoom(dy);
+        }
+      }
+
+      int width, height;
+      glfwGetFramebufferSize(window_, &width, &height);
+      camera_.SetWindowSize(width, height);
+
+      Draw();
     }
+  }
 
-    auto swapchain = swapchains_[window_ptr];
-
-    if (swapchain.ShouldRecreate()) {
+ private:
+  void Draw() {
+    // recreate swapchain if need resize
+    if (swapchain_.ShouldRecreate()) {
       vkWaitForFences(context_.device(), render_finished_fences_.size(),
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
-      swapchain.Recreate();
+      swapchain_.Recreate();
 
       color_attachment_ = vk::Attachment(
-          context_, swapchain.width(), swapchain.height(),
+          context_, swapchain_.width(), swapchain_.height(),
           VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
       depth_attachment_ = vk::Attachment(
-          context_, swapchain.width(), swapchain.height(),
+          context_, swapchain_.width(), swapchain_.height(),
           VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
 
       vk::FramebufferCreateInfo framebuffer_info;
       framebuffer_info.render_pass = render_pass_;
-      framebuffer_info.width = swapchain.width();
-      framebuffer_info.height = swapchain.height();
+      framebuffer_info.width = swapchain_.width();
+      framebuffer_info.height = swapchain_.height();
       framebuffer_info.image_specs = {color_attachment_.image_spec(),
                                       depth_attachment_.image_spec(),
-                                      swapchain.image_spec()};
+                                      swapchain_.image_spec()};
       framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
@@ -520,16 +587,31 @@ class Engine::Impl {
     VkCommandBuffer cb = draw_command_buffers_[frame_index];
 
     uint32_t image_index;
-    if (swapchain.AcquireNextImage(image_acquired_semaphore, &image_index)) {
+    if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
+      // draw ui
+      {
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        const auto& io = ImGui::GetIO();
+        if (ImGui::Begin("pygs")) {
+          ImGui::Text("fps = %f", io.Framerate);
+        }
+        ImGui::End();
+        ImGui::Render();
+      }
+
+      // record command buffer
       vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
                       UINT64_MAX);
       vkResetFences(context_.device(), 1, &render_finished_fence);
 
-      camera_buffer_[frame_index].projection = camera.ProjectionMatrix();
-      camera_buffer_[frame_index].view = camera.ViewMatrix();
-      camera_buffer_[frame_index].camera_position = camera.Eye();
-      camera_buffer_[frame_index].screen_size = {camera.width(),
-                                                 camera.height()};
+      camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
+      camera_buffer_[frame_index].view = camera_.ViewMatrix();
+      camera_buffer_[frame_index].camera_position = camera_.Eye();
+      camera_buffer_[frame_index].screen_size = {camera_.width(),
+                                                 camera_.height()};
 
       VkCommandBufferBeginInfo command_begin_info = {
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -759,8 +841,8 @@ class Engine::Impl {
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        DrawNormalPass(cb, frame_index, swapchain.width(), swapchain.height(),
-                       swapchain.image_view(image_index));
+        DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(),
+                       swapchain_.image_view(image_index));
       }
 
       vkEndCommandBuffer(cb);
@@ -798,7 +880,7 @@ class Engine::Impl {
       submit_info.pSignalSemaphoreInfos = signal_semaphores.data();
       vkQueueSubmit2(context_.queue(), 1, &submit_info, render_finished_fence);
 
-      VkSwapchainKHR swapchain_handle = swapchain.swapchain();
+      VkSwapchainKHR swapchain_handle = swapchain_;
       VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
       present_info.waitSemaphoreCount = 1;
       present_info.pWaitSemaphores = &render_finished_semaphore;
@@ -811,7 +893,6 @@ class Engine::Impl {
     }
   }
 
- private:
   void DrawNormalPass(VkCommandBuffer cb, uint32_t frame_index, uint32_t width,
                       uint32_t height, VkImageView target_image_view) {
     std::vector<VkClearValue> clear_values(2);
@@ -878,11 +959,21 @@ class Engine::Impl {
       vkCmdDrawIndexedIndirect(cb, splat_indirect_buffer_, 0, 1, 0);
     }
 
+    // draw ui
+    ImDrawData* draw_data = ImGui::GetDrawData();
+    ImGui_ImplVulkan_RenderDrawData(draw_data, cb);
+
     vkCmdEndRenderPass(cb);
   }
 
+  GLFWwindow* window_ = nullptr;
+  int width_ = 0;
+  int height_ = 0;
+
+  Camera camera_;
+
   vk::Context context_;
-  std::unordered_map<GLFWwindow*, vk::Swapchain> swapchains_;
+  vk::Swapchain swapchain_;
 
   std::vector<VkCommandBuffer> draw_command_buffers_;
   std::vector<VkSemaphore> image_acquired_semaphores_;
@@ -942,8 +1033,6 @@ Engine::~Engine() {}
 
 void Engine::AddSplats(const Splats& splats) { impl_->AddSplats(splats); }
 
-void Engine::Draw(Window window, const Camera& camera) {
-  impl_->Draw(window, camera);
-}
+void Engine::Run() { impl_->Run(); }
 
 }  // namespace pygs

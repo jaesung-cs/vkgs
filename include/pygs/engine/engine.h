@@ -3,11 +3,8 @@
 
 #include <memory>
 
-#include <pygs/window/window.h>
-
 namespace pygs {
 
-class Camera;
 class Splats;
 
 class Engine {
@@ -16,7 +13,7 @@ class Engine {
   ~Engine();
 
   void AddSplats(const Splats& splats);
-  void Draw(Window window, const Camera& camera);
+  void Run();
 
  private:
   class Impl;

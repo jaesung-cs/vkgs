@@ -19,12 +19,13 @@ class Swapchain {
 
   ~Swapchain();
 
-  VkSwapchainKHR swapchain() const;
+  operator VkSwapchainKHR() const;
   uint32_t width() const;
   uint32_t height() const;
   VkImageUsageFlags usage() const;
   VkFormat format() const;
   ImageSpec image_spec() const;
+  int image_count() const;
   VkImage image(int index) const;
   VkImageView image_view(int index) const;
   bool ShouldRecreate() const;

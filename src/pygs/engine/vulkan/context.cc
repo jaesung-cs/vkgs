@@ -199,6 +199,8 @@ class Context::Impl {
     };
     VkDescriptorPoolCreateInfo descriptor_pool_info = {
         VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    descriptor_pool_info.flags =
+        VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     descriptor_pool_info.maxSets = 1048576;
     descriptor_pool_info.poolSizeCount = pool_sizes.size();
     descriptor_pool_info.pPoolSizes = pool_sizes.data();
@@ -219,6 +221,7 @@ class Context::Impl {
   VkInstance instance() const noexcept { return instance_; }
   VkPhysicalDevice physical_device() const noexcept { return physical_device_; }
   VkDevice device() const noexcept { return device_; }
+  uint32_t queue_family_index() const noexcept { return queue_family_index_; }
   VkQueue queue() const noexcept { return queue_; }
   VmaAllocator allocator() const noexcept { return allocator_; }
   VkCommandPool command_pool() const noexcept { return command_pool_; }
@@ -279,23 +282,25 @@ Context::Context(int) : impl_(std::make_shared<Impl>()) {}
 
 Context::~Context() = default;
 
-VkInstance Context::instance() const noexcept { return impl_->instance(); }
+VkInstance Context::instance() const { return impl_->instance(); }
 
-VkPhysicalDevice Context::physical_device() const noexcept {
+VkPhysicalDevice Context::physical_device() const {
   return impl_->physical_device();
 }
 
-VkDevice Context::device() const noexcept { return impl_->device(); }
+VkDevice Context::device() const { return impl_->device(); }
 
-VkQueue Context::queue() const noexcept { return impl_->queue(); }
-
-VmaAllocator Context::allocator() const noexcept { return impl_->allocator(); }
-
-VkCommandPool Context::command_pool() const noexcept {
-  return impl_->command_pool();
+uint32_t Context::queue_family_index() const {
+  return impl_->queue_family_index();
 }
 
-VkDescriptorPool Context::descriptor_pool() const noexcept {
+VkQueue Context::queue() const { return impl_->queue(); }
+
+VmaAllocator Context::allocator() const { return impl_->allocator(); }
+
+VkCommandPool Context::command_pool() const { return impl_->command_pool(); }
+
+VkDescriptorPool Context::descriptor_pool() const {
   return impl_->descriptor_pool();
 }
 

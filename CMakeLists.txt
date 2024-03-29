@@ -14,7 +14,6 @@ add_subdirectory(third_party/glm EXCLUDE_FROM_ALL)
 
 # pygs
 add_library(pygs STATIC
-  src/pygs/window/window.cc
   src/pygs/scene/camera.cc
   src/pygs/scene/splats.cc
   src/pygs/engine/engine.cc
@@ -35,11 +34,22 @@ add_library(pygs STATIC
   src/pygs/engine/vulkan/swapchain.cc
   src/pygs/engine/vulkan/uniform_buffer.cc
   src/pygs/engine/vulkan/vma_impl.cc
+  # imgui
+  third_party/imgui/backends/imgui_impl_glfw.cpp
+  third_party/imgui/backends/imgui_impl_vulkan.cpp
+  third_party/imgui/imgui.cpp
+  third_party/imgui/imgui_draw.cpp
+  third_party/imgui/imgui_demo.cpp
+  third_party/imgui/imgui_tables.cpp
+  third_party/imgui/imgui_widgets.cpp
 )
 
 target_include_directories(pygs
   PUBLIC include
-  PRIVATE src
+  PRIVATE
+    src
+    third_party/imgui
+    third_party/imgui/backends
 )
 
 target_link_libraries(pygs

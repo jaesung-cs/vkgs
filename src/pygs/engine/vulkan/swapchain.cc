@@ -62,7 +62,7 @@ class Swapchain::Impl {
     vkDestroySurfaceKHR(context_.instance(), surface_, NULL);
   }
 
-  VkSwapchainKHR swapchain() const noexcept { return swapchain_; }
+  operator VkSwapchainKHR() const noexcept { return swapchain_; }
   uint32_t width() const noexcept { return width_; }
   uint32_t height() const noexcept { return height_; }
   VkImageUsageFlags usage() const noexcept { return usage_; }
@@ -70,6 +70,7 @@ class Swapchain::Impl {
   ImageSpec image_spec() const noexcept {
     return ImageSpec{width_, height_, usage_, format_};
   }
+  int image_count() const noexcept { return images_.size(); }
   VkImage image(int index) const { return images_[index]; }
   VkImageView image_view(int index) const { return image_views_[index]; }
 
@@ -171,7 +172,7 @@ Swapchain::Swapchain(Context context, VkSurfaceKHR surface)
 
 Swapchain::~Swapchain() = default;
 
-VkSwapchainKHR Swapchain::swapchain() const { return impl_->swapchain(); }
+Swapchain::operator VkSwapchainKHR() const { return *impl_; }
 
 uint32_t Swapchain::width() const { return impl_->width(); }
 
@@ -182,6 +183,8 @@ VkImageUsageFlags Swapchain::usage() const { return impl_->usage(); }
 VkFormat Swapchain::format() const { return impl_->format(); }
 
 ImageSpec Swapchain::image_spec() const { return impl_->image_spec(); }
+
+int Swapchain::image_count() const { return impl_->image_count(); }
 
 VkImage Swapchain::image(int index) const { return impl_->image(index); }
 
