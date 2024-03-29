@@ -37,8 +37,8 @@
 #include "vulkan/shader/uniforms.h"
 #include "vulkan/shader/projection.h"
 #include "vulkan/shader/order.h"
+#include "vulkan/shader/inverse_map.h"
 #include "vulkan/shader/splat.h"
-#include "vulkan/shader/splat_outline.h"
 
 namespace pygs {
 namespace {
@@ -119,7 +119,7 @@ class Engine::Impl {
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
-      descriptor_layout_info.bindings.resize(4);
+      descriptor_layout_info.bindings.resize(5);
       descriptor_layout_info.bindings[0] = {};
       descriptor_layout_info.bindings[0].binding = 0;
       descriptor_layout_info.bindings[0].descriptor_type =
@@ -146,6 +146,13 @@ class Engine::Impl {
       descriptor_layout_info.bindings[3].descriptor_type =
           VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[3].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
+
+      descriptor_layout_info.bindings[4] = {};
+      descriptor_layout_info.bindings[4].binding = 4;
+      descriptor_layout_info.bindings[4].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[4].stage_flags =
           VK_SHADER_STAGE_COMPUTE_BIT;
 
       instance_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
@@ -182,6 +189,14 @@ class Engine::Impl {
       pipeline_info.layout = compute_pipeline_layout_;
       pipeline_info.compute_shader = vk::shader::order_comp;
       order_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
+    }
+
+    // inverse map pipeline
+    {
+      vk::ComputePipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = compute_pipeline_layout_;
+      pipeline_info.compute_shader = vk::shader::inverse_map_comp;
+      inverse_map_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
     // projection pipeline
@@ -392,13 +407,14 @@ class Engine::Impl {
         context_, point_count_ * 10 * sizeof(float),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
-    instance_key_buffer_ = vk::Buffer(
+    instance_key_buffer_ = vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    instance_index_buffer_ =
+        vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    inverse_map_buffer_ = vk::Buffer(
         context_, point_count_ * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-    instance_index_buffer_ = vk::Buffer(
-        context_, point_count_ * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     splat_info_buffer_[0].point_count = point_count_;
 
@@ -468,6 +484,8 @@ class Engine::Impl {
                                       instance_key_buffer_.size());
     splat_instance_descriptor_.Update(3, instance_index_buffer_, 0,
                                       instance_index_buffer_.size());
+    splat_instance_descriptor_.Update(4, inverse_map_buffer_, 0,
+                                      inverse_map_buffer_.size());
 
     // create sorter
     radix_sorter_ = vk::Radixsort(context_, point_count_);
@@ -753,6 +771,83 @@ class Engine::Impl {
                            instance_key_buffer_, instance_index_buffer_);
       }
 
+      // inverse map
+      {
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        buffer_barriers[0].buffer = inverse_map_buffer_;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = inverse_map_buffer_.size();
+
+        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+
+        vkCmdFillBuffer(cb, inverse_map_buffer_, 0, inverse_map_buffer_.size(),
+                        -1);
+
+        buffer_barriers.resize(3);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].offset = 1 * sizeof(uint32_t);
+        buffer_barriers[0].size = sizeof(uint32_t);
+
+        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[1].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[1].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[1].buffer = instance_index_buffer_;
+        buffer_barriers[1].offset = 0;
+        buffer_barriers[1].size = instance_index_buffer_.size();
+
+        buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        buffer_barriers[2].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        buffer_barriers[2].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[2].buffer = inverse_map_buffer_;
+        buffer_barriers[2].offset = 0;
+        buffer_barriers[2].size = inverse_map_buffer_.size();
+
+        barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+
+        std::vector<VkDescriptorSet> descriptors = {
+            camera_descriptors_[frame_index], gaussian_descriptor_,
+            splat_instance_descriptor_};
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                compute_pipeline_layout_, 0, descriptors.size(),
+                                descriptors.data(), 0, nullptr);
+
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          inverse_map_pipeline_);
+
+        vkCmdPushConstants(cb, compute_pipeline_layout_,
+                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
+                           glm::value_ptr(model));
+
+        constexpr int local_size = 256;
+        vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+      }
+
       // projection
       {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(3);
@@ -792,13 +887,6 @@ class Engine::Impl {
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
-
-        std::vector<VkDescriptorSet> descriptors = {
-            camera_descriptors_[frame_index], gaussian_descriptor_,
-            splat_instance_descriptor_};
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                compute_pipeline_layout_, 0, descriptors.size(),
-                                descriptors.data(), 0, nullptr);
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
                           projection_pipeline_);
@@ -988,6 +1076,7 @@ class Engine::Impl {
 
   // preprocess
   vk::ComputePipeline order_pipeline_;
+  vk::ComputePipeline inverse_map_pipeline_;
   vk::ComputePipeline projection_pipeline_;
   vk::Radixsort radix_sorter_;
 
@@ -1012,6 +1101,7 @@ class Engine::Impl {
 
   vk::Buffer instance_key_buffer_;
   vk::Buffer instance_index_buffer_;
+  vk::Buffer inverse_map_buffer_;
 
   vk::Buffer splat_vertex_buffer_;    // gaussian2d quad
   vk::Buffer splat_index_buffer_;     // gaussian2d quad

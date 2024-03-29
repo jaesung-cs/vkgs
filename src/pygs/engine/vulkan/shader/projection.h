@@ -22,6 +22,10 @@ layout (push_constant, std430) uniform PushConstants {
   mat4 model;
 };
 
+layout (set = 1, binding = 0) uniform Info {
+  uint point_count;
+};
+
 layout (std430, set = 1, binding = 1) readonly buffer GaussianPosition {
   float gaussian_position[];  // (N, 3)
 };
@@ -38,31 +42,24 @@ layout (std430, set = 1, binding = 4) readonly buffer GaussianSh {
   vec4 gaussian_sh[];  // (N, 3, 4, 4), 16 values packed with 4 vec4.
 };
 
-layout (std430, set = 2, binding = 0) readonly buffer DrawIndirect {
-  uint indexCount;
-  uint instanceCount;
-  uint firstIndex;
-  int vertexOffset;
-  uint firstInstance;
-};
-
 layout (std430, set = 2, binding = 1) writeonly buffer Instances {
-  float instances[];  // (M, 10). 3 for ndc position, 3 for cov2d, 4 for color
+  float instances[];  // (N, 10). 3 for ndc position, 3 for cov2d, 4 for color
 };
 
-layout (std430, set = 2, binding = 3) readonly buffer InstanceIndex {
-  uint index[];
+layout (std430, set = 2, binding = 4) readonly buffer InverseMap {
+  int inverse_map[];  // (N), inverse map from id to sorted index
 };
 
 void main() {
   uint id = gl_GlobalInvocationID.x;
-  if (id >= instanceCount) return;
+  if (id >= point_count) return;
 
-  uint gaussian_id = index[id];
+  int inverse_id = inverse_map[id];
+  if (inverse_id == -1) return;
 
-  vec3 v0 = vec3(gaussian_cov3d[gaussian_id * 6 + 0], gaussian_cov3d[gaussian_id * 6 + 1], gaussian_cov3d[gaussian_id * 6 + 2]);
-  vec3 v1 = vec3(gaussian_cov3d[gaussian_id * 6 + 3], gaussian_cov3d[gaussian_id * 6 + 4], gaussian_cov3d[gaussian_id * 6 + 5]);
-  vec4 pos = vec4(gaussian_position[gaussian_id * 3 + 0], gaussian_position[gaussian_id * 3 + 1], gaussian_position[gaussian_id * 3 + 2], 1.f);
+  vec3 v0 = vec3(gaussian_cov3d[id * 6 + 0], gaussian_cov3d[id * 6 + 1], gaussian_cov3d[id * 6 + 2]);
+  vec3 v1 = vec3(gaussian_cov3d[id * 6 + 3], gaussian_cov3d[id * 6 + 4], gaussian_cov3d[id * 6 + 5]);
+  vec4 pos = vec4(gaussian_position[id * 3 + 0], gaussian_position[id * 3 + 1], gaussian_position[id * 3 + 2], 1.f);
 
 	vec3 dir = normalize(pos.xyz - camera_position);
 
@@ -126,28 +123,28 @@ void main() {
   vec4 basis2 = vec4(C22 * (xx - yy), -C30 * y * (3.f * xx - yy), C31 * xy * z, -C32 * y * (4.f * zz - xx - yy));
   vec4 basis3 = vec4(C33 * z * (2.f * zz - 3.f * xx - 3.f * yy), -C32 * x * (4.f * zz - xx - yy), C34 * z * (xx - yy), -C30 * x * (xx - 3.f * yy));
 
-  mat3x4 sh0 = mat3x4(gaussian_sh[gaussian_id * 12 + 0], gaussian_sh[gaussian_id * 12 + 4], gaussian_sh[gaussian_id * 12 +  8]);
-  mat3x4 sh1 = mat3x4(gaussian_sh[gaussian_id * 12 + 1], gaussian_sh[gaussian_id * 12 + 5], gaussian_sh[gaussian_id * 12 +  9]);
-  mat3x4 sh2 = mat3x4(gaussian_sh[gaussian_id * 12 + 2], gaussian_sh[gaussian_id * 12 + 6], gaussian_sh[gaussian_id * 12 + 10]);
-  mat3x4 sh3 = mat3x4(gaussian_sh[gaussian_id * 12 + 3], gaussian_sh[gaussian_id * 12 + 7], gaussian_sh[gaussian_id * 12 + 11]);
+  mat3x4 sh0 = mat3x4(gaussian_sh[id * 12 + 0], gaussian_sh[id * 12 + 4], gaussian_sh[id * 12 +  8]);
+  mat3x4 sh1 = mat3x4(gaussian_sh[id * 12 + 1], gaussian_sh[id * 12 + 5], gaussian_sh[id * 12 +  9]);
+  mat3x4 sh2 = mat3x4(gaussian_sh[id * 12 + 2], gaussian_sh[id * 12 + 6], gaussian_sh[id * 12 + 10]);
+  mat3x4 sh3 = mat3x4(gaussian_sh[id * 12 + 3], gaussian_sh[id * 12 + 7], gaussian_sh[id * 12 + 11]);
 
   // row vector-matrix multiplication
   vec3 color = basis0 * sh0 + basis1 * sh1 + basis2 * sh2 + basis3 * sh3;
 
   // translation and clip
   color = max(color + 0.5f, 0.f);
-  float opacity = gaussian_opacity[gaussian_id];
+  float opacity = gaussian_opacity[id];
 
-  instances[id * 10 + 0] = pos.x;
-  instances[id * 10 + 1] = pos.y;
-  instances[id * 10 + 2] = pos.z;
-  instances[id * 10 + 3] = cov2d[0][0];
-  instances[id * 10 + 4] = cov2d[1][0];
-  instances[id * 10 + 5] = cov2d[1][1];
-  instances[id * 10 + 6] = color.r;
-  instances[id * 10 + 7] = color.g;
-  instances[id * 10 + 8] = color.b;
-  instances[id * 10 + 9] = opacity;
+  instances[inverse_id * 10 + 0] = pos.x;
+  instances[inverse_id * 10 + 1] = pos.y;
+  instances[inverse_id * 10 + 2] = pos.z;
+  instances[inverse_id * 10 + 3] = cov2d[0][0];
+  instances[inverse_id * 10 + 4] = cov2d[1][0];
+  instances[inverse_id * 10 + 5] = cov2d[1][1];
+  instances[inverse_id * 10 + 6] = color.r;
+  instances[inverse_id * 10 + 7] = color.g;
+  instances[inverse_id * 10 + 8] = color.b;
+  instances[inverse_id * 10 + 9] = opacity;
 }
 
 )shader";
