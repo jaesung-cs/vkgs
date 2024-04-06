@@ -264,8 +264,7 @@ class Engine::Impl {
           1);
       color_blend_attachments[0] = {};
       color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor =
-          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
       color_blend_attachments[0].dstColorBlendFactor =
           VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
       color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
@@ -322,8 +321,7 @@ class Engine::Impl {
           1);
       color_blend_attachments[0] = {};
       color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor =
-          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
       color_blend_attachments[0].dstColorBlendFactor =
           VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
       color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;

@@ -53,9 +53,10 @@ layout (location = 1) in vec2 position;
 layout (location = 0) out vec4 out_color;
 
 void main() {
-  // TODO: premultiplied alpha
   float gaussian_alpha = exp(-0.5f * dot(position, position));
-  out_color = vec4(color.rgb, color.a * gaussian_alpha);
+  float alpha = color.a * gaussian_alpha;
+  // premultiplied alpha
+  out_color = vec4(color.rgb * alpha, alpha);
 }
 )shader";
 
