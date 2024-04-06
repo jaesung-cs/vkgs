@@ -485,6 +485,51 @@ class Engine::Impl {
         0, 1, 2, 3, 4, 5,
     };
 
+    std::vector<float> grid_position;
+    std::vector<float> grid_color;
+    std::vector<uint32_t> grid_index;
+    constexpr int grid_size = 10;
+    for (int i = 0; i < grid_size * 2 + 1; ++i) {
+      grid_index.push_back(4 * i + 0);
+      grid_index.push_back(4 * i + 1);
+      grid_index.push_back(4 * i + 2);
+      grid_index.push_back(4 * i + 3);
+    }
+    for (int i = -grid_size; i <= grid_size; ++i) {
+      float t = static_cast<float>(i) / grid_size;
+      grid_position.push_back(-1.f);
+      grid_position.push_back(0);
+      grid_position.push_back(t);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+
+      grid_position.push_back(1.f);
+      grid_position.push_back(0);
+      grid_position.push_back(t);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+
+      grid_position.push_back(t);
+      grid_position.push_back(0);
+      grid_position.push_back(-1.f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+
+      grid_position.push_back(t);
+      grid_position.push_back(0);
+      grid_position.push_back(1.f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+    }
+
     splat_vertex_buffer_ = vk::Buffer(
         context_, splat_vertex.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -527,6 +572,16 @@ class Engine::Impl {
         context_, axis_index.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
+    grid_.position_buffer = vk::Buffer(
+        context_, grid_position.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    grid_.color_buffer = vk::Buffer(
+        context_, grid_color.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    grid_.index_buffer = vk::Buffer(
+        context_, grid_index.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     command_buffer_info.commandPool = context_.command_pool();
@@ -552,6 +607,11 @@ class Engine::Impl {
     axis_.color_buffer.FromCpu(cb, axis_color);
     axis_.index_buffer.FromCpu(cb, axis_index);
     axis_.index_count = axis_index.size();
+
+    grid_.position_buffer.FromCpu(cb, grid_position);
+    grid_.color_buffer.FromCpu(cb, grid_color);
+    grid_.index_buffer.FromCpu(cb, grid_index);
+    grid_.index_count = grid_index.size();
 
     vkEndCommandBuffer(cb);
 
@@ -1165,7 +1225,7 @@ class Engine::Impl {
                             graphics_pipeline_layout_, 0, descriptors.size(),
                             descriptors.data(), 0, nullptr);
 
-    // draw axis
+    // draw axis and grid
     {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                         color_line_pipeline_);
@@ -1177,13 +1237,26 @@ class Engine::Impl {
       vkCmdPushConstants(cb, graphics_pipeline_layout_,
                          VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(model), &model);
 
-      std::vector<VkBuffer> vbs = {axis_.position_buffer, axis_.color_buffer};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+      {
+        std::vector<VkBuffer> vbs = {axis_.position_buffer, axis_.color_buffer};
+        std::vector<VkDeviceSize> vb_offsets = {0, 0};
+        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                               vb_offsets.data());
 
-      vkCmdBindIndexBuffer(cb, axis_.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindIndexBuffer(cb, axis_.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
-      vkCmdDrawIndexed(cb, axis_.index_count, 1, 0, 0, 0);
+        vkCmdDrawIndexed(cb, axis_.index_count, 1, 0, 0, 0);
+      }
+      {
+        std::vector<VkBuffer> vbs = {grid_.position_buffer, grid_.color_buffer};
+        std::vector<VkDeviceSize> vb_offsets = {0, 0};
+        vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                               vb_offsets.data());
+
+        vkCmdBindIndexBuffer(cb, grid_.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+        vkCmdDrawIndexed(cb, grid_.index_count, 1, 0, 0, 0);
+      }
     }
 
     // draw splat
@@ -1251,6 +1324,7 @@ class Engine::Impl {
     int index_count;
   };
   ColorObject axis_;
+  ColorObject grid_;
 
   struct FrameDescriptor {
     vk::Descriptor camera;
