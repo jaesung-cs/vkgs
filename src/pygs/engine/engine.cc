@@ -279,17 +279,21 @@ class Engine::Impl {
 
     // uniforms and descriptors
     camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
-    camera_descriptors_.resize(2);
+    descriptors_.resize(2);
     for (int i = 0; i < 2; i++) {
-      camera_descriptors_[i] =
+      descriptors_[i].camera =
           vk::Descriptor(context_, camera_descriptor_layout_);
-      camera_descriptors_[i].Update(0, camera_buffer_, camera_buffer_.offset(i),
+      descriptors_[i].camera.Update(0, camera_buffer_, camera_buffer_.offset(i),
                                     camera_buffer_.element_size());
+
+      descriptors_[i].gaussian =
+          vk::Descriptor(context_, gaussian_descriptor_layout_);
+      descriptors_[i].splat_instance =
+          vk::Descriptor(context_, instance_layout_);
     }
 
-    splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
-
-    splat_indirect_buffer_ = vk::Buffer(
+    splat_buffer_.info = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
+    splat_buffer_.draw_indirect = vk::Buffer(
         context_, 5 * sizeof(int),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
@@ -385,38 +389,36 @@ class Engine::Impl {
     };
     std::vector<uint32_t> splat_index = {0, 1, 2, 3};
 
-    gaussian_cov3d_buffer_ = vk::Buffer(
-        context_, gaussian_cov3d.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    gaussian_position_buffer_ = vk::Buffer(
+    splat_buffer_.position = vk::Buffer(
         context_, position.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    gaussian_opacity_buffer_ = vk::Buffer(
+    splat_buffer_.cov3d = vk::Buffer(
+        context_, gaussian_cov3d.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    splat_buffer_.opacity = vk::Buffer(
         context_, opacity.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    gaussian_sh_buffer_ = vk::Buffer(
+    splat_buffer_.sh = vk::Buffer(
         context_, sh.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    splat_buffer_.instance = vk::Buffer(
+        context_, point_count_ * 10 * sizeof(float),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
     splat_vertex_buffer_ = vk::Buffer(
         context_, splat_vertex.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     splat_index_buffer_ = vk::Buffer(
         context_, splat_index.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-    splat_instance_buffer_ = vk::Buffer(
-        context_, point_count_ * 10 * sizeof(float),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
-    instance_key_buffer_ = vk::Buffer(context_, point_count_ * sizeof(uint32_t),
-                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    instance_index_buffer_ =
-        vk::Buffer(context_, point_count_ * sizeof(uint32_t),
-                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    inverse_map_buffer_ = vk::Buffer(
+    splat_buffer_.key = vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    splat_buffer_.index = vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    splat_buffer_.inverse_index = vk::Buffer(
         context_, point_count_ * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-
-    splat_info_buffer_[0].point_count = point_count_;
 
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -431,10 +433,11 @@ class Engine::Impl {
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cb, &begin_info);
 
-    gaussian_cov3d_buffer_.FromCpu(cb, gaussian_cov3d);
-    gaussian_position_buffer_.FromCpu(cb, position);
-    gaussian_opacity_buffer_.FromCpu(cb, opacity);
-    gaussian_sh_buffer_.FromCpu(cb, sh);
+    splat_buffer_.position.FromCpu(cb, position);
+    splat_buffer_.cov3d.FromCpu(cb, gaussian_cov3d);
+    splat_buffer_.opacity.FromCpu(cb, opacity);
+    splat_buffer_.sh.FromCpu(cb, sh);
+
     splat_vertex_buffer_.FromCpu(cb, splat_vertex);
     splat_index_buffer_.FromCpu(cb, splat_index);
 
@@ -462,30 +465,32 @@ class Engine::Impl {
 
     // update descriptor
     // TODO: make sure descriptors are not in use
-    gaussian_descriptor_ =
-        vk::Descriptor(context_, gaussian_descriptor_layout_);
-    gaussian_descriptor_.Update(0, splat_info_buffer_, 0,
-                                splat_info_buffer_.element_size());
-    gaussian_descriptor_.Update(1, gaussian_position_buffer_, 0,
-                                gaussian_position_buffer_.size());
-    gaussian_descriptor_.Update(2, gaussian_cov3d_buffer_, 0,
-                                gaussian_cov3d_buffer_.size());
-    gaussian_descriptor_.Update(3, gaussian_opacity_buffer_, 0,
-                                gaussian_opacity_buffer_.size());
-    gaussian_descriptor_.Update(4, gaussian_sh_buffer_, 0,
-                                gaussian_sh_buffer_.size());
+    for (int i = 0; i < 2; ++i) {
+      descriptors_[i].gaussian.Update(0, splat_buffer_.info, 0,
+                                      splat_buffer_.info.element_size());
+      descriptors_[i].gaussian.Update(1, splat_buffer_.position, 0,
+                                      splat_buffer_.position.size());
+      descriptors_[i].gaussian.Update(2, splat_buffer_.cov3d, 0,
+                                      splat_buffer_.cov3d.size());
+      descriptors_[i].gaussian.Update(3, splat_buffer_.opacity, 0,
+                                      splat_buffer_.opacity.size());
+      descriptors_[i].gaussian.Update(4, splat_buffer_.sh, 0,
+                                      splat_buffer_.sh.size());
 
-    splat_instance_descriptor_ = vk::Descriptor(context_, instance_layout_);
-    splat_instance_descriptor_.Update(0, splat_indirect_buffer_, 0,
-                                      splat_indirect_buffer_.size());
-    splat_instance_descriptor_.Update(1, splat_instance_buffer_, 0,
-                                      splat_instance_buffer_.size());
-    splat_instance_descriptor_.Update(2, instance_key_buffer_, 0,
-                                      instance_key_buffer_.size());
-    splat_instance_descriptor_.Update(3, instance_index_buffer_, 0,
-                                      instance_index_buffer_.size());
-    splat_instance_descriptor_.Update(4, inverse_map_buffer_, 0,
-                                      inverse_map_buffer_.size());
+      descriptors_[i].splat_instance.Update(0, splat_buffer_.draw_indirect, 0,
+                                            splat_buffer_.draw_indirect.size());
+      descriptors_[i].splat_instance.Update(1, splat_buffer_.instance, 0,
+                                            splat_buffer_.instance.size());
+      descriptors_[i].splat_instance.Update(2, splat_buffer_.key, 0,
+                                            splat_buffer_.key.size());
+      descriptors_[i].splat_instance.Update(3, splat_buffer_.index, 0,
+                                            splat_buffer_.index.size());
+      descriptors_[i].splat_instance.Update(4, splat_buffer_.inverse_index, 0,
+                                            splat_buffer_.inverse_index.size());
+    }
+
+    // update uniform buffer
+    splat_buffer_.info[0].point_count = point_count_;
 
     // create sorter
     radix_sorter_ = vk::Radixsort(context_, point_count_);
@@ -650,9 +655,9 @@ class Engine::Impl {
             VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
         buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_indirect_buffer_.size();
+        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -665,7 +670,7 @@ class Engine::Impl {
         draw_indexed_indirect.firstIndex = 0;
         draw_indexed_indirect.vertexOffset = 0;
         draw_indexed_indirect.firstInstance = 0;
-        vkCmdUpdateBuffer(cb, splat_indirect_buffer_, 0,
+        vkCmdUpdateBuffer(cb, splat_buffer_.draw_indirect, 0,
                           sizeof(draw_indexed_indirect),
                           &draw_indexed_indirect);
 
@@ -676,9 +681,9 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_indirect_buffer_.size();
+        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask =
@@ -687,9 +692,9 @@ class Engine::Impl {
         buffer_barriers[1].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].buffer = instance_key_buffer_;
+        buffer_barriers[1].buffer = splat_buffer_.key;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = instance_key_buffer_.size();
+        buffer_barriers[1].size = splat_buffer_.key.size();
 
         buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[2].srcStageMask =
@@ -698,9 +703,9 @@ class Engine::Impl {
         buffer_barriers[2].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[2].buffer = instance_index_buffer_;
+        buffer_barriers[2].buffer = splat_buffer_.index;
         buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = instance_index_buffer_.size();
+        buffer_barriers[2].size = splat_buffer_.index.size();
 
         barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -710,9 +715,9 @@ class Engine::Impl {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, order_pipeline_);
 
         std::vector<VkDescriptorSet> descriptors = {
-            camera_descriptors_[frame_index],
-            gaussian_descriptor_,
-            splat_instance_descriptor_,
+            descriptors_[frame_index].camera,
+            descriptors_[frame_index].gaussian,
+            descriptors_[frame_index].splat_instance,
         };
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
                                 compute_pipeline_layout_, 0, descriptors.size(),
@@ -736,7 +741,7 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
         buffer_barriers[0].offset = 1 * sizeof(uint32_t);
         buffer_barriers[0].size = sizeof(uint32_t);
 
@@ -747,9 +752,9 @@ class Engine::Impl {
         buffer_barriers[1].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = instance_key_buffer_;
+        buffer_barriers[1].buffer = splat_buffer_.key;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = instance_key_buffer_.size();
+        buffer_barriers[1].size = splat_buffer_.key.size();
 
         buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[2].srcStageMask =
@@ -758,17 +763,17 @@ class Engine::Impl {
         buffer_barriers[2].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[2].buffer = instance_index_buffer_;
+        buffer_barriers[2].buffer = splat_buffer_.index;
         buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = instance_index_buffer_.size();
+        buffer_barriers[2].size = splat_buffer_.index.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        radix_sorter_.Sort(cb, frame_index, splat_indirect_buffer_,
-                           instance_key_buffer_, instance_index_buffer_);
+        radix_sorter_.Sort(cb, frame_index, splat_buffer_.draw_indirect,
+                           splat_buffer_.key, splat_buffer_.index);
       }
 
       // inverse map
@@ -780,17 +785,17 @@ class Engine::Impl {
         buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].buffer = inverse_map_buffer_;
+        buffer_barriers[0].buffer = splat_buffer_.inverse_index;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = inverse_map_buffer_.size();
+        buffer_barriers[0].size = splat_buffer_.inverse_index.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdFillBuffer(cb, inverse_map_buffer_, 0, inverse_map_buffer_.size(),
-                        -1);
+        vkCmdFillBuffer(cb, splat_buffer_.inverse_index, 0,
+                        splat_buffer_.inverse_index.size(), -1);
 
         buffer_barriers.resize(3);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -800,7 +805,7 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
         buffer_barriers[0].offset = 1 * sizeof(uint32_t);
         buffer_barriers[0].size = sizeof(uint32_t);
 
@@ -811,9 +816,9 @@ class Engine::Impl {
         buffer_barriers[1].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = instance_index_buffer_;
+        buffer_barriers[1].buffer = splat_buffer_.index;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = instance_index_buffer_.size();
+        buffer_barriers[1].size = splat_buffer_.index.size();
 
         buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -821,9 +826,9 @@ class Engine::Impl {
         buffer_barriers[2].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[2].buffer = inverse_map_buffer_;
+        buffer_barriers[2].buffer = splat_buffer_.inverse_index;
         buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = inverse_map_buffer_.size();
+        buffer_barriers[2].size = splat_buffer_.inverse_index.size();
 
         barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -831,8 +836,10 @@ class Engine::Impl {
         vkCmdPipelineBarrier2(cb, &barrier);
 
         std::vector<VkDescriptorSet> descriptors = {
-            camera_descriptors_[frame_index], gaussian_descriptor_,
-            splat_instance_descriptor_};
+            descriptors_[frame_index].camera,
+            descriptors_[frame_index].gaussian,
+            descriptors_[frame_index].splat_instance,
+        };
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
                                 compute_pipeline_layout_, 0, descriptors.size(),
                                 descriptors.data(), 0, nullptr);
@@ -857,9 +864,9 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_indirect_buffer_.size();
+        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -867,9 +874,9 @@ class Engine::Impl {
         buffer_barriers[1].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = instance_index_buffer_;
+        buffer_barriers[1].buffer = splat_buffer_.index;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = instance_index_buffer_.size();
+        buffer_barriers[1].size = splat_buffer_.index.size();
 
         buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[2].srcStageMask =
@@ -879,9 +886,9 @@ class Engine::Impl {
         buffer_barriers[2].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[2].buffer = splat_instance_buffer_;
+        buffer_barriers[2].buffer = splat_buffer_.instance;
         buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = splat_instance_buffer_.size();
+        buffer_barriers[2].size = splat_buffer_.instance.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -908,9 +915,9 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
         buffer_barriers[0].dstAccessMask =
             VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-        buffer_barriers[0].buffer = splat_indirect_buffer_;
+        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_indirect_buffer_.size();
+        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask =
@@ -920,9 +927,9 @@ class Engine::Impl {
             VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
         buffer_barriers[1].dstAccessMask =
             VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-        buffer_barriers[1].buffer = splat_instance_buffer_;
+        buffer_barriers[1].buffer = splat_buffer_.instance;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_instance_buffer_.size();
+        buffer_barriers[1].size = splat_buffer_.instance.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -1028,7 +1035,8 @@ class Engine::Impl {
     vkCmdSetScissor(cb, 0, 1, &scissor);
 
     std::vector<VkDescriptorSet> descriptors = {
-        camera_descriptors_[frame_index]};
+        descriptors_[frame_index].camera,
+    };
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             graphics_pipeline_layout_, 0, descriptors.size(),
                             descriptors.data(), 0, nullptr);
@@ -1038,13 +1046,13 @@ class Engine::Impl {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
 
       std::vector<VkBuffer> vbs = {splat_vertex_buffer_,
-                                   splat_instance_buffer_};
+                                   splat_buffer_.instance};
       std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
       vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
 
       vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
 
-      vkCmdDrawIndexedIndirect(cb, splat_indirect_buffer_, 0, 1, 0);
+      vkCmdDrawIndexedIndirect(cb, splat_buffer_.draw_indirect, 0, 1, 0);
     }
 
     // draw ui
@@ -1088,25 +1096,34 @@ class Engine::Impl {
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
 
-  std::vector<vk::Descriptor> camera_descriptors_;
-  vk::Descriptor gaussian_descriptor_;
-  vk::Descriptor splat_instance_descriptor_;
-
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
-  vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;
-  vk::Buffer gaussian_position_buffer_;
-  vk::Buffer gaussian_cov3d_buffer_;
-  vk::Buffer gaussian_opacity_buffer_;
-  vk::Buffer gaussian_sh_buffer_;
 
-  vk::Buffer instance_key_buffer_;
-  vk::Buffer instance_index_buffer_;
-  vk::Buffer inverse_map_buffer_;
+  struct FrameDescriptor {
+    vk::Descriptor camera;
+    vk::Descriptor gaussian;
+    vk::Descriptor splat_instance;
+  };
+  std::vector<FrameDescriptor> descriptors_;
 
-  vk::Buffer splat_vertex_buffer_;    // gaussian2d quad
-  vk::Buffer splat_index_buffer_;     // gaussian2d quad
-  vk::Buffer splat_indirect_buffer_;  // indirect command
-  vk::Buffer splat_instance_buffer_;  // output of compute shader
+  struct SplatBuffer {
+    vk::UniformBuffer<vk::shader::SplatInfo> info;
+
+    vk::Buffer position;  // (N, 3)
+    vk::Buffer cov3d;     // (N, 6)
+    vk::Buffer opacity;   // (N)
+    vk::Buffer sh;        // (N, 3, 16)
+
+    vk::Buffer key;            // (N)
+    vk::Buffer index;          // (N)
+    vk::Buffer inverse_index;  // (N)
+
+    vk::Buffer draw_indirect;  // (5)
+    vk::Buffer instance;       // (N, 10)
+  };
+  SplatBuffer splat_buffer_;
+
+  vk::Buffer splat_vertex_buffer_;  // gaussian2d quad
+  vk::Buffer splat_index_buffer_;   // gaussian2d quad
 
   VkFence sort_fence_ = VK_NULL_HANDLE;
 
@@ -1119,7 +1136,7 @@ class Engine::Impl {
 
 Engine::Engine() : impl_(std::make_shared<Impl>()) {}
 
-Engine::~Engine() {}
+Engine::~Engine() = default;
 
 void Engine::AddSplats(const Splats& splats) { impl_->AddSplats(splats); }
 
