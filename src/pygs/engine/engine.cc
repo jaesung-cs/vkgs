@@ -39,6 +39,7 @@
 #include "vulkan/shader/order.h"
 #include "vulkan/shader/inverse_map.h"
 #include "vulkan/shader/splat.h"
+#include "vulkan/shader/color.h"
 
 namespace pygs {
 namespace {
@@ -186,6 +187,13 @@ class Engine::Impl {
     {
       vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
       pipeline_layout_info.layouts = {camera_descriptor_layout_};
+
+      pipeline_layout_info.push_constants.resize(1);
+      pipeline_layout_info.push_constants[0].stageFlags =
+          VK_SHADER_STAGE_VERTEX_BIT;
+      pipeline_layout_info.push_constants[0].offset = 0;
+      pipeline_layout_info.push_constants[0].size = sizeof(glm::mat4);
+
       graphics_pipeline_layout_ =
           vk::PipelineLayout(context_, pipeline_layout_info);
     }
@@ -282,6 +290,64 @@ class Engine::Impl {
       pipeline_info.color_blend_attachments =
           std::move(color_blend_attachments);
       splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+    }
+
+    // color pipeline
+    {
+      std::vector<VkVertexInputBindingDescription> input_bindings(2);
+      // xyz
+      input_bindings[0].binding = 0;
+      input_bindings[0].stride = sizeof(float) * 3;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      // rgba
+      input_bindings[1].binding = 1;
+      input_bindings[1].stride = sizeof(float) * 4;
+      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(2);
+      // xyz
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      // rgba
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 1;
+      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[1].offset = 0;
+
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor =
+          VK_BLEND_FACTOR_SRC_ALPHA;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = graphics_pipeline_layout_;
+      pipeline_info.render_pass = render_pass_;
+      pipeline_info.vertex_shader = vk::shader::color_vert;
+      pipeline_info.fragment_shader = vk::shader::color_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = true;
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
+      color_line_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // uniforms and descriptors
@@ -407,6 +473,20 @@ class Engine::Impl {
     };
     std::vector<uint32_t> splat_index = {0, 1, 2, 3};
 
+    std::vector<float> axis_position = {
+        0.f, 0.f, 0.f, 1.f, 0.f, 0.f,  // x
+        0.f, 0.f, 0.f, 0.f, 1.f, 0.f,  // y
+        0.f, 0.f, 0.f, 0.f, 0.f, 1.f,  // z
+    };
+    std::vector<float> axis_color = {
+        1.f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f,  // x
+        0.f, 1.f, 0.f, 1.f, 0.f, 1.f, 0.f, 1.f,  // y
+        0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f, 1.f,  // z
+    };
+    std::vector<uint32_t> axis_index = {
+        0, 1, 2, 3, 4, 5,
+    };
+
     splat_vertex_buffer_ = vk::Buffer(
         context_, splat_vertex.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -439,6 +519,16 @@ class Engine::Impl {
         context_, point_count_ * 10 * sizeof(float),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
+    axis_.position_buffer = vk::Buffer(
+        context_, axis_position.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    axis_.color_buffer = vk::Buffer(
+        context_, axis_color.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    axis_.index_buffer = vk::Buffer(
+        context_, axis_index.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     command_buffer_info.commandPool = context_.command_pool();
@@ -459,6 +549,11 @@ class Engine::Impl {
 
     splat_vertex_buffer_.FromCpu(cb, splat_vertex);
     splat_index_buffer_.FromCpu(cb, splat_index);
+
+    axis_.position_buffer.FromCpu(cb, axis_position);
+    axis_.color_buffer.FromCpu(cb, axis_color);
+    axis_.index_buffer.FromCpu(cb, axis_index);
+    axis_.index_count = axis_index.size();
 
     vkEndCommandBuffer(cb);
 
@@ -1072,13 +1167,34 @@ class Engine::Impl {
                             graphics_pipeline_layout_, 0, descriptors.size(),
                             descriptors.data(), 0, nullptr);
 
+    // draw axis
+    {
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        color_line_pipeline_);
+
+      glm::mat4 model(1.f);
+      model[0][0] = 10.f;
+      model[1][1] = 10.f;
+      model[2][2] = 10.f;
+      vkCmdPushConstants(cb, graphics_pipeline_layout_,
+                         VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(model), &model);
+
+      std::vector<VkBuffer> vbs = {axis_.position_buffer, axis_.color_buffer};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0};
+      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+
+      vkCmdBindIndexBuffer(cb, axis_.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+      vkCmdDrawIndexed(cb, axis_.index_count, 1, 0, 0, 0);
+    }
+
     // draw splat
     {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
 
       std::vector<VkBuffer> vbs = {splat_vertex_buffer_,
                                    splat_buffer_.instance};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0, 0};
+      std::vector<VkDeviceSize> vb_offsets = {0, 0};
       vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
 
       vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
@@ -1122,12 +1238,21 @@ class Engine::Impl {
   // normal pass
   vk::Framebuffer framebuffer_;
   vk::RenderPass render_pass_;
+  vk::GraphicsPipeline color_line_pipeline_;
   vk::GraphicsPipeline splat_pipeline_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
 
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
+
+  struct ColorObject {
+    vk::Buffer position_buffer;
+    vk::Buffer color_buffer;
+    vk::Buffer index_buffer;
+    int index_count;
+  };
+  ColorObject axis_;
 
   struct FrameDescriptor {
     vk::Descriptor camera;
