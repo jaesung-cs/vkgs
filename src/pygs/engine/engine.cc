@@ -119,7 +119,7 @@ class Engine::Impl {
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
-      descriptor_layout_info.bindings.resize(5);
+      descriptor_layout_info.bindings.resize(6);
       descriptor_layout_info.bindings[0] = {};
       descriptor_layout_info.bindings[0].binding = 0;
       descriptor_layout_info.bindings[0].descriptor_type =
@@ -153,6 +153,13 @@ class Engine::Impl {
       descriptor_layout_info.bindings[4].descriptor_type =
           VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[4].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
+
+      descriptor_layout_info.bindings[5] = {};
+      descriptor_layout_info.bindings[5].binding = 5;
+      descriptor_layout_info.bindings[5].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[5].stage_flags =
           VK_SHADER_STAGE_COMPUTE_BIT;
 
       instance_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
@@ -293,10 +300,13 @@ class Engine::Impl {
     }
 
     splat_buffer_.info = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
-    splat_buffer_.draw_indirect = vk::Buffer(
-        context_, 5 * sizeof(int),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+    splat_buffer_.num_elements = vk::Buffer(
+        context_, sizeof(uint32_t),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    splat_buffer_.draw_indirect =
+        vk::Buffer(context_, 5 * sizeof(uint32_t),
+                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                       VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 
     // commands and synchronizations
     draw_command_buffers_.resize(3);
@@ -498,11 +508,13 @@ class Engine::Impl {
                                             splat_buffer_.draw_indirect.size());
       descriptors_[i].splat_instance.Update(1, splat_buffer_.instance, 0,
                                             splat_buffer_.instance.size());
-      descriptors_[i].splat_instance.Update(2, splat_buffer_.key, 0,
+      descriptors_[i].splat_instance.Update(2, splat_buffer_.num_elements, 0,
+                                            splat_buffer_.num_elements.size());
+      descriptors_[i].splat_instance.Update(3, splat_buffer_.key, 0,
                                             splat_buffer_.key.size());
-      descriptors_[i].splat_instance.Update(3, splat_buffer_.index, 0,
+      descriptors_[i].splat_instance.Update(4, splat_buffer_.index, 0,
                                             splat_buffer_.index.size());
-      descriptors_[i].splat_instance.Update(4, splat_buffer_.inverse_index, 0,
+      descriptors_[i].splat_instance.Update(5, splat_buffer_.inverse_index, 0,
                                             splat_buffer_.inverse_index.size());
     }
 
@@ -667,29 +679,21 @@ class Engine::Impl {
       {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-        buffer_barriers[0].srcAccessMask =
-            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
+        buffer_barriers[0].buffer = splat_buffer_.num_elements;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
+        buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        VkDrawIndexedIndirectCommand draw_indexed_indirect = {};
-        draw_indexed_indirect.indexCount = 4;  // quad
-        draw_indexed_indirect.instanceCount = 0;
-        draw_indexed_indirect.firstIndex = 0;
-        draw_indexed_indirect.vertexOffset = 0;
-        draw_indexed_indirect.firstInstance = 0;
-        vkCmdUpdateBuffer(cb, splat_buffer_.draw_indirect, 0,
-                          sizeof(draw_indexed_indirect),
-                          &draw_indexed_indirect);
+        vkCmdFillBuffer(cb, splat_buffer_.num_elements, 0, sizeof(uint32_t), 0);
 
         buffer_barriers.resize(3);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -698,9 +702,9 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
+        buffer_barriers[0].buffer = splat_buffer_.num_elements;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
+        buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask =
@@ -758,9 +762,9 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
-        buffer_barriers[0].offset = 1 * sizeof(uint32_t);
-        buffer_barriers[0].size = sizeof(uint32_t);
+        buffer_barriers[0].buffer = splat_buffer_.num_elements;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask =
@@ -789,7 +793,7 @@ class Engine::Impl {
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        radix_sorter_.Sort(cb, frame_index, splat_buffer_.draw_indirect,
+        radix_sorter_.Sort(cb, frame_index, splat_buffer_.num_elements,
                            splat_buffer_.key, splat_buffer_.index);
       }
 
@@ -822,9 +826,9 @@ class Engine::Impl {
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
-        buffer_barriers[0].offset = 1 * sizeof(uint32_t);
-        buffer_barriers[0].size = sizeof(uint32_t);
+        buffer_barriers[0].buffer = splat_buffer_.num_elements;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask =
@@ -874,26 +878,28 @@ class Engine::Impl {
 
       // projection
       {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(3);
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers(4);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
         buffer_barriers[0].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
+        buffer_barriers[0].buffer = splat_buffer_.num_elements;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
+        buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        buffer_barriers[1].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
         buffer_barriers[1].dstStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = splat_buffer_.index;
+        buffer_barriers[1].buffer = splat_buffer_.inverse_index;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_buffer_.index.size();
+        buffer_barriers[1].size = splat_buffer_.inverse_index.size();
 
         buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[2].srcStageMask =
@@ -906,6 +912,17 @@ class Engine::Impl {
         buffer_barriers[2].buffer = splat_buffer_.instance;
         buffer_barriers[2].offset = 0;
         buffer_barriers[2].size = splat_buffer_.instance.size();
+
+        buffer_barriers[3] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[3].srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        buffer_barriers[3].srcAccessMask =
+            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        buffer_barriers[3].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[3].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[3].buffer = splat_buffer_.draw_indirect;
+        buffer_barriers[3].offset = 0;
+        buffer_barriers[3].size = splat_buffer_.draw_indirect.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -927,26 +944,27 @@ class Engine::Impl {
       {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(2);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
         buffer_barriers[0].dstAccessMask =
-            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.draw_indirect;
+            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        buffer_barriers[0].buffer = splat_buffer_.instance;
         buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.draw_indirect.size();
+        buffer_barriers[0].size = splat_buffer_.instance.size();
 
         buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[1].srcStageMask =
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+        buffer_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
         buffer_barriers[1].dstAccessMask =
-            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-        buffer_barriers[1].buffer = splat_buffer_.instance;
+            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        buffer_barriers[1].buffer = splat_buffer_.draw_indirect;
         buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_buffer_.instance.size();
+        buffer_barriers[1].size = splat_buffer_.draw_indirect.size();
 
         VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -1130,6 +1148,7 @@ class Engine::Impl {
     vk::Buffer index;          // (N)
     vk::Buffer inverse_index;  // (N)
 
+    vk::Buffer num_elements;   // (1)
     vk::Buffer draw_indirect;  // (5)
     vk::Buffer instance;       // (N, 10)
   };

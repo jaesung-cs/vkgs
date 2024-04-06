@@ -42,17 +42,37 @@ layout (std430, set = 1, binding = 4) readonly buffer GaussianSh {
   vec4 gaussian_sh[];  // (N, 3, 4, 4), 16 values packed with 4 vec4.
 };
 
+layout (std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
+  uint indexCount;
+  uint instanceCount;
+  uint firstIndex;
+  int vertexOffset;
+  uint firstInstance;
+};
+
 layout (std430, set = 2, binding = 1) writeonly buffer Instances {
   float instances[];  // (N, 10). 3 for ndc position, 3 for cov2d, 4 for color
 };
 
-layout (std430, set = 2, binding = 4) readonly buffer InverseMap {
+layout (std430, set = 2, binding = 2) readonly buffer NumElements {
+  uint num_elements;
+};
+
+layout (std430, set = 2, binding = 5) readonly buffer InverseMap {
   int inverse_map[];  // (N), inverse map from id to sorted index
 };
 
 void main() {
   uint id = gl_GlobalInvocationID.x;
   if (id >= point_count) return;
+
+  if (id == 0) {
+    indexCount = 4;
+    instanceCount = num_elements;
+    firstIndex = 0;
+    vertexOffset = 0;
+    firstInstance = 0;
+  }
 
   int inverse_id = inverse_map[id];
   if (inverse_id == -1) return;

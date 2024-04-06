@@ -37,7 +37,6 @@ layout (std430, set = 1, binding = 0) buffer Indirect {
 };
 
 layout (std430, set = 1, binding = 1) buffer Input {
-    uint dummy;
     uint num_elements;
 };
 

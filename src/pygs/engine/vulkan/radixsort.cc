@@ -134,7 +134,7 @@ class Radixsort::Impl {
     indirect_descriptors_[frame_index].Update(0, indirect_buffer_, 0,
                                               indirect_buffer_.size());
     indirect_descriptors_[frame_index].Update(1, num_elements_buffer, 0,
-                                              4 * sizeof(uint32_t));
+                                              sizeof(uint32_t));
 
     // calculate indirect
     std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
