@@ -15,7 +15,7 @@ class Swapchain {
  public:
   Swapchain();
 
-  Swapchain(Context context, VkSurfaceKHR surface);
+  Swapchain(Context context, VkSurfaceKHR surface, bool vsync = true);
 
   ~Swapchain();
 
@@ -28,6 +28,8 @@ class Swapchain {
   int image_count() const;
   VkImage image(int index) const;
   VkImageView image_view(int index) const;
+
+  void SetVsync(bool flag = true);
   bool ShouldRecreate() const;
   void Recreate();
 

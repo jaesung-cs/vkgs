@@ -7,8 +7,14 @@ class Swapchain::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, VkSurfaceKHR surface)
+  Impl(Context context, VkSurfaceKHR surface, bool vsync)
       : context_(context), surface_(surface) {
+    if (vsync) {
+      present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
+    } else {
+      present_mode_ = VK_PRESENT_MODE_MAILBOX_KHR;
+    }
+
     usage_ = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     format_ = VK_FORMAT_B8G8R8A8_UNORM;
 
@@ -27,7 +33,7 @@ class Swapchain::Impl {
     swapchain_info.imageUsage = usage_;
     swapchain_info.preTransform = surface_capabilities.currentTransform;
     swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchain_info.presentMode = present_mode_;
     swapchain_info.clipped = VK_TRUE;
     vkCreateSwapchainKHR(context.device(), &swapchain_info, NULL, &swapchain_);
     width_ = swapchain_info.imageExtent.width;
@@ -96,6 +102,20 @@ class Swapchain::Impl {
     }
   }
 
+  void SetVsync(bool flag = true) {
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    if (flag) {
+      present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    } else {
+      present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+    }
+
+    if (present_mode_ != present_mode) {
+      present_mode_ = present_mode;
+      should_recreate_ = true;
+    }
+  }
+
   bool ShouldRecreate() { return should_recreate_; }
 
   void Recreate() {
@@ -114,7 +134,7 @@ class Swapchain::Impl {
     swapchain_info.imageUsage = usage_;
     swapchain_info.preTransform = surface_capabilities.currentTransform;
     swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchain_info.presentMode = present_mode_;
     swapchain_info.clipped = VK_TRUE;
     swapchain_info.oldSwapchain = swapchain_;
 
@@ -154,6 +174,7 @@ class Swapchain::Impl {
 
  private:
   Context context_;
+  VkPresentModeKHR present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
   VkSurfaceKHR surface_ = VK_NULL_HANDLE;
   VkImageUsageFlags usage_ = 0;
   VkFormat format_ = VK_FORMAT_UNDEFINED;
@@ -167,8 +188,8 @@ class Swapchain::Impl {
 
 Swapchain::Swapchain() = default;
 
-Swapchain::Swapchain(Context context, VkSurfaceKHR surface)
-    : impl_(std::make_shared<Impl>(context, surface)) {}
+Swapchain::Swapchain(Context context, VkSurfaceKHR surface, bool vsync)
+    : impl_(std::make_shared<Impl>(context, surface, vsync)) {}
 
 Swapchain::~Swapchain() = default;
 
@@ -191,6 +212,8 @@ VkImage Swapchain::image(int index) const { return impl_->image(index); }
 VkImageView Swapchain::image_view(int index) const {
   return impl_->image_view(index);
 }
+
+void Swapchain::SetVsync(bool flag) { impl_->SetVsync(flag); }
 
 bool Swapchain::ShouldRecreate() const { return impl_->ShouldRecreate(); }
 

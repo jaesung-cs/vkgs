@@ -803,6 +803,18 @@ class Engine::Impl {
         if (ImGui::Begin("pygs")) {
           ImGui::Text("%d splats", point_count_);
           ImGui::Text("fps = %f", io.Framerate);
+
+          static int vsync = 1;
+          ImGui::Text("Vsync");
+          ImGui::SameLine();
+          ImGui::RadioButton("on", &vsync, 1);
+          ImGui::SameLine();
+          ImGui::RadioButton("off", &vsync, 0);
+
+          if (vsync)
+            swapchain_.SetVsync(true);
+          else
+            swapchain_.SetVsync(false);
         }
         ImGui::End();
         ImGui::Render();
