@@ -412,9 +412,6 @@ class Engine::Impl {
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
                         &splat_transfer_semaphore_);
     }
-
-    fence_info.flags = 0;
-    vkCreateFence(context_.device(), &fence_info, NULL, &sort_fence_);
   }
 
   ~Impl() {
@@ -428,8 +425,6 @@ class Engine::Impl {
       vkDestroyFence(context_.device(), fence, NULL);
     vkDestroySemaphore(context_.device(), splat_transfer_semaphore_, NULL);
 
-    vkDestroyFence(context_.device(), sort_fence_, NULL);
-
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -438,7 +433,8 @@ class Engine::Impl {
   }
 
   void AddSplats(const Splats& splats) {
-    point_count_ = splats.size();
+    uint32_t point_count = splats.size();
+
     const auto& position = splats.positions();
     const auto& sh = splats.sh();
     const auto& opacity = splats.opacity();
@@ -446,8 +442,8 @@ class Engine::Impl {
     const auto& scale = splats.scales();
 
     std::vector<float> gaussian_cov3d;
-    gaussian_cov3d.reserve(6 * point_count_);
-    for (int i = 0; i < point_count_; i++) {
+    gaussian_cov3d.reserve(6 * point_count);
+    for (int i = 0; i < point_count; i++) {
       glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
                   rotation[i * 4 + 3]);
       glm::mat3 r = glm::toMat3(q);
@@ -553,16 +549,16 @@ class Engine::Impl {
         context_, sh.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-    splat_buffer_.key = vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+    splat_buffer_.key = vk::Buffer(context_, point_count * sizeof(uint32_t),
                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    splat_buffer_.index = vk::Buffer(context_, point_count_ * sizeof(uint32_t),
+    splat_buffer_.index = vk::Buffer(context_, point_count * sizeof(uint32_t),
                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     splat_buffer_.inverse_index = vk::Buffer(
-        context_, point_count_ * sizeof(uint32_t),
+        context_, point_count * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     splat_buffer_.instance = vk::Buffer(
-        context_, point_count_ * 10 * sizeof(float),
+        context_, point_count * 10 * sizeof(float),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
     axis_.position_buffer = vk::Buffer(
@@ -675,10 +671,11 @@ class Engine::Impl {
     }
 
     // update uniform buffer
-    splat_buffer_.info[0].point_count = point_count_;
+    splat_buffer_.point_count = point_count;
+    splat_buffer_.info[0].point_count = point_count;
 
     // create sorter
-    radix_sorter_ = vk::Radixsort(context_, point_count_);
+    radix_sorter_ = vk::Radixsort(context_, point_count);
   }
 
   void Run() {
@@ -804,13 +801,14 @@ class Engine::Impl {
 
         const auto& io = ImGui::GetIO();
         if (ImGui::Begin("pygs")) {
-          ImGui::Text("%d splats", point_count_);
+          ImGui::Text("%d splats", splat_buffer_.point_count);
 
           const auto* num_elements_buffer =
               reinterpret_cast<const uint32_t*>(num_element_cpu_buffer_.data());
           uint32_t num_elements = num_elements_buffer[frame_index];
           ImGui::Text("%d (%.2f%%) visible splats", num_elements,
-                      static_cast<float>(num_elements) / point_count_ * 100.f);
+                      static_cast<float>(num_elements) /
+                          splat_buffer_.point_count * 100.f);
 
           ImGui::Text("fps = %f", io.Framerate);
 
@@ -927,7 +925,9 @@ class Engine::Impl {
                            glm::value_ptr(model));
 
         constexpr int local_size = 256;
-        vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+        vkCmdDispatch(cb,
+                      (splat_buffer_.point_count + local_size - 1) / local_size,
+                      1, 1);
       }
 
       // num_elements to CPU
@@ -1077,7 +1077,9 @@ class Engine::Impl {
                            glm::value_ptr(model));
 
         constexpr int local_size = 256;
-        vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+        vkCmdDispatch(cb,
+                      (splat_buffer_.point_count + local_size - 1) / local_size,
+                      1, 1);
       }
 
       // projection
@@ -1141,7 +1143,9 @@ class Engine::Impl {
                            glm::value_ptr(model));
 
         constexpr int local_size = 256;
-        vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+        vkCmdDispatch(cb,
+                      (splat_buffer_.point_count + local_size - 1) / local_size,
+                      1, 1);
       }
 
       // draw
@@ -1387,6 +1391,8 @@ class Engine::Impl {
   struct SplatBuffer {
     vk::UniformBuffer<vk::shader::SplatInfo> info;
 
+    uint32_t point_count;
+
     vk::Buffer position;  // (N, 3)
     vk::Buffer cov3d;     // (N, 6)
     vk::Buffer opacity;   // (N)
@@ -1407,9 +1413,6 @@ class Engine::Impl {
   vk::Buffer splat_vertex_buffer_;  // gaussian2d quad
   vk::Buffer splat_index_buffer_;   // gaussian2d quad
 
-  VkFence sort_fence_ = VK_NULL_HANDLE;
-
-  int point_count_ = 0;
   VkSemaphore splat_transfer_semaphore_ = VK_NULL_HANDLE;
   uint64_t splat_transfer_timeline_ = 0;
 
