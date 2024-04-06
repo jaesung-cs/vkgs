@@ -801,6 +801,7 @@ class Engine::Impl {
 
         const auto& io = ImGui::GetIO();
         if (ImGui::Begin("pygs")) {
+          ImGui::Text("%d splats", point_count_);
           ImGui::Text("fps = %f", io.Framerate);
         }
         ImGui::End();
