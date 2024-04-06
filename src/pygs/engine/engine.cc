@@ -32,6 +32,7 @@
 #include "vulkan/framebuffer.h"
 #include "vulkan/descriptor.h"
 #include "vulkan/buffer.h"
+#include "vulkan/cpu_buffer.h"
 #include "vulkan/uniform_buffer.h"
 #include "vulkan/radixsort.h"
 #include "vulkan/shader/uniforms.h"
@@ -350,6 +351,7 @@ class Engine::Impl {
 
     // uniforms and descriptors
     camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
+    num_element_cpu_buffer_ = vk::CpuBuffer(context_, 2 * sizeof(uint32_t));
     descriptors_.resize(2);
     for (int i = 0; i < 2; i++) {
       descriptors_[i].camera =
@@ -366,7 +368,8 @@ class Engine::Impl {
     splat_buffer_.info = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
     splat_buffer_.num_elements = vk::Buffer(
         context_, sizeof(uint32_t),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     splat_buffer_.draw_indirect =
         vk::Buffer(context_, 5 * sizeof(uint32_t),
                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -802,6 +805,13 @@ class Engine::Impl {
         const auto& io = ImGui::GetIO();
         if (ImGui::Begin("pygs")) {
           ImGui::Text("%d splats", point_count_);
+
+          const auto* num_elements_buffer =
+              reinterpret_cast<const uint32_t*>(num_element_cpu_buffer_.data());
+          uint32_t num_elements = num_elements_buffer[frame_index];
+          ImGui::Text("%d (%.2f%%) visible splats", num_elements,
+                      static_cast<float>(num_elements) / point_count_ * 100.f);
+
           ImGui::Text("fps = %f", io.Framerate);
 
           static int vsync = 1;
@@ -846,8 +856,10 @@ class Engine::Impl {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
         buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        buffer_barriers[0].srcAccessMask =
+            VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
         buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         buffer_barriers[0].buffer = splat_buffer_.num_elements;
@@ -916,6 +928,32 @@ class Engine::Impl {
 
         constexpr int local_size = 256;
         vkCmdDispatch(cb, (point_count_ + local_size - 1) / local_size, 1, 1);
+      }
+
+      // num_elements to CPU
+      {
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+        buffer_barriers[0].buffer = splat_buffer_.num_elements;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = splat_buffer_.num_elements.size();
+
+        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+        barrier.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &barrier);
+
+        VkBufferCopy region = {};
+        region.srcOffset = 0;
+        region.dstOffset = sizeof(uint32_t) * frame_index;
+        region.size = sizeof(uint32_t);
+        vkCmdCopyBuffer(cb, splat_buffer_.num_elements, num_element_cpu_buffer_,
+                        1, &region);
       }
 
       // radix sort
@@ -1363,6 +1401,8 @@ class Engine::Impl {
     vk::Buffer instance;       // (N, 10)
   };
   SplatBuffer splat_buffer_;
+
+  vk::CpuBuffer num_element_cpu_buffer_;  // (2) for debug
 
   vk::Buffer splat_vertex_buffer_;  // gaussian2d quad
   vk::Buffer splat_index_buffer_;   // gaussian2d quad

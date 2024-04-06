@@ -21,6 +21,7 @@ add_library(pygs STATIC
   src/pygs/engine/vulkan/buffer.cc
   src/pygs/engine/vulkan/compute_pipeline.cc
   src/pygs/engine/vulkan/context.cc
+  src/pygs/engine/vulkan/cpu_buffer.cc
   src/pygs/engine/vulkan/cuda_image.cu
   src/pygs/engine/vulkan/cuda_semaphore.cu
   src/pygs/engine/vulkan/descriptor_layout.cc
