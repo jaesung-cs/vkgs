@@ -412,6 +412,17 @@ class Engine::Impl {
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
                         &splat_transfer_semaphore_);
     }
+
+    // create query pools
+    timestamp_query_pools_.resize(2);
+    for (int i = 0; i < 2; ++i) {
+      VkQueryPoolCreateInfo query_pool_info = {
+          VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+      query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+      query_pool_info.queryCount = timestamp_count_;
+      vkCreateQueryPool(context_.device(), &query_pool_info, NULL,
+                        &timestamp_query_pools_[i]);
+    }
   }
 
   ~Impl() {
@@ -424,6 +435,9 @@ class Engine::Impl {
     for (auto fence : render_finished_fences_)
       vkDestroyFence(context_.device(), fence, NULL);
     vkDestroySemaphore(context_.device(), splat_transfer_semaphore_, NULL);
+
+    for (auto query_pool : timestamp_query_pools_)
+      vkDestroyQueryPool(context_.device(), query_pool, NULL);
 
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
@@ -790,9 +804,34 @@ class Engine::Impl {
         render_finished_semaphores_[frame_index];
     VkFence render_finished_fence = render_finished_fences_[frame_index];
     VkCommandBuffer cb = draw_command_buffers_[frame_index];
+    VkQueryPool timestamp_query_pool = timestamp_query_pools_[frame_index];
 
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
+      // get timestamps
+      uint64_t order_time = 0;
+      uint64_t sort_time = 0;
+      uint64_t inverse_time = 0;
+      uint64_t projection_time = 0;
+      uint64_t rendering_time = 0;
+      uint64_t end_to_end_time = 0;
+
+      if (frame_counter_ >= 2) {
+        std::vector<uint64_t> timestamps(timestamp_count_);
+        vkGetQueryPoolResults(
+            context_.device(), timestamp_query_pool, 0, timestamps.size(),
+            timestamps.size() * sizeof(uint64_t), timestamps.data(),
+            sizeof(uint64_t),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+
+        order_time = timestamps[2] - timestamps[1];
+        sort_time = timestamps[4] - timestamps[3];
+        inverse_time = timestamps[6] - timestamps[5];
+        projection_time = timestamps[8] - timestamps[7];
+        rendering_time = timestamps[10] - timestamps[9];
+        end_to_end_time = timestamps[11] - timestamps[0];
+      }
+
       // draw ui
       {
         ImGui_ImplVulkan_NewFrame();
@@ -810,7 +849,30 @@ class Engine::Impl {
                       static_cast<float>(num_elements) /
                           splat_buffer_.point_count * 100.f);
 
-          ImGui::Text("fps = %f", io.Framerate);
+          ImGui::Text("fps       : %7.3f", io.Framerate);
+          ImGui::Text("            %7.3fms", 1e3 / io.Framerate);
+          ImGui::Text("frame e2e : %7.3fms",
+                      static_cast<double>(end_to_end_time) / 1e6);
+
+          uint64_t total_time = order_time + sort_time + inverse_time +
+                                projection_time + rendering_time;
+          ImGui::Text("total     : %7.3fms",
+                      static_cast<double>(total_time) / 1e6);
+          ImGui::Text("order     : %7.3fms (%5.2f%%)",
+                      static_cast<double>(order_time) / 1e6,
+                      static_cast<double>(order_time) / total_time * 100.);
+          ImGui::Text("sort      : %7.3fms (%5.2f%%)",
+                      static_cast<double>(sort_time) / 1e6,
+                      static_cast<double>(sort_time) / total_time * 100.);
+          ImGui::Text("inverse   : %7.3fms (%5.2f%%)",
+                      static_cast<double>(inverse_time) / 1e6,
+                      static_cast<double>(inverse_time) / total_time * 100.);
+          ImGui::Text("projection: %7.3fms (%5.2f%%)",
+                      static_cast<double>(projection_time) / 1e6,
+                      static_cast<double>(projection_time) / total_time * 100.);
+          ImGui::Text("rendering : %7.3fms (%5.2f%%)",
+                      static_cast<double>(rendering_time) / 1e6,
+                      static_cast<double>(rendering_time) / total_time * 100.);
 
           static int vsync = 1;
           ImGui::Text("Vsync");
@@ -843,6 +905,11 @@ class Engine::Impl {
           VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
       command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       vkBeginCommandBuffer(cb, &command_begin_info);
+
+      vkCmdResetQueryPool(cb, timestamp_query_pool, 0, timestamp_count_);
+
+      vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_NONE, timestamp_query_pool,
+                           0);
 
       // default model matrix for gaussian splats model, upside down
       glm::mat4 model(1.f);
@@ -924,10 +991,16 @@ class Engine::Impl {
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
                            glm::value_ptr(model));
 
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 1);
+
         constexpr int local_size = 256;
         vkCmdDispatch(cb,
                       (splat_buffer_.point_count + local_size - 1) / local_size,
                       1, 1);
+
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 2);
       }
 
       // num_elements to CPU
@@ -997,8 +1070,14 @@ class Engine::Impl {
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 3);
+
         radix_sorter_.Sort(cb, frame_index, splat_buffer_.num_elements,
                            splat_buffer_.key, splat_buffer_.index);
+
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 4);
       }
 
       // inverse map
@@ -1076,10 +1155,16 @@ class Engine::Impl {
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
                            glm::value_ptr(model));
 
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 5);
+
         constexpr int local_size = 256;
         vkCmdDispatch(cb,
                       (splat_buffer_.point_count + local_size - 1) / local_size,
                       1, 1);
+
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 6);
       }
 
       // projection
@@ -1142,10 +1227,16 @@ class Engine::Impl {
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
                            glm::value_ptr(model));
 
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 7);
+
         constexpr int local_size = 256;
         vkCmdDispatch(cb,
                       (splat_buffer_.point_count + local_size - 1) / local_size,
                       1, 1);
+
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             timestamp_query_pool, 8);
       }
 
       // draw
@@ -1179,9 +1270,18 @@ class Engine::Impl {
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                             timestamp_query_pool, 9);
+
         DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(),
                        swapchain_.image_view(image_index));
+
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                             timestamp_query_pool, 10);
       }
+
+      vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           timestamp_query_pool, 11);
 
       vkEndCommandBuffer(cb);
 
@@ -1415,6 +1515,10 @@ class Engine::Impl {
 
   VkSemaphore splat_transfer_semaphore_ = VK_NULL_HANDLE;
   uint64_t splat_transfer_timeline_ = 0;
+
+  // timestamp queries
+  static constexpr uint32_t timestamp_count_ = 12;
+  std::vector<VkQueryPool> timestamp_query_pools_;
 
   uint64_t frame_counter_ = 0;
 };
