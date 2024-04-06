@@ -325,8 +325,16 @@ class Engine::Impl {
                     &render_finished_fences_[i]);
     }
 
-    vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
-                      &transfer_semaphore_);
+    {
+      VkSemaphoreTypeCreateInfo semaphore_type_info = {
+          VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+      semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+      VkSemaphoreCreateInfo semaphore_info = {
+          VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+      semaphore_info.pNext = &semaphore_type_info;
+      vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
+                        &splat_transfer_semaphore_);
+    }
 
     fence_info.flags = 0;
     vkCreateFence(context_.device(), &fence_info, NULL, &sort_fence_);
@@ -341,7 +349,7 @@ class Engine::Impl {
       vkDestroySemaphore(context_.device(), semaphore, NULL);
     for (auto fence : render_finished_fences_)
       vkDestroyFence(context_.device(), fence, NULL);
-    vkDestroySemaphore(context_.device(), transfer_semaphore_, NULL);
+    vkDestroySemaphore(context_.device(), splat_transfer_semaphore_, NULL);
 
     vkDestroyFence(context_.device(), sort_fence_, NULL);
 
@@ -389,6 +397,13 @@ class Engine::Impl {
     };
     std::vector<uint32_t> splat_index = {0, 1, 2, 3};
 
+    splat_vertex_buffer_ = vk::Buffer(
+        context_, splat_vertex.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    splat_index_buffer_ = vk::Buffer(
+        context_, splat_index.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
     splat_buffer_.position = vk::Buffer(
         context_, position.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -401,16 +416,6 @@ class Engine::Impl {
     splat_buffer_.sh = vk::Buffer(
         context_, sh.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    splat_buffer_.instance = vk::Buffer(
-        context_, point_count_ * 10 * sizeof(float),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-
-    splat_vertex_buffer_ = vk::Buffer(
-        context_, splat_vertex.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    splat_index_buffer_ = vk::Buffer(
-        context_, splat_index.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
     splat_buffer_.key = vk::Buffer(context_, point_count_ * sizeof(uint32_t),
                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -419,6 +424,10 @@ class Engine::Impl {
     splat_buffer_.inverse_index = vk::Buffer(
         context_, point_count_ * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+    splat_buffer_.instance = vk::Buffer(
+        context_, point_count_ * 10 * sizeof(float),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -448,20 +457,28 @@ class Engine::Impl {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
     command_buffer_submit_info[0].commandBuffer = cb;
 
-    // TODO: use timeline semaphore to support multiple transfers
+    std::vector<VkSemaphoreSubmitInfo> wait_semaphore_info(1);
+    wait_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    wait_semaphore_info[0].semaphore = splat_transfer_semaphore_;
+    wait_semaphore_info[0].value = splat_transfer_timeline_;
+    wait_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+
     std::vector<VkSemaphoreSubmitInfo> signal_semaphore_info(1);
     signal_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    signal_semaphore_info[0].semaphore = transfer_semaphore_;
+    signal_semaphore_info[0].semaphore = splat_transfer_semaphore_;
+    signal_semaphore_info[0].value = splat_transfer_timeline_ + 1;
     signal_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
     VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    submit_info.waitSemaphoreInfoCount = wait_semaphore_info.size();
+    submit_info.pWaitSemaphoreInfos = wait_semaphore_info.data();
     submit_info.commandBufferInfoCount = command_buffer_submit_info.size();
     submit_info.pCommandBufferInfos = command_buffer_submit_info.data();
     submit_info.signalSemaphoreInfoCount = signal_semaphore_info.size();
     submit_info.pSignalSemaphoreInfos = signal_semaphore_info.data();
     vkQueueSubmit2(context_.queue(), 1, &submit_info, NULL);
 
-    on_transfer_ = true;
+    splat_transfer_timeline_++;
 
     // update descriptor
     // TODO: make sure descriptors are not in use
@@ -942,19 +959,15 @@ class Engine::Impl {
 
       vkEndCommandBuffer(cb);
 
-      std::vector<VkSemaphoreSubmitInfo> wait_semaphores(1);
+      std::vector<VkSemaphoreSubmitInfo> wait_semaphores(2);
       wait_semaphores[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
       wait_semaphores[0].semaphore = image_acquired_semaphore;
       wait_semaphores[0].stageMask = 0;
 
-      if (on_transfer_) {
-        VkSemaphoreSubmitInfo wait_semaphore = {
-            VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-        wait_semaphore.semaphore = transfer_semaphore_;
-        wait_semaphore.stageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-        wait_semaphores.push_back(wait_semaphore);
-        on_transfer_ = false;
-      }
+      wait_semaphores[1] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+      wait_semaphores[1].semaphore = splat_transfer_semaphore_;
+      wait_semaphores[1].value = splat_transfer_timeline_;
+      wait_semaphores[1].stageMask = 0;
 
       std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
       command_buffer_submit_info[0] = {
@@ -1128,8 +1141,8 @@ class Engine::Impl {
   VkFence sort_fence_ = VK_NULL_HANDLE;
 
   int point_count_ = 0;
-  bool on_transfer_ = false;
-  VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;
+  VkSemaphore splat_transfer_semaphore_ = VK_NULL_HANDLE;
+  uint64_t splat_transfer_timeline_ = 0;
 
   uint64_t frame_counter_ = 0;
 };

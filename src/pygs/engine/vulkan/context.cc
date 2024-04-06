@@ -119,8 +119,12 @@ class Context::Impl {
     }
 
     // features
+    VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+
     VkPhysicalDeviceSynchronization2Features synchronization_2_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+    synchronization_2_features.pNext = &timeline_semaphore_features;
 
     VkPhysicalDeviceImagelessFramebufferFeatures imageless_framebuffer_feature =
         {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
@@ -143,8 +147,6 @@ class Context::Impl {
 
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME,
-        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 #ifdef _WIN32
         "VK_KHR_external_memory_win32",
         "VK_KHR_external_semaphore_win32",
