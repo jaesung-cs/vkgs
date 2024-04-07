@@ -17,6 +17,7 @@ add_library(pygs STATIC
   src/pygs/scene/camera.cc
   src/pygs/scene/splats.cc
   src/pygs/engine/engine.cc
+  src/pygs/engine/radixsort.cc
   src/pygs/engine/vulkan/attachment.cc
   src/pygs/engine/vulkan/buffer.cc
   src/pygs/engine/vulkan/compute_pipeline.cc
@@ -29,7 +30,6 @@ add_library(pygs STATIC
   src/pygs/engine/vulkan/framebuffer.cc
   src/pygs/engine/vulkan/graphics_pipeline.cc
   src/pygs/engine/vulkan/pipeline_layout.cc
-  src/pygs/engine/vulkan/radixsort.cc
   src/pygs/engine/vulkan/render_pass.cc
   src/pygs/engine/vulkan/shader_module.cc
   src/pygs/engine/vulkan/swapchain.cc

@@ -5,16 +5,15 @@
 
 #include <vulkan/vulkan.h>
 
-#include "context.h"
+#include "vulkan/context.h"
 
 namespace pygs {
-namespace vk {
 
 class Radixsort {
  public:
   Radixsort();
 
-  Radixsort(Context context, size_t max_num_elements);
+  Radixsort(vk::Context context, size_t max_num_elements);
 
   ~Radixsort();
 
@@ -27,7 +26,6 @@ class Radixsort {
   std::shared_ptr<Impl> impl_;
 };
 
-}  // namespace vk
 }  // namespace pygs
 
 #endif  // PYGS_ENGIE_VULKAN_RADIXSORT_H

@@ -21,6 +21,7 @@
 #include <pygs/scene/camera.h>
 #include <pygs/scene/splats.h>
 
+#include "radixsort.h"
 #include "vulkan/context.h"
 #include "vulkan/swapchain.h"
 #include "vulkan/attachment.h"
@@ -34,7 +35,6 @@
 #include "vulkan/buffer.h"
 #include "vulkan/cpu_buffer.h"
 #include "vulkan/uniform_buffer.h"
-#include "vulkan/radixsort.h"
 #include "vulkan/shader/uniforms.h"
 #include "vulkan/shader/projection.h"
 #include "vulkan/shader/rank.h"
@@ -721,7 +721,7 @@ class Engine::Impl {
     splat_buffer_.info[0].point_count = point_count;
 
     // create sorter
-    radix_sorter_ = vk::Radixsort(context_, point_count);
+    radix_sorter_ = Radixsort(context_, point_count);
   }
 
   void Run() {
@@ -1547,7 +1547,7 @@ class Engine::Impl {
   vk::ComputePipeline rank_pipeline_;
   vk::ComputePipeline inverse_index_pipeline_;
   vk::ComputePipeline projection_pipeline_;
-  vk::Radixsort radix_sorter_;
+  Radixsort radix_sorter_;
 
   // normal pass
   vk::Framebuffer framebuffer_;
