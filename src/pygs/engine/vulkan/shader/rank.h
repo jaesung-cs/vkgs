@@ -1,11 +1,11 @@
-#ifndef PYGS_ENGINE_VULKAN_SHADER_ORDER_H
-#define PYGS_ENGINE_VULKAN_SHADER_ORDER_H
+#ifndef PYGS_ENGINE_VULKAN_SHADER_RANK_H
+#define PYGS_ENGINE_VULKAN_SHADER_RANK_H
 
 namespace pygs {
 namespace vk {
 namespace shader {
 
-const char* order_comp = R"shader(
+const char* rank_comp = R"shader(
 #version 460
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -64,4 +64,4 @@ void main() {
 }  // namespace vk
 }  // namespace pygs
 
-#endif  // PYGS_ENGINE_VULKAN_SHADER_ORDER_H
+#endif  // PYGS_ENGINE_VULKAN_SHADER_RANK_H

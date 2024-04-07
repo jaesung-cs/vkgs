@@ -37,8 +37,8 @@
 #include "vulkan/radixsort.h"
 #include "vulkan/shader/uniforms.h"
 #include "vulkan/shader/projection.h"
-#include "vulkan/shader/order.h"
-#include "vulkan/shader/inverse_map.h"
+#include "vulkan/shader/rank.h"
+#include "vulkan/shader/inverse_index.h"
 #include "vulkan/shader/splat.h"
 #include "vulkan/shader/color.h"
 
@@ -231,20 +231,20 @@ class Engine::Impl {
           vk::PipelineLayout(context_, pipeline_layout_info);
     }
 
-    // order pipeline
+    // rank pipeline
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::order_comp;
-      order_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
+      pipeline_info.compute_shader = vk::shader::rank_comp;
+      rank_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
-    // inverse map pipeline
+    // inverse index pipeline
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::inverse_map_comp;
-      inverse_map_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
+      pipeline_info.compute_shader = vk::shader::inverse_index_comp;
+      inverse_index_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
     // projection pipeline
@@ -841,7 +841,7 @@ class Engine::Impl {
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
       // get timestamps
-      uint64_t order_time = 0;
+      uint64_t rank_time = 0;
       uint64_t sort_time = 0;
       uint64_t inverse_time = 0;
       uint64_t projection_time = 0;
@@ -856,7 +856,7 @@ class Engine::Impl {
             sizeof(uint64_t),
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 
-        order_time = timestamps[2] - timestamps[1];
+        rank_time = timestamps[2] - timestamps[1];
         sort_time = timestamps[4] - timestamps[3];
         inverse_time = timestamps[6] - timestamps[5];
         projection_time = timestamps[8] - timestamps[7];
@@ -888,13 +888,13 @@ class Engine::Impl {
           ImGui::Text("frame e2e : %7.3fms",
                       static_cast<double>(end_to_end_time) / 1e6);
 
-          uint64_t total_time = order_time + sort_time + inverse_time +
+          uint64_t total_time = rank_time + sort_time + inverse_time +
                                 projection_time + rendering_time;
           ImGui::Text("total     : %7.3fms",
                       static_cast<double>(total_time) / 1e6);
-          ImGui::Text("order     : %7.3fms (%5.2f%%)",
-                      static_cast<double>(order_time) / 1e6,
-                      static_cast<double>(order_time) / total_time * 100.);
+          ImGui::Text("rank      : %7.3fms (%5.2f%%)",
+                      static_cast<double>(rank_time) / 1e6,
+                      static_cast<double>(rank_time) / total_time * 100.);
           ImGui::Text("sort      : %7.3fms (%5.2f%%)",
                       static_cast<double>(sort_time) / 1e6,
                       static_cast<double>(sort_time) / total_time * 100.);
@@ -999,7 +999,7 @@ class Engine::Impl {
       vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_NONE, timestamp_query_pool,
                            0);
 
-      // order
+      // rank
       {
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
         buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -1059,7 +1059,7 @@ class Engine::Impl {
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, order_pipeline_);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rank_pipeline_);
 
         std::vector<VkDescriptorSet> descriptors = {
             descriptors_[frame_index].camera,
@@ -1232,7 +1232,7 @@ class Engine::Impl {
                                 descriptors.data(), 0, nullptr);
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          inverse_map_pipeline_);
+                          inverse_index_pipeline_);
 
         vkCmdPushConstants(cb, compute_pipeline_layout_,
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
@@ -1539,8 +1539,8 @@ class Engine::Impl {
   vk::PipelineLayout graphics_pipeline_layout_;
 
   // preprocess
-  vk::ComputePipeline order_pipeline_;
-  vk::ComputePipeline inverse_map_pipeline_;
+  vk::ComputePipeline rank_pipeline_;
+  vk::ComputePipeline inverse_index_pipeline_;
   vk::ComputePipeline projection_pipeline_;
   vk::Radixsort radix_sorter_;
 
