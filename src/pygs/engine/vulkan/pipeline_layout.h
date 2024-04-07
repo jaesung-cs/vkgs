@@ -6,8 +6,8 @@
 
 #include <vulkan/vulkan.h>
 
-#include "context.h"
-#include "descriptor_layout.h"
+#include "pygs/engine/vulkan/context.h"
+#include "pygs/engine/vulkan/descriptor_layout.h"
 
 namespace pygs {
 namespace vk {

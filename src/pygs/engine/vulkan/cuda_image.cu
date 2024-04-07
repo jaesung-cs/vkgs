@@ -1,4 +1,4 @@
-#include "cuda_image.h"
+#include "pygs/engine/vulkan/cuda_image.h"
 
 #include <cuda_runtime.h>
 
@@ -8,7 +8,7 @@
 #include <vulkan/vulkan_win32.h>
 #endif
 
-#include "context.h"
+#include "pygs/engine/vulkan/context.h"
 
 namespace pygs {
 namespace vk {

@@ -6,8 +6,8 @@
 
 #include <vulkan/vulkan.h>
 
-#include "context.h"
-#include "pipeline_layout.h"
+#include "pygs/engine/vulkan/context.h"
+#include "pygs/engine/vulkan/pipeline_layout.h"
 
 namespace pygs {
 namespace vk {

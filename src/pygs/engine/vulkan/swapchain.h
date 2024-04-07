@@ -5,8 +5,8 @@
 
 #include <vulkan/vulkan.h>
 
-#include "context.h"
-#include "image_spec.h"
+#include "pygs/engine/vulkan/context.h"
+#include "pygs/engine/vulkan/image_spec.h"
 
 namespace pygs {
 namespace vk {

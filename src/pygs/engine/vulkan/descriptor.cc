@@ -1,4 +1,4 @@
-#include "descriptor.h"
+#include "pygs/engine/vulkan/descriptor.h"
 
 namespace pygs {
 namespace vk {

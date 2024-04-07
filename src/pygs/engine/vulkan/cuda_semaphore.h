@@ -1,9 +1,9 @@
 #ifndef PYGS_ENGINE_VULKAN_CUDA_SEMAPHORE_H
 #define PYGS_ENGINE_VULKAN_CUDA_SEMAPHORE_H
 
-#include "context.h"
-
 #include <cuda_runtime.h>
+
+#include "pygs/engine/vulkan/context.h"
 
 namespace pygs {
 namespace vk {

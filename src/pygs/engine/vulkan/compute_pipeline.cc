@@ -1,6 +1,6 @@
-#include "compute_pipeline.h"
+#include "pygs/engine/vulkan/compute_pipeline.h"
 
-#include "shader_module.h"
+#include "pygs/engine/vulkan/shader_module.h"
 
 namespace pygs {
 namespace vk {
