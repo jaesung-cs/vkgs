@@ -920,6 +920,10 @@ class Engine::Impl {
           else
             swapchain_.SetVsync(false);
 
+          ImGui::Checkbox("Axis", &show_axis_);
+          ImGui::SameLine();
+          ImGui::Checkbox("Grid", &show_grid_);
+
           ImGui::Text("Translation");
           static glm::vec3 lt(0.f);
           ImGui::PushID("Translation");
@@ -1475,7 +1479,7 @@ class Engine::Impl {
       vkCmdPushConstants(cb, graphics_pipeline_layout_,
                          VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(model), &model);
 
-      {
+      if (show_axis_) {
         std::vector<VkBuffer> vbs = {axis_.position_buffer, axis_.color_buffer};
         std::vector<VkDeviceSize> vb_offsets = {0, 0};
         vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
@@ -1485,7 +1489,8 @@ class Engine::Impl {
 
         vkCmdDrawIndexed(cb, axis_.index_count, 1, 0, 0, 0);
       }
-      {
+
+      if (show_grid_) {
         std::vector<VkBuffer> vbs = {grid_.position_buffer, grid_.color_buffer};
         std::vector<VkDeviceSize> vb_offsets = {0, 0};
         vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
@@ -1594,6 +1599,9 @@ class Engine::Impl {
   glm::vec3 translation_{0.f, 0.f, 0.f};
   glm::quat rotation_{1.f, 0.f, 0.f, 0.f};
   float scale_{1.f};
+
+  bool show_axis_ = true;
+  bool show_grid_ = true;
 
   vk::CpuBuffer num_element_cpu_buffer_;  // (2) for debug
 
