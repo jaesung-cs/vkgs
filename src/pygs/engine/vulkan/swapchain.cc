@@ -46,7 +46,7 @@ class Swapchain::Impl {
                             images_.data());
 
     image_views_.resize(image_count);
-    for (int i = 0; i < image_count; i++) {
+    for (int i = 0; i < image_count; ++i) {
       VkImageViewCreateInfo image_view_info = {
           VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
       image_view_info.image = images_[i];
@@ -157,7 +157,7 @@ class Swapchain::Impl {
       vkDestroyImageView(context_.device(), image_view, NULL);
 
     image_views_.resize(image_count);
-    for (int i = 0; i < image_count; i++) {
+    for (int i = 0; i < image_count; ++i) {
       VkImageViewCreateInfo image_view_info = {
           VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
       image_view_info.image = images_[i];

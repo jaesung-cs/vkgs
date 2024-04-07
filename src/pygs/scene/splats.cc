@@ -58,7 +58,7 @@ Splats Splats::load(const std::string& ply_filepath) {
     splats.rot_.resize(vertex_count * 4);
 
     std::vector<float> rest(45);
-    for (int i = 0; i < vertex_count; i++) {
+    for (int i = 0; i < vertex_count; ++i) {
       float x = *reinterpret_cast<float*>(buffer.data() + i * offset +
                                           offsets.at("x"));
       float y = *reinterpret_cast<float*>(buffer.data() + i * offset +
@@ -96,13 +96,13 @@ Splats Splats::load(const std::string& ply_filepath) {
       splats.sh_[i * 48 + 16] = f_dc_1;
       splats.sh_[i * 48 + 32] = f_dc_2;
 
-      for (int j = 0; j < 45; j++) {
+      for (int j = 0; j < 45; ++j) {
         rest[j] = *reinterpret_cast<float*>(
             buffer.data() + i * offset +
             offsets.at("f_rest_" + std::to_string(j)));
       }
 
-      for (int j = 0; j < 15; j++) {
+      for (int j = 0; j < 15; ++j) {
         splats.sh_[i * 48 + 1 + j] = rest[0 + j];
         splats.sh_[i * 48 + 17 + j] = rest[15 + j];
         splats.sh_[i * 48 + 33 + j] = rest[30 + j];

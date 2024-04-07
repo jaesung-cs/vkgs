@@ -51,6 +51,38 @@ void check_vk_result(VkResult err) {
   if (err < 0) abort();
 }
 
+glm::mat3 ToScaleMatrix3(const glm::vec3& s) {
+  glm::mat3 m(1.f);
+  m[0][0] = s[0];
+  m[1][1] = s[1];
+  m[2][2] = s[2];
+  return m;
+}
+
+glm::mat4 ToScaleMatrix4(const glm::vec3& s) {
+  glm::mat4 m(1.f);
+  m[0][0] = s[0];
+  m[1][1] = s[1];
+  m[2][2] = s[2];
+  return m;
+}
+
+glm::mat4 ToScaleMatrix4(float s) {
+  glm::mat4 m(1.f);
+  m[0][0] = s;
+  m[1][1] = s;
+  m[2][2] = s;
+  return m;
+}
+
+glm::mat4 ToTranslationMatrix4(const glm::vec3& t) {
+  glm::mat4 m(1.f);
+  m[3][0] = t[0];
+  m[3][1] = t[1];
+  m[3][2] = t[2];
+  return m;
+}
+
 }  // namespace
 
 class Engine::Impl {
@@ -353,7 +385,7 @@ class Engine::Impl {
     camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
     num_element_cpu_buffer_ = vk::CpuBuffer(context_, 2 * sizeof(uint32_t));
     descriptors_.resize(2);
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; ++i) {
       descriptors_[i].camera =
           vk::Descriptor(context_, camera_descriptor_layout_);
       descriptors_[i].camera.Update(0, camera_buffer_, camera_buffer_.offset(i),
@@ -393,7 +425,7 @@ class Engine::Impl {
     image_acquired_semaphores_.resize(2);
     render_finished_semaphores_.resize(2);
     render_finished_fences_.resize(2);
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; ++i) {
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
                         &image_acquired_semaphores_[i]);
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
@@ -457,7 +489,7 @@ class Engine::Impl {
 
     std::vector<float> gaussian_cov3d;
     gaussian_cov3d.reserve(6 * point_count);
-    for (int i = 0; i < point_count; i++) {
+    for (int i = 0; i < point_count; ++i) {
       glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
                   rotation[i * 4 + 3]);
       glm::mat3 r = glm::toMat3(q);
@@ -832,6 +864,8 @@ class Engine::Impl {
         end_to_end_time = timestamps[11] - timestamps[0];
       }
 
+      glm::mat4 model(1.f);
+
       // draw ui
       {
         ImGui_ImplVulkan_NewFrame();
@@ -885,6 +919,60 @@ class Engine::Impl {
             swapchain_.SetVsync(true);
           else
             swapchain_.SetVsync(false);
+
+          ImGui::Text("Translation");
+          static glm::vec3 lt(0.f);
+          ImGui::PushID("Translation");
+          ImGui::DragFloat3("local", glm::value_ptr(lt), 0.01f);
+          if (ImGui::IsItemDeactivated()) {
+            translation_ += glm::toMat3(rotation_) * scale_ * lt;
+            lt = glm::vec3(0.f);
+          }
+
+          static glm::vec3 gt(0.f);
+          ImGui::DragFloat3("global", glm::value_ptr(gt), 0.01f);
+          if (ImGui::IsItemDeactivated()) {
+            translation_ += gt;
+            gt = glm::vec3(0.f);
+          }
+          ImGui::PopID();
+
+          ImGui::Text("Rotation");
+          ImGui::PushID("Rotation");
+          static glm::vec3 lr(0.f);
+          ImGui::DragFloat3("local", glm::value_ptr(lr), 0.1f);
+          glm::quat lq = glm::quat(glm::radians(lr));
+          if (ImGui::IsItemDeactivated()) {
+            rotation_ = rotation_ * lq;
+            lr = glm::vec3(0.f);
+            lq = glm::quat(1.f, 0.f, 0.f, 0.f);
+          }
+
+          static glm::vec3 gr(0.f);
+          ImGui::DragFloat3("global", glm::value_ptr(gr), 0.1f);
+          glm::quat gq = glm::quat(glm::radians(gr));
+          if (ImGui::IsItemDeactivated()) {
+            translation_ = gq * translation_;
+            rotation_ = gq * rotation_;
+            gr = glm::vec3(0.f);
+            gq = glm::quat(1.f, 0.f, 0.f, 0.f);
+          }
+          ImGui::PopID();
+
+          ImGui::Text("Scale");
+          ImGui::PushID("Scale");
+          static float scale = 1.f;
+          ImGui::DragFloat("local", &scale, 0.01f, 0.1f, 10.f, "%.3f",
+                           ImGuiSliderFlags_Logarithmic);
+          if (ImGui::IsItemDeactivated()) {
+            scale_ *= scale;
+            scale = 1.f;
+          }
+          ImGui::PopID();
+
+          model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) *
+                  ToTranslationMatrix4(translation_ + gt) *
+                  glm::toMat4(rotation_ * lq) * ToTranslationMatrix4(lt);
         }
         ImGui::End();
         ImGui::Render();
@@ -910,11 +998,6 @@ class Engine::Impl {
 
       vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_NONE, timestamp_query_pool,
                            0);
-
-      // default model matrix for gaussian splats model, upside down
-      glm::mat4 model(1.f);
-      model[1][1] = -1.f;
-      model[2][2] = -1.f;
 
       // order
       {
@@ -1270,7 +1353,7 @@ class Engine::Impl {
         barrier.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                              timestamp_query_pool, 9);
 
         DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(),
@@ -1507,6 +1590,10 @@ class Engine::Impl {
     vk::Buffer instance;       // (N, 10)
   };
   SplatBuffer splat_buffer_;
+
+  glm::vec3 translation_{0.f, 0.f, 0.f};
+  glm::quat rotation_{1.f, 0.f, 0.f, 0.f};
+  float scale_{1.f};
 
   vk::CpuBuffer num_element_cpu_buffer_;  // (2) for debug
 

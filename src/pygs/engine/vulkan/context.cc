@@ -106,7 +106,7 @@ class Context::Impl {
         physical_device_, &queue_family_count, queue_families.data());
 
     constexpr VkQueueFlags graphics_queue_flags = VK_QUEUE_GRAPHICS_BIT;
-    for (int i = 0; i < queue_families.size(); i++) {
+    for (int i = 0; i < queue_families.size(); ++i) {
       const auto& queue_family = queue_families[i];
       bool proper_queue_type = (queue_family.queueFlags &
                                 graphics_queue_flags) == graphics_queue_flags;

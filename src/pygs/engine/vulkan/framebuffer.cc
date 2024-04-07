@@ -12,7 +12,7 @@ class Framebuffer::Impl {
     auto image_count = create_info.image_specs.size();
     std::vector<VkFramebufferAttachmentImageInfo> attachment_images(
         image_count);
-    for (int i = 0; i < image_count; i++) {
+    for (int i = 0; i < image_count; ++i) {
       attachment_images[i] = {
           VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENT_IMAGE_INFO};
       attachment_images[i].usage = create_info.image_specs[i].usage;

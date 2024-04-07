@@ -61,12 +61,12 @@ class Radixsort::Impl {
 
     // 2 frames, 2 ping-pong descriptors
     descriptors_.resize(4);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; ++i) {
       descriptors_[i] = Descriptor(context_, descriptor_layout_);
     }
 
     indirect_descriptors_.resize(2);
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; ++i) {
       indirect_descriptors_[i] = Descriptor(context_, indirect_layout_);
     }
 
@@ -186,7 +186,7 @@ class Radixsort::Impl {
     vkCmdPipelineBarrier2(command_buffer, &dependency_info);
 
     // dispatches
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; ++i) {
       uint32_t shift = i * 8;
 
       VkBuffer value_src_buffer = i % 2 == 0 ? values : value_buffer_;
