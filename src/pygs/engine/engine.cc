@@ -459,6 +459,9 @@ class Engine::Impl {
                         &timestamp_query_pools_[i]);
     }
 
+    // frame info
+    frame_infos_.resize(2);
+
     PreparePrimitives();
   }
 
@@ -887,6 +890,7 @@ class Engine::Impl {
     VkFence render_finished_fence = render_finished_fences_[frame_index];
     VkCommandBuffer cb = draw_command_buffers_[frame_index];
     VkQueryPool timestamp_query_pool = timestamp_query_pools_[frame_index];
+    auto& frame_info = frame_infos_[frame_index];
 
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
@@ -898,7 +902,7 @@ class Engine::Impl {
       uint64_t rendering_time = 0;
       uint64_t end_to_end_time = 0;
 
-      if (frame_counter_ >= 2) {
+      if (frame_info.drew_splats) {
         std::vector<uint64_t> timestamps(timestamp_count_);
         vkGetQueryPoolResults(
             context_.device(), timestamp_query_pool, 0, timestamps.size(),
@@ -929,9 +933,13 @@ class Engine::Impl {
           const auto* num_elements_buffer =
               reinterpret_cast<const uint32_t*>(num_element_cpu_buffer_.data());
           uint32_t num_elements = num_elements_buffer[frame_index];
+          float visible_points_ratio = splat_buffer_.point_count > 0
+                                           ? static_cast<float>(num_elements) /
+                                                 splat_buffer_.point_count *
+                                                 100.f
+                                           : 0.f;
           ImGui::Text("%d (%.2f%%) visible splats", num_elements,
-                      static_cast<float>(num_elements) /
-                          splat_buffer_.point_count * 100.f);
+                      visible_points_ratio);
 
           ImGui::Text("fps       : %7.3f", io.Framerate);
           ImGui::Text("            %7.3fms", 1e3 / io.Framerate);
@@ -1053,368 +1061,379 @@ class Engine::Impl {
       vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_NONE, timestamp_query_pool,
                            0);
 
-      // rank
-      {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-            VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[0].srcAccessMask =
-            VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
-        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.num_elements;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.num_elements.size();
+      if (splat_buffer_.point_count != 0) {
+        // rank
+        {
+          std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+              VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+          buffer_barriers[0].srcAccessMask =
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
+          buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+          buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.num_elements;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
-        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdFillBuffer(cb, splat_buffer_.num_elements, 0, sizeof(uint32_t), 0);
+          vkCmdFillBuffer(cb, splat_buffer_.num_elements, 0, sizeof(uint32_t),
+                          0);
 
-        buffer_barriers.resize(3);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.num_elements;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.num_elements.size();
+          buffer_barriers.resize(3);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+          buffer_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+          buffer_barriers[0].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.num_elements;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
-        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[1].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].buffer = splat_buffer_.key;
-        buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_buffer_.key.size();
+          buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[1].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[1].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[1].buffer = splat_buffer_.key;
+          buffer_barriers[1].offset = 0;
+          buffer_barriers[1].size = splat_buffer_.key.size();
 
-        buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[2].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[2].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[2].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[2].buffer = splat_buffer_.index;
-        buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = splat_buffer_.index.size();
+          buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[2].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[2].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[2].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[2].buffer = splat_buffer_.index;
+          buffer_barriers[2].offset = 0;
+          buffer_barriers[2].size = splat_buffer_.index.size();
 
-        barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rank_pipeline_);
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rank_pipeline_);
 
-        std::vector<VkDescriptorSet> descriptors = {
-            descriptors_[frame_index].camera,
-            descriptors_[frame_index].gaussian,
-            descriptors_[frame_index].splat_instance,
-        };
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                compute_pipeline_layout_, 0, descriptors.size(),
-                                descriptors.data(), 0, nullptr);
+          std::vector<VkDescriptorSet> descriptors = {
+              descriptors_[frame_index].camera,
+              descriptors_[frame_index].gaussian,
+              descriptors_[frame_index].splat_instance,
+          };
+          vkCmdBindDescriptorSets(
+              cb, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout_, 0,
+              descriptors.size(), descriptors.data(), 0, nullptr);
 
-        vkCmdPushConstants(cb, compute_pipeline_layout_,
-                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
-                           glm::value_ptr(model));
+          vkCmdPushConstants(cb, compute_pipeline_layout_,
+                             VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
+                             glm::value_ptr(model));
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 1);
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 1);
 
-        constexpr int local_size = 256;
-        vkCmdDispatch(cb,
-                      (splat_buffer_.point_count + local_size - 1) / local_size,
-                      1, 1);
+          constexpr int local_size = 256;
+          vkCmdDispatch(
+              cb, (splat_buffer_.point_count + local_size - 1) / local_size, 1,
+              1);
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 2);
-      }
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 2);
+        }
 
-      // num_elements to CPU
-      {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.num_elements;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.num_elements.size();
+        // num_elements to CPU
+        {
+          std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+          buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.num_elements;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
-        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        VkBufferCopy region = {};
-        region.srcOffset = 0;
-        region.dstOffset = sizeof(uint32_t) * frame_index;
-        region.size = sizeof(uint32_t);
-        vkCmdCopyBuffer(cb, splat_buffer_.num_elements, num_element_cpu_buffer_,
-                        1, &region);
-      }
+          VkBufferCopy region = {};
+          region.srcOffset = 0;
+          region.dstOffset = sizeof(uint32_t) * frame_index;
+          region.size = sizeof(uint32_t);
+          vkCmdCopyBuffer(cb, splat_buffer_.num_elements,
+                          num_element_cpu_buffer_, 1, &region);
+        }
 
-      // radix sort
-      {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(3);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.num_elements;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.num_elements.size();
+        // radix sort
+        {
+          std::vector<VkBufferMemoryBarrier2> buffer_barriers(3);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[0].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.num_elements;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
-        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[1].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = splat_buffer_.key;
-        buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_buffer_.key.size();
+          buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[1].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[1].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[1].buffer = splat_buffer_.key;
+          buffer_barriers[1].offset = 0;
+          buffer_barriers[1].size = splat_buffer_.key.size();
 
-        buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[2].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[2].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[2].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[2].buffer = splat_buffer_.index;
-        buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = splat_buffer_.index.size();
+          buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[2].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[2].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[2].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[2].buffer = splat_buffer_.index;
+          buffer_barriers[2].offset = 0;
+          buffer_barriers[2].size = splat_buffer_.index.size();
 
-        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 3);
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 3);
 
-        radix_sorter_.Sort(cb, frame_index, splat_buffer_.num_elements,
-                           splat_buffer_.key, splat_buffer_.index);
+          radix_sorter_.Sort(cb, frame_index, splat_buffer_.num_elements,
+                             splat_buffer_.key, splat_buffer_.index);
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 4);
-      }
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 4);
+        }
 
-      // inverse map
-      {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.inverse_index;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.inverse_index.size();
+        // inverse map
+        {
+          std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+          buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.inverse_index;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.inverse_index.size();
 
-        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdFillBuffer(cb, splat_buffer_.inverse_index, 0,
-                        splat_buffer_.inverse_index.size(), -1);
+          vkCmdFillBuffer(cb, splat_buffer_.inverse_index, 0,
+                          splat_buffer_.inverse_index.size(), -1);
 
-        buffer_barriers.resize(3);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.num_elements;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.num_elements.size();
+          buffer_barriers.resize(3);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[0].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.num_elements;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
-        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[1].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = splat_buffer_.index;
-        buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_buffer_.index.size();
+          buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[1].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[1].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[1].buffer = splat_buffer_.index;
+          buffer_barriers[1].offset = 0;
+          buffer_barriers[1].size = splat_buffer_.index.size();
 
-        buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        buffer_barriers[2].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        buffer_barriers[2].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[2].buffer = splat_buffer_.inverse_index;
-        buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = splat_buffer_.inverse_index.size();
+          buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+          buffer_barriers[2].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+          buffer_barriers[2].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[2].buffer = splat_buffer_.inverse_index;
+          buffer_barriers[2].offset = 0;
+          buffer_barriers[2].size = splat_buffer_.inverse_index.size();
 
-        barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        std::vector<VkDescriptorSet> descriptors = {
-            descriptors_[frame_index].camera,
-            descriptors_[frame_index].gaussian,
-            descriptors_[frame_index].splat_instance,
-        };
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                compute_pipeline_layout_, 0, descriptors.size(),
-                                descriptors.data(), 0, nullptr);
+          std::vector<VkDescriptorSet> descriptors = {
+              descriptors_[frame_index].camera,
+              descriptors_[frame_index].gaussian,
+              descriptors_[frame_index].splat_instance,
+          };
+          vkCmdBindDescriptorSets(
+              cb, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout_, 0,
+              descriptors.size(), descriptors.data(), 0, nullptr);
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          inverse_index_pipeline_);
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            inverse_index_pipeline_);
 
-        vkCmdPushConstants(cb, compute_pipeline_layout_,
-                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
-                           glm::value_ptr(model));
+          vkCmdPushConstants(cb, compute_pipeline_layout_,
+                             VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
+                             glm::value_ptr(model));
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 5);
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 5);
 
-        constexpr int local_size = 256;
-        vkCmdDispatch(cb,
-                      (splat_buffer_.point_count + local_size - 1) / local_size,
-                      1, 1);
+          constexpr int local_size = 256;
+          vkCmdDispatch(
+              cb, (splat_buffer_.point_count + local_size - 1) / local_size, 1,
+              1);
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 6);
-      }
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 6);
+        }
 
-      // projection
-      {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(4);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.num_elements;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.num_elements.size();
+        // projection
+        {
+          std::vector<VkBufferMemoryBarrier2> buffer_barriers(4);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[0].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.num_elements;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.num_elements.size();
 
-        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[1].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].buffer = splat_buffer_.inverse_index;
-        buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_buffer_.inverse_index.size();
+          buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[1].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[1].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+          buffer_barriers[1].buffer = splat_buffer_.inverse_index;
+          buffer_barriers[1].offset = 0;
+          buffer_barriers[1].size = splat_buffer_.inverse_index.size();
 
-        buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[2].srcStageMask =
-            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
-        buffer_barriers[2].srcAccessMask =
-            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-        buffer_barriers[2].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[2].buffer = splat_buffer_.instance;
-        buffer_barriers[2].offset = 0;
-        buffer_barriers[2].size = splat_buffer_.instance.size();
+          buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[2].srcStageMask =
+              VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+          buffer_barriers[2].srcAccessMask =
+              VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+          buffer_barriers[2].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[2].buffer = splat_buffer_.instance;
+          buffer_barriers[2].offset = 0;
+          buffer_barriers[2].size = splat_buffer_.instance.size();
 
-        buffer_barriers[3] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[3].srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-        buffer_barriers[3].srcAccessMask =
-            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-        buffer_barriers[3].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[3].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[3].buffer = splat_buffer_.draw_indirect;
-        buffer_barriers[3].offset = 0;
-        buffer_barriers[3].size = splat_buffer_.draw_indirect.size();
+          buffer_barriers[3] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[3].srcStageMask =
+              VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+          buffer_barriers[3].srcAccessMask =
+              VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+          buffer_barriers[3].dstStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[3].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[3].buffer = splat_buffer_.draw_indirect;
+          buffer_barriers[3].offset = 0;
+          buffer_barriers[3].size = splat_buffer_.draw_indirect.size();
 
-        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          projection_pipeline_);
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            projection_pipeline_);
 
-        vkCmdPushConstants(cb, compute_pipeline_layout_,
-                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
-                           glm::value_ptr(model));
+          vkCmdPushConstants(cb, compute_pipeline_layout_,
+                             VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
+                             glm::value_ptr(model));
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 7);
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 7);
 
-        constexpr int local_size = 256;
-        vkCmdDispatch(cb,
-                      (splat_buffer_.point_count + local_size - 1) / local_size,
-                      1, 1);
+          constexpr int local_size = 256;
+          vkCmdDispatch(
+              cb, (splat_buffer_.point_count + local_size - 1) / local_size, 1,
+              1);
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 8);
-      }
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 8);
+        }
 
-      // draw
-      {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(2);
-        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[0].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
-        buffer_barriers[0].dstAccessMask =
-            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-        buffer_barriers[0].buffer = splat_buffer_.instance;
-        buffer_barriers[0].offset = 0;
-        buffer_barriers[0].size = splat_buffer_.instance.size();
+        // draw
+        {
+          std::vector<VkBufferMemoryBarrier2> buffer_barriers(2);
+          buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[0].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[0].dstStageMask =
+              VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+          buffer_barriers[0].dstAccessMask =
+              VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+          buffer_barriers[0].buffer = splat_buffer_.instance;
+          buffer_barriers[0].offset = 0;
+          buffer_barriers[0].size = splat_buffer_.instance.size();
 
-        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-        buffer_barriers[1].srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        buffer_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-        buffer_barriers[1].dstAccessMask =
-            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-        buffer_barriers[1].buffer = splat_buffer_.draw_indirect;
-        buffer_barriers[1].offset = 0;
-        buffer_barriers[1].size = splat_buffer_.draw_indirect.size();
+          buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+          buffer_barriers[1].srcStageMask =
+              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+          buffer_barriers[1].dstStageMask =
+              VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+          buffer_barriers[1].dstAccessMask =
+              VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+          buffer_barriers[1].buffer = splat_buffer_.draw_indirect;
+          buffer_barriers[1].offset = 0;
+          buffer_barriers[1].size = splat_buffer_.draw_indirect.size();
 
-        VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        barrier.bufferMemoryBarrierCount = buffer_barriers.size();
-        barrier.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &barrier);
+          VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+          barrier.bufferMemoryBarrierCount = buffer_barriers.size();
+          barrier.pBufferMemoryBarriers = buffer_barriers.data();
+          vkCmdPipelineBarrier2(cb, &barrier);
 
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             timestamp_query_pool, 9);
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               timestamp_query_pool, 9);
 
+          DrawNormalPass(cb, frame_index, swapchain_.width(),
+                         swapchain_.height(),
+                         swapchain_.image_view(image_index));
+
+          vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                               timestamp_query_pool, 10);
+        }
+        frame_info.drew_splats = true;
+      } else {
         DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(),
                        swapchain_.image_view(image_index));
-
-        vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-                             timestamp_query_pool, 10);
+        frame_info.drew_splats = false;
       }
 
       vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
@@ -1553,7 +1572,7 @@ class Engine::Impl {
     }
 
     // draw splat
-    {
+    if (splat_buffer_.point_count != 0) {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
 
       std::vector<VkBuffer> vbs = {splat_vertex_buffer_,
@@ -1625,6 +1644,11 @@ class Engine::Impl {
     vk::Descriptor splat_instance;
   };
   std::vector<FrameDescriptor> descriptors_;
+
+  struct FrameInfo {
+    bool drew_splats = false;
+  };
+  std::vector<FrameInfo> frame_infos_;
 
   struct SplatBuffer {
     vk::UniformBuffer<vk::shader::SplatInfo> info;
