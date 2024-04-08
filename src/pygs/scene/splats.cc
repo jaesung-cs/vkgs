@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
+#include <cmath>
 
 namespace pygs {
 namespace {

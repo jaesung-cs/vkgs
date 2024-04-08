@@ -9,8 +9,8 @@ namespace vk {
 
 class Attachment::Impl {
  public:
-  Impl::Impl(Context context, uint32_t width, uint32_t height, VkFormat format,
-             VkSampleCountFlagBits samples, bool input_attachment)
+  Impl(Context context, uint32_t width, uint32_t height, VkFormat format,
+       VkSampleCountFlagBits samples, bool input_attachment)
       : context_(context), width_(width), height_(height), format_(format) {
     usage_ = 0;
     VkImageAspectFlags aspect = 0;
