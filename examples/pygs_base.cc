@@ -1,4 +1,5 @@
 #include <iostream>
+#include <future>
 
 #include "argparse/argparse.hpp"
 
@@ -18,10 +19,11 @@ int main(int argc, char** argv) {
 
   try {
     auto ply_filepath = parser.get<std::string>("input");
-    auto splats = pygs::Splats::load(ply_filepath);
+    auto splats_future =
+        std::async(std::launch::async, pygs::Splats::load, ply_filepath);
 
     pygs::Engine engine;
-    engine.AddSplats(splats);
+    engine.AddSplatsAsync(std::move(splats_future));
     engine.Run();
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;

@@ -1,5 +1,6 @@
 #include <pygs/engine/engine.h>
 
+#include <queue>
 #include <iostream>
 #include <stdexcept>
 #include <unordered_map>
@@ -623,6 +624,10 @@ class Engine::Impl {
     radix_sorter_ = Radixsort(context_, point_count);
   }
 
+  void AddSplatsAsync(std::future<Splats>&& splats_future) {
+    pending_splats_.push(std::move(splats_future));
+  }
+
   void Run() {
     // create window
     width_ = 1600;
@@ -698,6 +703,20 @@ class Engine::Impl {
       int width, height;
       glfwGetFramebufferSize(window_, &width, &height);
       camera_.SetWindowSize(width, height);
+
+      // handle pending splat load in order
+      while (!pending_splats_.empty()) {
+        auto& front = pending_splats_.front();
+
+        using namespace std::chrono_literals;
+        if (front.wait_for(0s) == std::future_status::ready) {
+          auto splats = front.get();
+          AddSplats(splats);
+          pending_splats_.pop();
+        } else {
+          break;
+        }
+      }
 
       Draw();
     }
@@ -1677,6 +1696,8 @@ class Engine::Impl {
   bool show_axis_ = true;
   bool show_grid_ = true;
 
+  std::queue<std::future<Splats>> pending_splats_;
+
   vk::CpuBuffer num_element_cpu_buffer_;  // (2) for debug
 
   vk::Buffer splat_vertex_buffer_;  // gaussian2d quad
@@ -1697,6 +1718,10 @@ Engine::Engine() : impl_(std::make_shared<Impl>()) {}
 Engine::~Engine() = default;
 
 void Engine::AddSplats(const Splats& splats) { impl_->AddSplats(splats); }
+
+void Engine::AddSplatsAsync(std::future<Splats>&& splats_future) {
+  impl_->AddSplatsAsync(std::move(splats_future));
+}
 
 void Engine::Run() { impl_->Run(); }
 

@@ -2,6 +2,7 @@
 #define PYGS_ENGINE_ENGINE_H
 
 #include <memory>
+#include <future>
 
 namespace pygs {
 
@@ -13,6 +14,7 @@ class Engine {
   ~Engine();
 
   void AddSplats(const Splats& splats);
+  void AddSplatsAsync(std::future<Splats>&& splats_future);
   void Run();
 
  private:
