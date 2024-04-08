@@ -1,5 +1,5 @@
-#ifndef PYGS_ENGINE_VULKAN_CUDA_SEMAPHORE_H
-#define PYGS_ENGINE_VULKAN_CUDA_SEMAPHORE_H
+#ifndef PYGS_ENGINE_INTEROP_SEMAPHORE_H
+#define PYGS_ENGINE_INTEROP_SEMAPHORE_H
 
 #include <cuda_runtime.h>
 
@@ -27,4 +27,4 @@ class CudaSemaphore {
 }  // namespace vk
 }  // namespace pygs
 
-#endif  // PYGS_ENGINE_VULKAN_CUDA_SEMAPHORE_H
+#endif  // PYGS_ENGINE_INTEROP_SEMAPHORE_H

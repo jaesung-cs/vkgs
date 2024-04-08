@@ -1,4 +1,4 @@
-#include "pygs/engine/vulkan/cuda_image.h"
+#include "pygs/engine/interop/cuda_image.h"
 
 #include <cuda_runtime.h>
 

@@ -1,5 +1,5 @@
-#ifndef PYGS_ENGINE_VULKAN_CUDA_IMAGE_H
-#define PYGS_ENGINE_VULKAN_CUDA_IMAGE_H
+#ifndef PYGS_ENGINE_INTEROP_CUDA_IMAGE_H
+#define PYGS_ENGINE_INTEROP_CUDA_IMAGE_H
 
 #include <memory>
 
@@ -34,4 +34,4 @@ class CudaImage {
 }  // namespace vk
 }  // namespace pygs
 
-#endif  // PYGS_ENGINE_VULKAN_CUDA_IMAGE_H
+#endif  // PYGS_ENGINE_INTEROP_CUDA_IMAGE_H
