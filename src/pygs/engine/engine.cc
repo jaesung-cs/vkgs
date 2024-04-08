@@ -445,7 +445,7 @@ class Engine::Impl {
           VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       semaphore_info.pNext = &semaphore_type_info;
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL,
-                        &splat_transfer_semaphore_);
+                        &transfer_semaphore_);
     }
 
     // create query pools
@@ -458,6 +458,8 @@ class Engine::Impl {
       vkCreateQueryPool(context_.device(), &query_pool_info, NULL,
                         &timestamp_query_pools_[i]);
     }
+
+    PreparePrimitives();
   }
 
   ~Impl() {
@@ -469,7 +471,7 @@ class Engine::Impl {
       vkDestroySemaphore(context_.device(), semaphore, NULL);
     for (auto fence : render_finished_fences_)
       vkDestroyFence(context_.device(), fence, NULL);
-    vkDestroySemaphore(context_.device(), splat_transfer_semaphore_, NULL);
+    vkDestroySemaphore(context_.device(), transfer_semaphore_, NULL);
 
     for (auto query_pool : timestamp_query_pools_)
       vkDestroyQueryPool(context_.device(), query_pool, NULL);
@@ -510,81 +512,6 @@ class Engine::Impl {
       gaussian_cov3d.push_back(m[2][2]);
     }
 
-    std::vector<float> splat_vertex = {
-        // xy, ccw in NDC space.
-        -1.f, -1.f,  // 0
-        -1.f, 1.f,   // 1
-        1.f,  -1.f,  // 2
-        1.f,  1.f,   // 3
-    };
-    std::vector<uint32_t> splat_index = {0, 1, 2, 3};
-
-    std::vector<float> axis_position = {
-        0.f, 0.f, 0.f, 1.f, 0.f, 0.f,  // x
-        0.f, 0.f, 0.f, 0.f, 1.f, 0.f,  // y
-        0.f, 0.f, 0.f, 0.f, 0.f, 1.f,  // z
-    };
-    std::vector<float> axis_color = {
-        1.f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f,  // x
-        0.f, 1.f, 0.f, 1.f, 0.f, 1.f, 0.f, 1.f,  // y
-        0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f, 1.f,  // z
-    };
-    std::vector<uint32_t> axis_index = {
-        0, 1, 2, 3, 4, 5,
-    };
-
-    std::vector<float> grid_position;
-    std::vector<float> grid_color;
-    std::vector<uint32_t> grid_index;
-    constexpr int grid_size = 10;
-    for (int i = 0; i < grid_size * 2 + 1; ++i) {
-      grid_index.push_back(4 * i + 0);
-      grid_index.push_back(4 * i + 1);
-      grid_index.push_back(4 * i + 2);
-      grid_index.push_back(4 * i + 3);
-    }
-    for (int i = -grid_size; i <= grid_size; ++i) {
-      float t = static_cast<float>(i) / grid_size;
-      grid_position.push_back(-1.f);
-      grid_position.push_back(0);
-      grid_position.push_back(t);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(1.f);
-
-      grid_position.push_back(1.f);
-      grid_position.push_back(0);
-      grid_position.push_back(t);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(1.f);
-
-      grid_position.push_back(t);
-      grid_position.push_back(0);
-      grid_position.push_back(-1.f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(1.f);
-
-      grid_position.push_back(t);
-      grid_position.push_back(0);
-      grid_position.push_back(1.f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(0.5f);
-      grid_color.push_back(1.f);
-    }
-
-    splat_vertex_buffer_ = vk::Buffer(
-        context_, splat_vertex.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    splat_index_buffer_ = vk::Buffer(
-        context_, splat_index.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-
     splat_buffer_.position = vk::Buffer(
         context_, position.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -610,26 +537,6 @@ class Engine::Impl {
         context_, point_count * 10 * sizeof(float),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
-    axis_.position_buffer = vk::Buffer(
-        context_, axis_position.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    axis_.color_buffer = vk::Buffer(
-        context_, axis_color.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    axis_.index_buffer = vk::Buffer(
-        context_, axis_index.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-
-    grid_.position_buffer = vk::Buffer(
-        context_, grid_position.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    grid_.color_buffer = vk::Buffer(
-        context_, grid_color.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    grid_.index_buffer = vk::Buffer(
-        context_, grid_index.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-
     VkCommandBufferAllocateInfo command_buffer_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     command_buffer_info.commandPool = context_.command_pool();
@@ -648,19 +555,6 @@ class Engine::Impl {
     splat_buffer_.opacity.FromCpu(cb, opacity);
     splat_buffer_.sh.FromCpu(cb, sh);
 
-    splat_vertex_buffer_.FromCpu(cb, splat_vertex);
-    splat_index_buffer_.FromCpu(cb, splat_index);
-
-    axis_.position_buffer.FromCpu(cb, axis_position);
-    axis_.color_buffer.FromCpu(cb, axis_color);
-    axis_.index_buffer.FromCpu(cb, axis_index);
-    axis_.index_count = axis_index.size();
-
-    grid_.position_buffer.FromCpu(cb, grid_position);
-    grid_.color_buffer.FromCpu(cb, grid_color);
-    grid_.index_buffer.FromCpu(cb, grid_index);
-    grid_.index_count = grid_index.size();
-
     vkEndCommandBuffer(cb);
 
     std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
@@ -670,14 +564,14 @@ class Engine::Impl {
 
     std::vector<VkSemaphoreSubmitInfo> wait_semaphore_info(1);
     wait_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    wait_semaphore_info[0].semaphore = splat_transfer_semaphore_;
-    wait_semaphore_info[0].value = splat_transfer_timeline_;
+    wait_semaphore_info[0].semaphore = transfer_semaphore_;
+    wait_semaphore_info[0].value = transfer_timeline_;
     wait_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
     std::vector<VkSemaphoreSubmitInfo> signal_semaphore_info(1);
     signal_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    signal_semaphore_info[0].semaphore = splat_transfer_semaphore_;
-    signal_semaphore_info[0].value = splat_transfer_timeline_ + 1;
+    signal_semaphore_info[0].semaphore = transfer_semaphore_;
+    signal_semaphore_info[0].value = transfer_timeline_ + 1;
     signal_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
     VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
@@ -689,10 +583,9 @@ class Engine::Impl {
     submit_info.pSignalSemaphoreInfos = signal_semaphore_info.data();
     vkQueueSubmit2(context_.queue(), 1, &submit_info, NULL);
 
-    splat_transfer_timeline_++;
+    transfer_timeline_++;
 
     // update descriptor
-    // TODO: make sure descriptors are not in use
     for (int i = 0; i < 2; ++i) {
       descriptors_[i].gaussian.Update(0, splat_buffer_.info, 0,
                                       splat_buffer_.info.element_size());
@@ -808,6 +701,159 @@ class Engine::Impl {
   }
 
  private:
+  void PreparePrimitives() {
+    std::vector<float> splat_vertex = {
+        // xy, ccw in NDC space.
+        -1.f, -1.f,  // 0
+        -1.f, 1.f,   // 1
+        1.f,  -1.f,  // 2
+        1.f,  1.f,   // 3
+    };
+    std::vector<uint32_t> splat_index = {0, 1, 2, 3};
+
+    std::vector<float> axis_position = {
+        0.f, 0.f, 0.f, 1.f, 0.f, 0.f,  // x
+        0.f, 0.f, 0.f, 0.f, 1.f, 0.f,  // y
+        0.f, 0.f, 0.f, 0.f, 0.f, 1.f,  // z
+    };
+    std::vector<float> axis_color = {
+        1.f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f,  // x
+        0.f, 1.f, 0.f, 1.f, 0.f, 1.f, 0.f, 1.f,  // y
+        0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f, 1.f,  // z
+    };
+    std::vector<uint32_t> axis_index = {
+        0, 1, 2, 3, 4, 5,
+    };
+
+    std::vector<float> grid_position;
+    std::vector<float> grid_color;
+    std::vector<uint32_t> grid_index;
+    constexpr int grid_size = 10;
+    for (int i = 0; i < grid_size * 2 + 1; ++i) {
+      grid_index.push_back(4 * i + 0);
+      grid_index.push_back(4 * i + 1);
+      grid_index.push_back(4 * i + 2);
+      grid_index.push_back(4 * i + 3);
+    }
+    for (int i = -grid_size; i <= grid_size; ++i) {
+      float t = static_cast<float>(i) / grid_size;
+      grid_position.push_back(-1.f);
+      grid_position.push_back(0);
+      grid_position.push_back(t);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+
+      grid_position.push_back(1.f);
+      grid_position.push_back(0);
+      grid_position.push_back(t);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+
+      grid_position.push_back(t);
+      grid_position.push_back(0);
+      grid_position.push_back(-1.f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+
+      grid_position.push_back(t);
+      grid_position.push_back(0);
+      grid_position.push_back(1.f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(0.5f);
+      grid_color.push_back(1.f);
+    }
+
+    splat_vertex_buffer_ = vk::Buffer(
+        context_, splat_vertex.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    splat_index_buffer_ = vk::Buffer(
+        context_, splat_index.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+    axis_.position_buffer = vk::Buffer(
+        context_, axis_position.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    axis_.color_buffer = vk::Buffer(
+        context_, axis_color.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    axis_.index_buffer = vk::Buffer(
+        context_, axis_index.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+    grid_.position_buffer = vk::Buffer(
+        context_, grid_position.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    grid_.color_buffer = vk::Buffer(
+        context_, grid_color.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    grid_.index_buffer = vk::Buffer(
+        context_, grid_index.size() * sizeof(float),
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+    VkCommandBufferAllocateInfo command_buffer_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    command_buffer_info.commandPool = context_.command_pool();
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_info.commandBufferCount = 1;
+    VkCommandBuffer cb;
+    vkAllocateCommandBuffers(context_.device(), &command_buffer_info, &cb);
+
+    VkCommandBufferBeginInfo begin_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cb, &begin_info);
+
+    splat_vertex_buffer_.FromCpu(cb, splat_vertex);
+    splat_index_buffer_.FromCpu(cb, splat_index);
+
+    axis_.position_buffer.FromCpu(cb, axis_position);
+    axis_.color_buffer.FromCpu(cb, axis_color);
+    axis_.index_buffer.FromCpu(cb, axis_index);
+    axis_.index_count = axis_index.size();
+
+    grid_.position_buffer.FromCpu(cb, grid_position);
+    grid_.color_buffer.FromCpu(cb, grid_color);
+    grid_.index_buffer.FromCpu(cb, grid_index);
+    grid_.index_count = grid_index.size();
+
+    vkEndCommandBuffer(cb);
+
+    std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
+    command_buffer_submit_info[0] = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+    command_buffer_submit_info[0].commandBuffer = cb;
+
+    std::vector<VkSemaphoreSubmitInfo> wait_semaphore_info(1);
+    wait_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    wait_semaphore_info[0].semaphore = transfer_semaphore_;
+    wait_semaphore_info[0].value = transfer_timeline_;
+    wait_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+
+    std::vector<VkSemaphoreSubmitInfo> signal_semaphore_info(1);
+    signal_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    signal_semaphore_info[0].semaphore = transfer_semaphore_;
+    signal_semaphore_info[0].value = transfer_timeline_ + 1;
+    signal_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+
+    VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    submit_info.waitSemaphoreInfoCount = wait_semaphore_info.size();
+    submit_info.pWaitSemaphoreInfos = wait_semaphore_info.data();
+    submit_info.commandBufferInfoCount = command_buffer_submit_info.size();
+    submit_info.pCommandBufferInfos = command_buffer_submit_info.data();
+    submit_info.signalSemaphoreInfoCount = signal_semaphore_info.size();
+    submit_info.pSignalSemaphoreInfos = signal_semaphore_info.data();
+    vkQueueSubmit2(context_.queue(), 1, &submit_info, NULL);
+
+    transfer_timeline_++;
+  }
+
   void Draw() {
     // recreate swapchain if need resize
     if (swapchain_.ShouldRecreate()) {
@@ -1382,8 +1428,8 @@ class Engine::Impl {
       wait_semaphores[0].stageMask = 0;
 
       wait_semaphores[1] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-      wait_semaphores[1].semaphore = splat_transfer_semaphore_;
-      wait_semaphores[1].value = splat_transfer_timeline_;
+      wait_semaphores[1].semaphore = transfer_semaphore_;
+      wait_semaphores[1].value = transfer_timeline_;
       wait_semaphores[1].stageMask = 0;
 
       std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
@@ -1612,8 +1658,8 @@ class Engine::Impl {
   vk::Buffer splat_vertex_buffer_;  // gaussian2d quad
   vk::Buffer splat_index_buffer_;   // gaussian2d quad
 
-  VkSemaphore splat_transfer_semaphore_ = VK_NULL_HANDLE;
-  uint64_t splat_transfer_timeline_ = 0;
+  VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;
+  uint64_t transfer_timeline_ = 0;
 
   // timestamp queries
   static constexpr uint32_t timestamp_count_ = 12;
