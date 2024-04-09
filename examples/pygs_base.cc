@@ -19,11 +19,9 @@ int main(int argc, char** argv) {
 
   try {
     auto ply_filepath = parser.get<std::string>("input");
-    auto splats_future =
-        std::async(std::launch::async, pygs::Splats::load, ply_filepath);
 
     pygs::Engine engine;
-    engine.AddSplatsAsync(std::move(splats_future));
+    engine.LoadSplats(ply_filepath);
     engine.Run();
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;

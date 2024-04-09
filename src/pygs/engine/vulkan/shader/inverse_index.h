@@ -10,8 +10,8 @@ const char* inverse_index_comp = R"shader(
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-layout (std430, set = 2, binding = 2) readonly buffer NumElements {
-  uint num_elements;
+layout (std430, set = 2, binding = 2) buffer VisiblePointCount {
+  uint visible_point_count;
 };
 
 layout (std430, set = 2, binding = 4) readonly buffer InstanceIndex {
@@ -24,7 +24,7 @@ layout (std430, set = 2, binding = 5) writeonly buffer InverseMap {
 
 void main() {
   uint id = gl_GlobalInvocationID.x;
-  if (id >= num_elements) return;
+  if (id >= visible_point_count) return;
 
   inverse_index[index[id]] = int(id);
 }

@@ -15,6 +15,7 @@ class Engine {
 
   void AddSplats(const Splats& splats);
   void AddSplatsAsync(std::future<Splats>&& splats_future);
+  void LoadSplats(const std::string& ply_filepath);
   void Run();
 
  private:
