@@ -49,7 +49,7 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
 class Context::Impl {
  public:
   Impl() {
-    // Instance
+    // instance
     VkApplicationInfo application_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application_info.pApplicationName = "rtgs";
     application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
@@ -89,7 +89,7 @@ class Context::Impl {
 
     CreateDebugUtilsMessengerEXT(instance_, &messenger_info, NULL, &messenger_);
 
-    // Physical device
+    // physical device
     uint32_t physical_device_count = 0;
     vkEnumeratePhysicalDevices(instance_, &physical_device_count, NULL);
     std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
@@ -97,7 +97,7 @@ class Context::Impl {
                                physical_devices.data());
     physical_device_ = physical_devices[0];
 
-    // Find graphics queue
+    // find graphics queue
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device_,
                                              &queue_family_count, NULL);
@@ -106,15 +106,24 @@ class Context::Impl {
         physical_device_, &queue_family_count, queue_families.data());
 
     constexpr VkQueueFlags graphics_queue_flags = VK_QUEUE_GRAPHICS_BIT;
+    constexpr VkQueueFlags transfer_queue_flags =
+        VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT;
     for (int i = 0; i < queue_families.size(); ++i) {
       const auto& queue_family = queue_families[i];
-      bool proper_queue_type = (queue_family.queueFlags &
-                                graphics_queue_flags) == graphics_queue_flags;
+
+      bool is_graphics_queue_type =
+          (queue_family.queueFlags & graphics_queue_flags) ==
+          graphics_queue_flags;
       bool presentation_support = glfwGetPhysicalDevicePresentationSupport(
           instance_, physical_device_, i);
-      if (proper_queue_type && presentation_support) {
-        queue_family_index_ = i;
-        break;
+
+      bool is_transfer_queue_type =
+          queue_family.queueFlags == transfer_queue_flags;
+
+      if (is_graphics_queue_type && presentation_support) {
+        graphics_queue_family_index_ = i;
+      } else if (is_transfer_queue_type) {
+        transfer_queue_family_index_ = i;
       }
     }
 
@@ -140,14 +149,22 @@ class Context::Impl {
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
     // queues
-    std::vector<float> queue_priorities = {
+    std::vector<float> graphics_queue_priorities = {
+        0.5f,
+    };
+    std::vector<float> transfer_queue_priorities = {
         1.f,
     };
-    std::vector<VkDeviceQueueCreateInfo> queue_infos(1);
+    std::vector<VkDeviceQueueCreateInfo> queue_infos(2);
     queue_infos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    queue_infos[0].queueFamilyIndex = queue_family_index_;
-    queue_infos[0].queueCount = queue_priorities.size();
-    queue_infos[0].pQueuePriorities = queue_priorities.data();
+    queue_infos[0].queueFamilyIndex = graphics_queue_family_index_;
+    queue_infos[0].queueCount = graphics_queue_priorities.size();
+    queue_infos[0].pQueuePriorities = graphics_queue_priorities.data();
+
+    queue_infos[1] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+    queue_infos[1].queueFamilyIndex = transfer_queue_family_index_;
+    queue_infos[1].queueCount = transfer_queue_priorities.size();
+    queue_infos[1].pQueuePriorities = transfer_queue_priorities.data();
 
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -168,9 +185,12 @@ class Context::Impl {
     device_info.ppEnabledExtensionNames = device_extensions.data();
     vkCreateDevice(physical_device_, &device_info, NULL, &device_);
 
-    vkGetDeviceQueue(device_, queue_family_index_, 0, &queue_);
+    vkGetDeviceQueue(device_, graphics_queue_family_index_, 0,
+                     &graphics_queue_);
+    vkGetDeviceQueue(device_, transfer_queue_family_index_, 0,
+                     &transfer_queue_);
 
-    // Extensions
+    // extensions
     GetMemoryFdKHR_ =
         (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryFdKHR");
     GetSemaphoreFdKHR_ = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
@@ -196,7 +216,7 @@ class Context::Impl {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
                               VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    command_pool_info.queueFamilyIndex = queue_family_index_;
+    command_pool_info.queueFamilyIndex = graphics_queue_family_index_;
     vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
 
     std::vector<VkDescriptorPoolSize> pool_sizes = {
@@ -227,8 +247,14 @@ class Context::Impl {
   VkInstance instance() const noexcept { return instance_; }
   VkPhysicalDevice physical_device() const noexcept { return physical_device_; }
   VkDevice device() const noexcept { return device_; }
-  uint32_t queue_family_index() const noexcept { return queue_family_index_; }
-  VkQueue queue() const noexcept { return queue_; }
+  uint32_t graphics_queue_family_index() const noexcept {
+    return graphics_queue_family_index_;
+  }
+  uint32_t transfer_queue_family_index() const noexcept {
+    return transfer_queue_family_index_;
+  }
+  VkQueue graphics_queue() const noexcept { return graphics_queue_; }
+  VkQueue transfer_queue() const noexcept { return transfer_queue_; }
   VmaAllocator allocator() const noexcept { return allocator_; }
   VkCommandPool command_pool() const noexcept { return command_pool_; }
   VkDescriptorPool descriptor_pool() const noexcept { return descriptor_pool_; }
@@ -267,8 +293,10 @@ class Context::Impl {
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
   VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
   VkDevice device_ = VK_NULL_HANDLE;
-  uint32_t queue_family_index_ = 0;
-  VkQueue queue_ = VK_NULL_HANDLE;
+  uint32_t graphics_queue_family_index_ = 0;
+  uint32_t transfer_queue_family_index_ = 0;
+  VkQueue graphics_queue_ = VK_NULL_HANDLE;
+  VkQueue transfer_queue_ = VK_NULL_HANDLE;
   VmaAllocator allocator_ = VK_NULL_HANDLE;
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
@@ -296,11 +324,17 @@ VkPhysicalDevice Context::physical_device() const {
 
 VkDevice Context::device() const { return impl_->device(); }
 
-uint32_t Context::queue_family_index() const {
-  return impl_->queue_family_index();
+uint32_t Context::graphics_queue_family_index() const {
+  return impl_->graphics_queue_family_index();
 }
 
-VkQueue Context::queue() const { return impl_->queue(); }
+uint32_t Context::transfer_queue_family_index() const {
+  return impl_->transfer_queue_family_index();
+}
+
+VkQueue Context::graphics_queue() const { return impl_->graphics_queue(); }
+
+VkQueue Context::transfer_queue() const { return impl_->transfer_queue(); }
 
 VmaAllocator Context::allocator() const { return impl_->allocator(); }
 

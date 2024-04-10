@@ -30,8 +30,8 @@ layout (std430, set = 1, binding = 1) readonly buffer GaussianPosition {
   float gaussian_position[];  // (N, 3)
 };
 
-layout (std430, set = 2, binding = 2) buffer NumElements {
-  uint num_elements;
+layout (std430, set = 2, binding = 2) buffer VisiblePointCount {
+  uint visible_point_count;
 };
 
 layout (std430, set = 2, binding = 3) writeonly buffer InstanceKey {
@@ -53,7 +53,7 @@ void main() {
 
   // valid only when center is inside NDC clip space.
   if (abs(pos.x) <= 1.f && abs(pos.y) <= 1.f && pos.z >= 0.f && pos.z <= 1.f) {
-    uint instance_index = atomicAdd(num_elements, 1);
+    uint instance_index = atomicAdd(visible_point_count, 1);
     key[instance_index] = floatBitsToUint(1.f - depth);
     index[instance_index] = id;
   }

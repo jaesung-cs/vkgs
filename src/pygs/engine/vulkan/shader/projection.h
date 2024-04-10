@@ -54,8 +54,8 @@ layout (std430, set = 2, binding = 1) writeonly buffer Instances {
   float instances[];  // (N, 10). 3 for ndc position, 3 for cov2d, 4 for color
 };
 
-layout (std430, set = 2, binding = 2) readonly buffer NumElements {
-  uint num_elements;
+layout (std430, set = 2, binding = 2) buffer VisiblePointCount {
+  uint visible_point_count;
 };
 
 layout (std430, set = 2, binding = 5) readonly buffer InverseMap {
@@ -68,7 +68,7 @@ void main() {
 
   if (id == 0) {
     indexCount = 4;
-    instanceCount = num_elements;
+    instanceCount = visible_point_count;
     firstIndex = 0;
     vertexOffset = 0;
     firstInstance = 0;

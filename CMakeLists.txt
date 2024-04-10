@@ -16,6 +16,7 @@ add_library(pygs STATIC
   src/pygs/scene/splats.cc
   src/pygs/engine/engine.cc
   src/pygs/engine/radixsort.cc
+  src/pygs/engine/splat_load_thread.cc
   src/pygs/engine/vulkan/attachment.cc
   src/pygs/engine/vulkan/buffer.cc
   src/pygs/engine/vulkan/compute_pipeline.cc

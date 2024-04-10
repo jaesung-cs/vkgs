@@ -31,8 +31,10 @@ class Context {
   VkInstance instance() const;
   VkPhysicalDevice physical_device() const;
   VkDevice device() const;
-  uint32_t queue_family_index() const;
-  VkQueue queue() const;
+  uint32_t graphics_queue_family_index() const;
+  uint32_t transfer_queue_family_index() const;
+  VkQueue graphics_queue() const;
+  VkQueue transfer_queue() const;
   VmaAllocator allocator() const;
   VkCommandPool command_pool() const;
   VkDescriptorPool descriptor_pool() const;
