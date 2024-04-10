@@ -118,6 +118,7 @@ class SplatLoadThread::Impl {
       std::vector<float> raw_sh(48 * CHUNK_SIZE);
       std::vector<float> raw_opacity(CHUNK_SIZE);
       std::vector<float> rest(45);
+      std::vector<VkBufferMemoryBarrier2> buffer_barriers;
 
       // thread-local command buffer
       VkCommandPoolCreateInfo command_pool_info = {
@@ -231,6 +232,9 @@ class SplatLoadThread::Impl {
         {
           std::unique_lock<std::mutex> guard{mutex_};
           loaded_point_count_ = timeline_;
+          buffer_barriers_.insert(buffer_barriers_.end(),
+                                  buffer_barriers.begin(),
+                                  buffer_barriers.end());
         }
 
         // copy to staging buffer
@@ -275,8 +279,7 @@ class SplatLoadThread::Impl {
         vkCmdCopyBuffer(cb, staging_, opacity, 1, &opacity_region);
 
         // transfer ownership
-        /*
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(4);
+        buffer_barriers.resize(4);
         buffer_barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
         buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         buffer_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -325,7 +328,6 @@ class SplatLoadThread::Impl {
         dependency.bufferMemoryBarrierCount = buffer_barriers.size();
         dependency.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &dependency);
-        */
 
         vkEndCommandBuffer(cb);
 
@@ -363,6 +365,8 @@ class SplatLoadThread::Impl {
       {
         std::unique_lock<std::mutex> guard{mutex_};
         loaded_point_count_ = timeline_;
+        buffer_barriers_.insert(buffer_barriers_.end(), buffer_barriers.begin(),
+                                buffer_barriers.end());
       }
 
       vkDestroyCommandPool(context_.device(), command_pool, NULL);
@@ -374,6 +378,7 @@ class SplatLoadThread::Impl {
     std::unique_lock<std::mutex> guard{mutex_};
     result.total_point_count = total_point_count_;
     result.loaded_point_count = loaded_point_count_;
+    result.buffer_barriers = std::move(buffer_barriers_);
     return result;
   }
 
@@ -388,7 +393,8 @@ class SplatLoadThread::Impl {
 
   uint32_t total_point_count_ = 0;
   uint32_t loaded_point_count_ = 0;
-  static constexpr uint32_t CHUNK_SIZE = 16384;
+  std::vector<VkBufferMemoryBarrier2> buffer_barriers_;
+  static constexpr uint32_t CHUNK_SIZE = 2048;
 
   // position: (N, 3), cov3d: (N, 6), sh: (N, 48), opacity: (N).
   // staging: (N, 58)

@@ -502,6 +502,8 @@ class Engine::Impl {
   }
 
   ~Impl() {
+    splat_load_thread_ = {};
+
     vkDeviceWaitIdle(context_.device());
 
     for (auto semaphore : image_acquired_semaphores_)
@@ -936,6 +938,14 @@ class Engine::Impl {
           ImGui::Text("%d total splats", frame_info.total_point_count);
           ImGui::Text("%d loaded splats", frame_info.loaded_point_count);
 
+          auto loading_progress =
+              frame_info.total_point_count > 0
+                  ? static_cast<float>(frame_info.loaded_point_count) /
+                        frame_info.total_point_count
+                  : 1.f;
+          ImGui::Text("loading progress:");
+          ImGui::ProgressBar(loading_progress);
+
           const auto* visible_point_count_buffer =
               reinterpret_cast<const uint32_t*>(
                   visible_point_count_cpu_buffer_.data());
@@ -1075,65 +1085,26 @@ class Engine::Impl {
       frame_info.loaded_point_count = progress.loaded_point_count;
 
       // acquire ownership
-      if (loaded_point_count_ < progress.loaded_point_count) {
-        uint32_t chunk_point_count =
-            progress.loaded_point_count - loaded_point_count_;
+      // according to spec:
+      //   The buffer range or image subresource range specified in an
+      //   acquireoperation must match exactly that of a previous release
+      //   operation.
+      if (!progress.buffer_barriers.empty()) {
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers =
+            std::move(progress.buffer_barriers);
 
-        /*
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers(4);
-        buffer_barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        buffer_barriers[0].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[0].srcQueueFamilyIndex =
-            context_.transfer_queue_family_index();
-        buffer_barriers[0].dstQueueFamilyIndex =
-            context_.graphics_queue_family_index();
-        buffer_barriers[0].buffer = splat_storage_.position;
-        buffer_barriers[0].offset = loaded_point_count_ * 3 * sizeof(float);
-        buffer_barriers[0].size = chunk_point_count * 3 * sizeof(float);
-
-        buffer_barriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        buffer_barriers[1].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[1].srcQueueFamilyIndex =
-            context_.transfer_queue_family_index();
-        buffer_barriers[1].dstQueueFamilyIndex =
-            context_.graphics_queue_family_index();
-        buffer_barriers[1].buffer = splat_storage_.cov3d;
-        buffer_barriers[1].offset = loaded_point_count_ * 6 * sizeof(float);
-        buffer_barriers[1].size = chunk_point_count * 6 * sizeof(float);
-
-        buffer_barriers[2].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        buffer_barriers[2].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[2].srcQueueFamilyIndex =
-            context_.transfer_queue_family_index();
-        buffer_barriers[2].dstQueueFamilyIndex =
-            context_.graphics_queue_family_index();
-        buffer_barriers[2].buffer = splat_storage_.sh;
-        buffer_barriers[2].offset = loaded_point_count_ * 48 * sizeof(float);
-        buffer_barriers[2].size = chunk_point_count * 48 * sizeof(float);
-
-        buffer_barriers[3].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        buffer_barriers[3].dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        buffer_barriers[3].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        buffer_barriers[3].srcQueueFamilyIndex =
-            context_.transfer_queue_family_index();
-        buffer_barriers[3].dstQueueFamilyIndex =
-            context_.graphics_queue_family_index();
-        buffer_barriers[3].buffer = splat_storage_.opacity;
-        buffer_barriers[3].offset = loaded_point_count_ * 1 * sizeof(float);
-        buffer_barriers[3].size = chunk_point_count * 1 * sizeof(float);
+        // change src/dst synchronization scope
+        for (auto& buffer_barrier : buffer_barriers) {
+          buffer_barrier.srcStageMask = 0;
+          buffer_barrier.srcAccessMask = 0;
+          buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        }
 
         VkDependencyInfo dependency = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         dependency.bufferMemoryBarrierCount = buffer_barriers.size();
         dependency.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &dependency);
-        */
       }
 
       loaded_point_count_ = progress.loaded_point_count;

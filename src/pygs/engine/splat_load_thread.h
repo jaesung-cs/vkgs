@@ -3,6 +3,9 @@
 
 #include <memory>
 #include <string>
+#include <vector>
+
+#include <vulkan/vulkan.h>
 
 #include "pygs/engine/vulkan/context.h"
 #include "pygs/engine/vulkan/buffer.h"
@@ -14,6 +17,10 @@ class SplatLoadThread {
   struct Progress {
     uint32_t total_point_count = 0;
     uint32_t loaded_point_count = 0;
+
+    // buffer barriers by load thread from previous to current progress() call.
+    // this must be consumed by receiving thread.
+    std::vector<VkBufferMemoryBarrier2> buffer_barriers;
   };
 
  public:
