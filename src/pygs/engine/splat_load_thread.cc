@@ -17,6 +17,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include <pygs/util/timer.h>
+
 namespace pygs {
 namespace {
 
@@ -77,6 +79,7 @@ class SplatLoadThread::Impl {
     vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &semaphore_);
 
     thread_ = std::thread([this, ply_filepath, position, cov3d, sh, opacity] {
+      Timer timer("splat load thread");
       std::ifstream in(ply_filepath, std::ios::binary);
 
       // parse header

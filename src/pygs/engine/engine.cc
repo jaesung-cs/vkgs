@@ -21,6 +21,7 @@
 
 #include <pygs/scene/camera.h>
 #include <pygs/scene/splats.h>
+#include <pygs/util/timer.h>
 
 #include "pygs/engine/radixsort.h"
 #include "pygs/engine/splat_load_thread.h"
@@ -106,7 +107,10 @@ class Engine::Impl {
     if (glfwInit() == GLFW_FALSE)
       throw std::runtime_error("Failed to initialize glfw.");
 
-    context_ = vk::Context(0);
+    {
+      Timer timer("context");
+      context_ = vk::Context(0);
+    }
 
     // render pass
     render_pass_ = vk::RenderPass(context_);
@@ -478,38 +482,54 @@ class Engine::Impl {
     frame_infos_.resize(2);
 
     // preallocate splat storage
-    splat_storage_.position = vk::Buffer(
-        context_, MAX_SPLAT_COUNT * 3 * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    splat_storage_.cov3d = vk::Buffer(
-        context_, MAX_SPLAT_COUNT * 6 * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    splat_storage_.opacity = vk::Buffer(
-        context_, MAX_SPLAT_COUNT * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    splat_storage_.sh = vk::Buffer(
-        context_, MAX_SPLAT_COUNT * 48 * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    {
+      Timer timer("allocate");
 
-    splat_storage_.key =
-        vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
-                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    splat_storage_.index =
-        vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
-                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    splat_storage_.inverse_index = vk::Buffer(
-        context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+      splat_storage_.position =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * 3 * sizeof(float),
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      splat_storage_.cov3d =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * 6 * sizeof(float),
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      splat_storage_.opacity =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(float),
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      splat_storage_.sh =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * 48 * sizeof(float),
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-    splat_storage_.instance = vk::Buffer(
-        context_, MAX_SPLAT_COUNT * 10 * sizeof(float),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+      splat_storage_.key =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      splat_storage_.index =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      splat_storage_.inverse_index =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                         VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-    // create splat load thread
-    splat_load_thread_ = SplatLoadThread(context_);
+      splat_storage_.instance =
+          vk::Buffer(context_, MAX_SPLAT_COUNT * 10 * sizeof(float),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    }
 
-    // create sorter
-    radix_sorter_ = Radixsort(context_, MAX_SPLAT_COUNT);
+    {
+      Timer timer("thread");
+      // create splat load thread
+      splat_load_thread_ = SplatLoadThread(context_);
+    }
+
+    {
+      Timer timer("sorter");
+      // create sorter
+      radix_sorter_ = Radixsort(context_, MAX_SPLAT_COUNT);
+    }
 
     PreparePrimitives();
   }
@@ -918,34 +938,6 @@ class Engine::Impl {
 
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
-      // record command buffer
-      vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
-                      UINT64_MAX);
-      vkResetFences(context_.device(), 1, &render_finished_fence);
-
-      // get timestamps
-      uint64_t rank_time = 0;
-      uint64_t sort_time = 0;
-      uint64_t inverse_time = 0;
-      uint64_t projection_time = 0;
-      uint64_t rendering_time = 0;
-      uint64_t end_to_end_time = 0;
-
-      if (frame_info.drew_splats) {
-        std::vector<uint64_t> timestamps(timestamp_count_);
-        vkGetQueryPoolResults(
-            context_.device(), timestamp_query_pool, 0, timestamps.size(),
-            timestamps.size() * sizeof(uint64_t), timestamps.data(),
-            sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
-
-        rank_time = timestamps[2] - timestamps[1];
-        sort_time = timestamps[4] - timestamps[3];
-        inverse_time = timestamps[6] - timestamps[5];
-        projection_time = timestamps[8] - timestamps[7];
-        rendering_time = timestamps[10] - timestamps[9];
-        end_to_end_time = timestamps[11] - timestamps[0];
-      }
-
       glm::mat4 model(1.f);
 
       // draw ui
@@ -987,27 +979,34 @@ class Engine::Impl {
           ImGui::Text("fps       : %7.3f", io.Framerate);
           ImGui::Text("            %7.3fms", 1e3 / io.Framerate);
           ImGui::Text("frame e2e : %7.3fms",
-                      static_cast<double>(end_to_end_time) / 1e6);
+                      static_cast<double>(frame_info.end_to_end_time) / 1e6);
 
-          uint64_t total_time = rank_time + sort_time + inverse_time +
-                                projection_time + rendering_time;
+          uint64_t total_time = frame_info.rank_time + frame_info.sort_time +
+                                frame_info.inverse_time +
+                                frame_info.projection_time +
+                                frame_info.rendering_time;
           ImGui::Text("total     : %7.3fms",
                       static_cast<double>(total_time) / 1e6);
-          ImGui::Text("rank      : %7.3fms (%5.2f%%)",
-                      static_cast<double>(rank_time) / 1e6,
-                      static_cast<double>(rank_time) / total_time * 100.);
-          ImGui::Text("sort      : %7.3fms (%5.2f%%)",
-                      static_cast<double>(sort_time) / 1e6,
-                      static_cast<double>(sort_time) / total_time * 100.);
-          ImGui::Text("inverse   : %7.3fms (%5.2f%%)",
-                      static_cast<double>(inverse_time) / 1e6,
-                      static_cast<double>(inverse_time) / total_time * 100.);
+          ImGui::Text(
+              "rank      : %7.3fms (%5.2f%%)",
+              static_cast<double>(frame_info.rank_time) / 1e6,
+              static_cast<double>(frame_info.rank_time) / total_time * 100.);
+          ImGui::Text(
+              "sort      : %7.3fms (%5.2f%%)",
+              static_cast<double>(frame_info.sort_time) / 1e6,
+              static_cast<double>(frame_info.sort_time) / total_time * 100.);
+          ImGui::Text(
+              "inverse   : %7.3fms (%5.2f%%)",
+              static_cast<double>(frame_info.inverse_time) / 1e6,
+              static_cast<double>(frame_info.inverse_time) / total_time * 100.);
           ImGui::Text("projection: %7.3fms (%5.2f%%)",
-                      static_cast<double>(projection_time) / 1e6,
-                      static_cast<double>(projection_time) / total_time * 100.);
+                      static_cast<double>(frame_info.projection_time) / 1e6,
+                      static_cast<double>(frame_info.projection_time) /
+                          total_time * 100.);
           ImGui::Text("rendering : %7.3fms (%5.2f%%)",
-                      static_cast<double>(rendering_time) / 1e6,
-                      static_cast<double>(rendering_time) / total_time * 100.);
+                      static_cast<double>(frame_info.rendering_time) / 1e6,
+                      static_cast<double>(frame_info.rendering_time) /
+                          total_time * 100.);
 
           static int vsync = 1;
           ImGui::Text("Vsync");
@@ -1081,6 +1080,28 @@ class Engine::Impl {
         }
         ImGui::End();
         ImGui::Render();
+      }
+
+      // record command buffer
+      vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
+                      UINT64_MAX);
+      vkResetFences(context_.device(), 1, &render_finished_fence);
+
+      // get timestamps
+      if (frame_info.drew_splats) {
+        std::vector<uint64_t> timestamps(timestamp_count_);
+        vkGetQueryPoolResults(
+            context_.device(), timestamp_query_pool, 0, timestamps.size(),
+            timestamps.size() * sizeof(uint64_t), timestamps.data(),
+            sizeof(uint64_t),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+
+        frame_info.rank_time = timestamps[2] - timestamps[1];
+        frame_info.sort_time = timestamps[4] - timestamps[3];
+        frame_info.inverse_time = timestamps[6] - timestamps[5];
+        frame_info.projection_time = timestamps[8] - timestamps[7];
+        frame_info.rendering_time = timestamps[10] - timestamps[9];
+        frame_info.end_to_end_time = timestamps[11] - timestamps[0];
       }
 
       camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
@@ -1752,6 +1773,13 @@ class Engine::Impl {
     bool drew_splats = false;
     uint32_t total_point_count = 0;
     uint32_t loaded_point_count = 0;
+
+    uint64_t rank_time = 0;
+    uint64_t sort_time = 0;
+    uint64_t inverse_time = 0;
+    uint64_t projection_time = 0;
+    uint64_t rendering_time = 0;
+    uint64_t end_to_end_time = 0;
   };
   std::vector<FrameInfo> frame_infos_;
 
