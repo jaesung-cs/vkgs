@@ -400,7 +400,7 @@ class Engine::Impl {
           vk::Descriptor(context_, instance_layout_);
     }
 
-    splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 1);
+    splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 2);
     splat_visible_point_count_ = vk::Buffer(
         context_, sizeof(uint32_t),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -494,6 +494,9 @@ class Engine::Impl {
 
     // create splat load thread
     splat_load_thread_ = SplatLoadThread(context_);
+
+    // create sorter
+    radix_sorter_ = Radixsort(context_, MAX_SPLAT_COUNT);
 
     PreparePrimitives();
   }
@@ -595,41 +598,6 @@ class Engine::Impl {
     vkQueueSubmit2(context_.graphics_queue(), 1, &submit_info, NULL);
 
     transfer_timeline_++;
-
-    // update descriptor
-    for (int i = 0; i < 2; ++i) {
-      descriptors_[i].gaussian.Update(0, splat_info_buffer_, 0,
-                                      splat_info_buffer_.element_size());
-      descriptors_[i].gaussian.Update(1, splat_storage_.position, 0,
-                                      splat_storage_.position.size());
-      descriptors_[i].gaussian.Update(2, splat_storage_.cov3d, 0,
-                                      splat_storage_.cov3d.size());
-      descriptors_[i].gaussian.Update(3, splat_storage_.opacity, 0,
-                                      splat_storage_.opacity.size());
-      descriptors_[i].gaussian.Update(4, splat_storage_.sh, 0,
-                                      splat_storage_.sh.size());
-
-      descriptors_[i].splat_instance.Update(0, splat_draw_indirect_, 0,
-                                            splat_draw_indirect_.size());
-      descriptors_[i].splat_instance.Update(1, splat_storage_.instance, 0,
-                                            splat_storage_.instance.size());
-      descriptors_[i].splat_instance.Update(2, splat_visible_point_count_, 0,
-                                            splat_visible_point_count_.size());
-      descriptors_[i].splat_instance.Update(3, splat_storage_.key, 0,
-                                            splat_storage_.key.size());
-      descriptors_[i].splat_instance.Update(4, splat_storage_.index, 0,
-                                            splat_storage_.index.size());
-      descriptors_[i].splat_instance.Update(
-          5, splat_storage_.inverse_index, 0,
-          splat_storage_.inverse_index.size());
-    }
-
-    // update uniform buffer
-    splat_point_count_ = point_count;
-    splat_info_buffer_[0].point_count = point_count;
-
-    // create sorter
-    radix_sorter_ = Radixsort(context_, point_count);
   }
 
   void AddSplatsAsync(std::future<Splats>&& splats_future) {
@@ -637,7 +605,13 @@ class Engine::Impl {
   }
 
   void LoadSplats(const std::string& ply_filepath) {
-    AddSplatsAsync(std::async(std::launch::async, Splats::load, ply_filepath));
+    splat_load_thread_.cancel();
+
+    loaded_point_count_ = 0;
+
+    splat_load_thread_.Start(ply_filepath, splat_storage_.position,
+                             splat_storage_.cov3d, splat_storage_.sh,
+                             splat_storage_.opacity);
   }
 
   void Run() {
@@ -959,7 +933,8 @@ class Engine::Impl {
 
         const auto& io = ImGui::GetIO();
         if (ImGui::Begin("pygs")) {
-          ImGui::Text("%d splats", splat_point_count_);
+          ImGui::Text("%d total splats", frame_info.total_point_count);
+          ImGui::Text("%d loaded splats", frame_info.loaded_point_count);
 
           const auto* visible_point_count_buffer =
               reinterpret_cast<const uint32_t*>(
@@ -967,9 +942,10 @@ class Engine::Impl {
           uint32_t visible_point_count =
               visible_point_count_buffer[frame_index];
           float visible_points_ratio =
-              splat_point_count_ > 0 ? static_cast<float>(visible_point_count) /
-                                           splat_point_count_ * 100.f
-                                     : 0.f;
+              frame_info.loaded_point_count > 0
+                  ? static_cast<float>(visible_point_count) /
+                        frame_info.loaded_point_count * 100.f
+                  : 0.f;
           ImGui::Text("%d (%.2f%%) visible splats", visible_point_count,
                       visible_points_ratio);
 
@@ -1093,7 +1069,106 @@ class Engine::Impl {
       vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_NONE, timestamp_query_pool,
                            0);
 
-      if (splat_point_count_ != 0) {
+      // check loading status
+      auto progress = splat_load_thread_.progress();
+      frame_info.total_point_count = progress.total_point_count;
+      frame_info.loaded_point_count = progress.loaded_point_count;
+
+      // acquire ownership
+      if (loaded_point_count_ < progress.loaded_point_count) {
+        uint32_t chunk_point_count =
+            progress.loaded_point_count - loaded_point_count_;
+
+        /*
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers(4);
+        buffer_barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[0].srcQueueFamilyIndex =
+            context_.transfer_queue_family_index();
+        buffer_barriers[0].dstQueueFamilyIndex =
+            context_.graphics_queue_family_index();
+        buffer_barriers[0].buffer = splat_storage_.position;
+        buffer_barriers[0].offset = loaded_point_count_ * 3 * sizeof(float);
+        buffer_barriers[0].size = chunk_point_count * 3 * sizeof(float);
+
+        buffer_barriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        buffer_barriers[1].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[1].srcQueueFamilyIndex =
+            context_.transfer_queue_family_index();
+        buffer_barriers[1].dstQueueFamilyIndex =
+            context_.graphics_queue_family_index();
+        buffer_barriers[1].buffer = splat_storage_.cov3d;
+        buffer_barriers[1].offset = loaded_point_count_ * 6 * sizeof(float);
+        buffer_barriers[1].size = chunk_point_count * 6 * sizeof(float);
+
+        buffer_barriers[2].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        buffer_barriers[2].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[2].srcQueueFamilyIndex =
+            context_.transfer_queue_family_index();
+        buffer_barriers[2].dstQueueFamilyIndex =
+            context_.graphics_queue_family_index();
+        buffer_barriers[2].buffer = splat_storage_.sh;
+        buffer_barriers[2].offset = loaded_point_count_ * 48 * sizeof(float);
+        buffer_barriers[2].size = chunk_point_count * 48 * sizeof(float);
+
+        buffer_barriers[3].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        buffer_barriers[3].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[3].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[3].srcQueueFamilyIndex =
+            context_.transfer_queue_family_index();
+        buffer_barriers[3].dstQueueFamilyIndex =
+            context_.graphics_queue_family_index();
+        buffer_barriers[3].buffer = splat_storage_.opacity;
+        buffer_barriers[3].offset = loaded_point_count_ * 1 * sizeof(float);
+        buffer_barriers[3].size = chunk_point_count * 1 * sizeof(float);
+
+        VkDependencyInfo dependency = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.bufferMemoryBarrierCount = buffer_barriers.size();
+        dependency.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &dependency);
+        */
+      }
+
+      loaded_point_count_ = progress.loaded_point_count;
+
+      // update descriptor
+      descriptors_[frame_index].gaussian.Update(
+          0, splat_info_buffer_, splat_info_buffer_.offset(frame_index),
+          splat_info_buffer_.element_size());
+      descriptors_[frame_index].gaussian.Update(1, splat_storage_.position, 0,
+                                                splat_storage_.position.size());
+      descriptors_[frame_index].gaussian.Update(2, splat_storage_.cov3d, 0,
+                                                splat_storage_.cov3d.size());
+      descriptors_[frame_index].gaussian.Update(3, splat_storage_.opacity, 0,
+                                                splat_storage_.opacity.size());
+      descriptors_[frame_index].gaussian.Update(4, splat_storage_.sh, 0,
+                                                splat_storage_.sh.size());
+
+      descriptors_[frame_index].splat_instance.Update(
+          0, splat_draw_indirect_, 0, splat_draw_indirect_.size());
+      descriptors_[frame_index].splat_instance.Update(
+          1, splat_storage_.instance, 0, splat_storage_.instance.size());
+      descriptors_[frame_index].splat_instance.Update(
+          2, splat_visible_point_count_, 0, splat_visible_point_count_.size());
+      descriptors_[frame_index].splat_instance.Update(
+          3, splat_storage_.key, 0, splat_storage_.key.size());
+      descriptors_[frame_index].splat_instance.Update(
+          4, splat_storage_.index, 0, splat_storage_.index.size());
+      descriptors_[frame_index].splat_instance.Update(
+          5, splat_storage_.inverse_index, 0,
+          splat_storage_.inverse_index.size());
+
+      // update uniform buffer
+      splat_info_buffer_[frame_index].point_count = loaded_point_count_;
+
+      if (loaded_point_count_ != 0) {
         // rank
         {
           std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
@@ -1137,7 +1212,7 @@ class Engine::Impl {
           buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
           buffer_barriers[1].buffer = splat_storage_.key;
           buffer_barriers[1].offset = 0;
-          buffer_barriers[1].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[1].size = loaded_point_count_ * sizeof(uint32_t);
 
           buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
           buffer_barriers[2].srcStageMask =
@@ -1148,7 +1223,7 @@ class Engine::Impl {
           buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
           buffer_barriers[2].buffer = splat_storage_.index;
           buffer_barriers[2].offset = 0;
-          buffer_barriers[2].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[2].size = loaded_point_count_ * sizeof(uint32_t);
 
           barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
           barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -1174,7 +1249,7 @@ class Engine::Impl {
                                timestamp_query_pool, 1);
 
           constexpr int local_size = 256;
-          vkCmdDispatch(cb, (splat_point_count_ + local_size - 1) / local_size,
+          vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size,
                         1, 1);
 
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -1230,7 +1305,7 @@ class Engine::Impl {
           buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
           buffer_barriers[1].buffer = splat_storage_.key;
           buffer_barriers[1].offset = 0;
-          buffer_barriers[1].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[1].size = loaded_point_count_ * sizeof(uint32_t);
 
           buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
           buffer_barriers[2].srcStageMask =
@@ -1241,7 +1316,7 @@ class Engine::Impl {
           buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
           buffer_barriers[2].buffer = splat_storage_.index;
           buffer_barriers[2].offset = 0;
-          buffer_barriers[2].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[2].size = loaded_point_count_ * sizeof(uint32_t);
 
           VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
           barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -1269,7 +1344,7 @@ class Engine::Impl {
           buffer_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
           buffer_barriers[0].buffer = splat_storage_.inverse_index;
           buffer_barriers[0].offset = 0;
-          buffer_barriers[0].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[0].size = loaded_point_count_ * sizeof(uint32_t);
 
           VkDependencyInfo barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
           barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -1277,7 +1352,7 @@ class Engine::Impl {
           vkCmdPipelineBarrier2(cb, &barrier);
 
           vkCmdFillBuffer(cb, splat_storage_.inverse_index, 0,
-                          splat_point_count_ * sizeof(uint32_t), -1);
+                          loaded_point_count_ * sizeof(uint32_t), -1);
 
           buffer_barriers.resize(3);
           buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -1300,7 +1375,7 @@ class Engine::Impl {
           buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
           buffer_barriers[1].buffer = splat_storage_.index;
           buffer_barriers[1].offset = 0;
-          buffer_barriers[1].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[1].size = loaded_point_count_ * sizeof(uint32_t);
 
           buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
           buffer_barriers[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -1310,7 +1385,7 @@ class Engine::Impl {
           buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
           buffer_barriers[2].buffer = splat_storage_.inverse_index;
           buffer_barriers[2].offset = 0;
-          buffer_barriers[2].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[2].size = loaded_point_count_ * sizeof(uint32_t);
 
           barrier = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
           barrier.bufferMemoryBarrierCount = buffer_barriers.size();
@@ -1337,7 +1412,7 @@ class Engine::Impl {
                                timestamp_query_pool, 5);
 
           constexpr int local_size = 256;
-          vkCmdDispatch(cb, (splat_point_count_ + local_size - 1) / local_size,
+          vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size,
                         1, 1);
 
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -1367,7 +1442,7 @@ class Engine::Impl {
           buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
           buffer_barriers[1].buffer = splat_storage_.inverse_index;
           buffer_barriers[1].offset = 0;
-          buffer_barriers[1].size = splat_point_count_ * sizeof(uint32_t);
+          buffer_barriers[1].size = loaded_point_count_ * sizeof(uint32_t);
 
           buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
           buffer_barriers[2].srcStageMask =
@@ -1379,7 +1454,7 @@ class Engine::Impl {
           buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
           buffer_barriers[2].buffer = splat_storage_.instance;
           buffer_barriers[2].offset = 0;
-          buffer_barriers[2].size = splat_point_count_ * 10 * sizeof(float);
+          buffer_barriers[2].size = loaded_point_count_ * 10 * sizeof(float);
 
           buffer_barriers[3] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
           buffer_barriers[3].srcStageMask =
@@ -1409,7 +1484,7 @@ class Engine::Impl {
                                timestamp_query_pool, 7);
 
           constexpr int local_size = 256;
-          vkCmdDispatch(cb, (splat_point_count_ + local_size - 1) / local_size,
+          vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size,
                         1, 1);
 
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -1429,7 +1504,7 @@ class Engine::Impl {
               VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
           buffer_barriers[0].buffer = splat_storage_.instance;
           buffer_barriers[0].offset = 0;
-          buffer_barriers[0].size = splat_point_count_ * 10 * sizeof(float);
+          buffer_barriers[0].size = loaded_point_count_ * 10 * sizeof(float);
 
           buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
           buffer_barriers[1].srcStageMask =
@@ -1602,7 +1677,7 @@ class Engine::Impl {
     }
 
     // draw splat
-    if (splat_point_count_ != 0) {
+    if (loaded_point_count_ != 0) {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
 
       std::vector<VkBuffer> vbs = {splat_vertex_buffer_,
@@ -1677,6 +1752,8 @@ class Engine::Impl {
 
   struct FrameInfo {
     bool drew_splats = false;
+    uint32_t total_point_count = 0;
+    uint32_t loaded_point_count = 0;
   };
   std::vector<FrameInfo> frame_infos_;
 
@@ -1696,10 +1773,9 @@ class Engine::Impl {
   static constexpr uint32_t MAX_SPLAT_COUNT = 1 << 23;  // 2^23
   // 2^23 * 3 * 16 * sizeof(float) is already 1.6GB.
 
-  uint32_t splat_point_count_ = 0;
-  vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;
-  vk::Buffer splat_visible_point_count_;  // (1)
-  vk::Buffer splat_draw_indirect_;        // (5)
+  vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;  // (2)
+  vk::Buffer splat_visible_point_count_;                        // (2)
+  vk::Buffer splat_draw_indirect_;                              // (5)
 
   glm::vec3 translation_{0.f, 0.f, 0.f};
   glm::quat rotation_{1.f, 0.f, 0.f, 0.f};
@@ -1719,6 +1795,7 @@ class Engine::Impl {
   uint64_t transfer_timeline_ = 0;
 
   SplatLoadThread splat_load_thread_;
+  uint32_t loaded_point_count_ = 0;
 
   // timestamp queries
   static constexpr uint32_t timestamp_count_ = 12;

@@ -14,7 +14,7 @@ struct alignas(64) Camera {
   alignas(16) glm::uvec2 screen_size;
 };
 
-struct SplatInfo {
+struct alignas(64) SplatInfo {
   uint32_t point_count;
 };
 

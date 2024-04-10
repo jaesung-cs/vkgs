@@ -34,8 +34,8 @@ class SplatLoadThread::Impl {
     buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.flags =
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+        VMA_ALLOCATION_CREATE_MAPPED_BIT;
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     VmaAllocationInfo allocation_info;
     vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info,
@@ -73,7 +73,7 @@ class SplatLoadThread::Impl {
     total_point_count_ = 0;
     loaded_point_count_ = 0;
 
-    thread_ = std::thread([&] {
+    thread_ = std::thread([&, position, cov3d, sh, opacity] {
       std::ifstream in(ply_filepath, std::ios::binary);
 
       // parse header
@@ -147,7 +147,7 @@ class SplatLoadThread::Impl {
 
         // read chunk
         in.read(buffer.data(), offset * chunk_point_count);
-        for (int i = 0; i < chunk_point_count; i++) {
+        for (int i = 0; i < chunk_point_count; ++i) {
           float x = *reinterpret_cast<float*>(buffer.data() + i * offset +
                                               offsets.at("x"));
           float y = *reinterpret_cast<float*>(buffer.data() + i * offset +
@@ -227,16 +227,21 @@ class SplatLoadThread::Impl {
         wait_info.pValues = &timeline_;
         vkWaitSemaphores(context_.device(), &wait_info, UINT64_MAX);
 
+        // update loaded point count
+        {
+          std::unique_lock<std::mutex> guard{mutex_};
+          loaded_point_count_ = timeline_;
+        }
+
         // copy to staging buffer
         std::memcpy(staging_map_, raw_position.data(),
                     chunk_point_count * 3 * sizeof(float));
         std::memcpy(staging_map_ + chunk_point_count * 3 * sizeof(float),
                     raw_cov3d.data(), chunk_point_count * 6 * sizeof(float));
         std::memcpy(staging_map_ + chunk_point_count * 9 * sizeof(float),
-                    raw_position.data(),
-                    chunk_point_count * 48 * sizeof(float));
+                    raw_sh.data(), chunk_point_count * 48 * sizeof(float));
         std::memcpy(staging_map_ + chunk_point_count * 57 * sizeof(float),
-                    raw_position.data(), chunk_point_count * 1 * sizeof(float));
+                    raw_opacity.data(), chunk_point_count * 1 * sizeof(float));
 
         // transfer command
         VkCommandBufferBeginInfo begin_info = {
@@ -270,6 +275,7 @@ class SplatLoadThread::Impl {
         vkCmdCopyBuffer(cb, staging_, opacity, 1, &opacity_region);
 
         // transfer ownership
+        /*
         std::vector<VkBufferMemoryBarrier2> buffer_barriers(4);
         buffer_barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
         buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -289,9 +295,9 @@ class SplatLoadThread::Impl {
             context_.transfer_queue_family_index();
         buffer_barriers[1].dstQueueFamilyIndex =
             context_.graphics_queue_family_index();
-        buffer_barriers[1].buffer = position;
-        buffer_barriers[1].offset = start * 3 * sizeof(float);
-        buffer_barriers[1].size = chunk_point_count * 3 * sizeof(float);
+        buffer_barriers[1].buffer = cov3d;
+        buffer_barriers[1].offset = start * 6 * sizeof(float);
+        buffer_barriers[1].size = chunk_point_count * 6 * sizeof(float);
 
         buffer_barriers[2].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
         buffer_barriers[2].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -300,9 +306,9 @@ class SplatLoadThread::Impl {
             context_.transfer_queue_family_index();
         buffer_barriers[2].dstQueueFamilyIndex =
             context_.graphics_queue_family_index();
-        buffer_barriers[2].buffer = position;
-        buffer_barriers[2].offset = start * 3 * sizeof(float);
-        buffer_barriers[2].size = chunk_point_count * 3 * sizeof(float);
+        buffer_barriers[2].buffer = sh;
+        buffer_barriers[2].offset = start * 48 * sizeof(float);
+        buffer_barriers[2].size = chunk_point_count * 48 * sizeof(float);
 
         buffer_barriers[3].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
         buffer_barriers[3].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -311,14 +317,15 @@ class SplatLoadThread::Impl {
             context_.transfer_queue_family_index();
         buffer_barriers[3].dstQueueFamilyIndex =
             context_.graphics_queue_family_index();
-        buffer_barriers[3].buffer = position;
-        buffer_barriers[3].offset = start * 3 * sizeof(float);
-        buffer_barriers[3].size = chunk_point_count * 3 * sizeof(float);
+        buffer_barriers[3].buffer = opacity;
+        buffer_barriers[3].offset = start * 1 * sizeof(float);
+        buffer_barriers[3].size = chunk_point_count * 1 * sizeof(float);
 
         VkDependencyInfo dependency = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
         dependency.bufferMemoryBarrierCount = buffer_barriers.size();
         dependency.pBufferMemoryBarriers = buffer_barriers.data();
         vkCmdPipelineBarrier2(cb, &dependency);
+        */
 
         vkEndCommandBuffer(cb);
 
@@ -331,7 +338,7 @@ class SplatLoadThread::Impl {
           VkSemaphoreSubmitInfo signal_semaphore_info = {
               VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
           signal_semaphore_info.semaphore = semaphore_;
-          signal_semaphore_info.value = timeline_ + 1;
+          signal_semaphore_info.value = timeline_ + chunk_point_count;
           signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
           VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
@@ -340,21 +347,34 @@ class SplatLoadThread::Impl {
           submit_info.signalSemaphoreInfoCount = 1;
           submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
           vkQueueSubmit2(context_.transfer_queue(), 1, &submit_info, NULL);
+
+          timeline_ += chunk_point_count;
         }
+      }
+
+      // wait for previous transfer to complete
+      VkSemaphoreWaitInfo wait_info = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+      wait_info.semaphoreCount = 1;
+      wait_info.pSemaphores = &semaphore_;
+      wait_info.pValues = &timeline_;
+      vkWaitSemaphores(context_.device(), &wait_info, UINT64_MAX);
+
+      // update loaded point count
+      {
+        std::unique_lock<std::mutex> guard{mutex_};
+        loaded_point_count_ = timeline_;
       }
 
       vkDestroyCommandPool(context_.device(), command_pool, NULL);
     });
   }
 
-  uint32_t total_point_count() {
+  Progress progress() {
+    Progress result;
     std::unique_lock<std::mutex> guard{mutex_};
-    return total_point_count_;
-  }
-
-  uint32_t loaded_point_count() {
-    std::unique_lock<std::mutex> guard{mutex_};
-    return loaded_point_count_;
+    result.total_point_count = total_point_count_;
+    result.loaded_point_count = loaded_point_count_;
+    return result;
   }
 
   void cancel() { terminate_ = true; }
@@ -368,7 +388,7 @@ class SplatLoadThread::Impl {
 
   uint32_t total_point_count_ = 0;
   uint32_t loaded_point_count_ = 0;
-  static constexpr uint32_t CHUNK_SIZE = 2048;
+  static constexpr uint32_t CHUNK_SIZE = 16384;
 
   // position: (N, 3), cov3d: (N, 6), sh: (N, 48), opacity: (N).
   // staging: (N, 58)
@@ -393,12 +413,8 @@ void SplatLoadThread::Start(const std::string& ply_filepath,
   impl_->Start(ply_filepath, position, cov3d, sh, opacity);
 }
 
-uint32_t SplatLoadThread::total_point_count() {
-  return impl_->total_point_count();
-}
-
-uint32_t SplatLoadThread::loaded_point_count() {
-  return impl_->loaded_point_count();
+SplatLoadThread::Progress SplatLoadThread::progress() {
+  return impl_->progress();
 }
 
 void SplatLoadThread::cancel() { impl_->cancel(); }

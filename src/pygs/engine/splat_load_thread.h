@@ -10,6 +10,12 @@
 namespace pygs {
 
 class SplatLoadThread {
+ private:
+  struct Progress {
+    uint32_t total_point_count = 0;
+    uint32_t loaded_point_count = 0;
+  };
+
  public:
   SplatLoadThread();
 
@@ -20,8 +26,7 @@ class SplatLoadThread {
   void Start(const std::string& ply_filepath, vk::Buffer position,
              vk::Buffer cov3d, vk::Buffer sh, vk::Buffer opacity);
 
-  uint32_t total_point_count();
-  uint32_t loaded_point_count();
+  Progress progress();
 
   void cancel();
 

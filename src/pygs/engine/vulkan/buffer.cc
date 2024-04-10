@@ -13,9 +13,15 @@ class Buffer::Impl {
 
   Impl(Context context, VkDeviceSize size, VkBufferUsageFlags usage)
       : context_(context), size_(size) {
+    std::vector<uint32_t> queue_families = {
+        context.transfer_queue_family_index(),
+        context.graphics_queue_family_index()};
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = size;
     buffer_info.usage = usage;
+    buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+    buffer_info.queueFamilyIndexCount = queue_families.size();
+    buffer_info.pQueueFamilyIndices = queue_families.data();
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info,
