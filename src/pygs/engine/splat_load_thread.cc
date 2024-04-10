@@ -41,14 +41,6 @@ class SplatLoadThread::Impl {
     vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info,
                     &staging_, &allocation_, &allocation_info);
     staging_map_ = reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
-
-    VkSemaphoreTypeCreateInfo semaphore_type_info = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
-    semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    VkSemaphoreCreateInfo semaphore_info = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    semaphore_info.pNext = &semaphore_type_info;
-    vkCreateSemaphore(context.device(), &semaphore_info, NULL, &semaphore_);
   }
 
   ~Impl() {
@@ -57,7 +49,7 @@ class SplatLoadThread::Impl {
       thread_.join();
     }
 
-    vkDestroySemaphore(context_.device(), semaphore_, NULL);
+    if (semaphore_) vkDestroySemaphore(context_.device(), semaphore_, NULL);
     vmaDestroyBuffer(context_.allocator(), staging_, allocation_);
   }
 
@@ -72,8 +64,19 @@ class SplatLoadThread::Impl {
     terminate_ = false;
     total_point_count_ = 0;
     loaded_point_count_ = 0;
+    timeline_ = 0;
 
-    thread_ = std::thread([&, position, cov3d, sh, opacity] {
+    if (semaphore_) vkDestroySemaphore(context_.device(), semaphore_, NULL);
+
+    VkSemaphoreTypeCreateInfo semaphore_type_info = {
+        VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+    semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    VkSemaphoreCreateInfo semaphore_info = {
+        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    semaphore_info.pNext = &semaphore_type_info;
+    vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &semaphore_);
+
+    thread_ = std::thread([=] {
       std::ifstream in(ply_filepath, std::ios::binary);
 
       // parse header

@@ -89,6 +89,19 @@ glm::mat4 ToTranslationMatrix4(const glm::vec3& t) {
 
 class Engine::Impl {
  public:
+  static void DropCallback(GLFWwindow* window, int count, const char** paths) {
+    // use first file with .ply extension
+    for (int i = 0; i < count; ++i) {
+      std::string path = paths[i];
+      if (path.length() > 4 && path.substr(path.length() - 4) == ".ply") {
+        std::cout << "loading " << path << std::endl;
+        auto* impl = reinterpret_cast<Impl*>(glfwGetWindowUserPointer(window));
+        impl->LoadSplats(path);
+      }
+    }
+  }
+
+ public:
   Impl() {
     if (glfwInit() == GLFW_FALSE)
       throw std::runtime_error("Failed to initialize glfw.");
@@ -622,6 +635,10 @@ class Engine::Impl {
     height_ = 900;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     window_ = glfwCreateWindow(width_, height_, "pygs", NULL, NULL);
+
+    // file drop callback
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetDropCallback(window_, DropCallback);
 
     // create swapchain
     VkSurfaceKHR surface;
