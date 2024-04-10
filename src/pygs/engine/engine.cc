@@ -23,6 +23,7 @@
 #include <pygs/scene/splats.h>
 
 #include "pygs/engine/radixsort.h"
+#include "pygs/engine/splat_load_thread.h"
 #include "pygs/engine/vulkan/context.h"
 #include "pygs/engine/vulkan/swapchain.h"
 #include "pygs/engine/vulkan/attachment.h"
@@ -490,6 +491,9 @@ class Engine::Impl {
     splat_storage_.instance = vk::Buffer(
         context_, MAX_SPLAT_COUNT * 10 * sizeof(float),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+    // create splat load thread
+    splat_load_thread_ = SplatLoadThread(context_);
 
     PreparePrimitives();
   }
@@ -1713,6 +1717,8 @@ class Engine::Impl {
 
   VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;
   uint64_t transfer_timeline_ = 0;
+
+  SplatLoadThread splat_load_thread_;
 
   // timestamp queries
   static constexpr uint32_t timestamp_count_ = 12;
