@@ -8,7 +8,7 @@
 
 int main(int argc, char** argv) {
   argparse::ArgumentParser parser("pygs");
-  parser.add_argument("-i", "--input").required().help("input ply file.");
+  parser.add_argument("-i", "--input").help("input ply file.");
   try {
     parser.parse_args(argc, argv);
   } catch (const std::exception& err) {
@@ -18,10 +18,13 @@ int main(int argc, char** argv) {
   }
 
   try {
-    auto ply_filepath = parser.get<std::string>("input");
-
     pygs::Engine engine;
-    engine.LoadSplats(ply_filepath);
+
+    if (parser.is_used("input")) {
+      auto ply_filepath = parser.get<std::string>("input");
+      engine.LoadSplats(ply_filepath);
+    }
+
     engine.Run();
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
