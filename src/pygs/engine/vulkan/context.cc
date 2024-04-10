@@ -149,19 +149,22 @@ class Context::Impl {
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
     // queues
-    std::vector<float> queue_priorities = {
+    std::vector<float> graphics_queue_priorities = {
+        0.5f,
+    };
+    std::vector<float> transfer_queue_priorities = {
         1.f,
     };
     std::vector<VkDeviceQueueCreateInfo> queue_infos(2);
     queue_infos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queue_infos[0].queueFamilyIndex = graphics_queue_family_index_;
-    queue_infos[0].queueCount = queue_priorities.size();
-    queue_infos[0].pQueuePriorities = queue_priorities.data();
+    queue_infos[0].queueCount = graphics_queue_priorities.size();
+    queue_infos[0].pQueuePriorities = graphics_queue_priorities.data();
 
     queue_infos[1] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queue_infos[1].queueFamilyIndex = transfer_queue_family_index_;
-    queue_infos[1].queueCount = queue_priorities.size();
-    queue_infos[1].pQueuePriorities = queue_priorities.data();
+    queue_infos[1].queueCount = transfer_queue_priorities.size();
+    queue_infos[1].pQueuePriorities = transfer_queue_priorities.data();
 
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,

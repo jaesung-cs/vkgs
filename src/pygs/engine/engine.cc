@@ -918,6 +918,15 @@ class Engine::Impl {
 
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
+      // record command buffer
+      vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
+                      UINT64_MAX);
+      vkResetFences(context_.device(), 1, &render_finished_fence);
+
+      // sleep a little bit, this somehow reduces delay in splat load thread
+      using namespace std::chrono_literals;
+      std::this_thread::sleep_for(0.1ms);
+
       // get timestamps
       uint64_t rank_time = 0;
       uint64_t sort_time = 0;
@@ -931,8 +940,7 @@ class Engine::Impl {
         vkGetQueryPoolResults(
             context_.device(), timestamp_query_pool, 0, timestamps.size(),
             timestamps.size() * sizeof(uint64_t), timestamps.data(),
-            sizeof(uint64_t),
-            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+            sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
 
         rank_time = timestamps[2] - timestamps[1];
         sort_time = timestamps[4] - timestamps[3];
@@ -1078,11 +1086,6 @@ class Engine::Impl {
         ImGui::End();
         ImGui::Render();
       }
-
-      // record command buffer
-      vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
-                      UINT64_MAX);
-      vkResetFences(context_.device(), 1, &render_finished_fence);
 
       camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
       camera_buffer_[frame_index].view = camera_.ViewMatrix();

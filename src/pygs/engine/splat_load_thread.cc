@@ -76,7 +76,7 @@ class SplatLoadThread::Impl {
     semaphore_info.pNext = &semaphore_type_info;
     vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &semaphore_);
 
-    thread_ = std::thread([=] {
+    thread_ = std::thread([this, ply_filepath, position, cov3d, sh, opacity] {
       std::ifstream in(ply_filepath, std::ios::binary);
 
       // parse header
