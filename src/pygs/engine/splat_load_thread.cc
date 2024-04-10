@@ -399,7 +399,7 @@ class SplatLoadThread::Impl {
   uint32_t total_point_count_ = 0;
   uint32_t loaded_point_count_ = 0;
   std::vector<VkBufferMemoryBarrier2> buffer_barriers_;
-  static constexpr uint32_t CHUNK_SIZE = 2048;
+  static constexpr uint32_t CHUNK_SIZE = 16384;
 
   // position: (N, 3), cov3d: (N, 6), sh: (N, 48), opacity: (N).
   // staging: (N, 58)

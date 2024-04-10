@@ -923,10 +923,6 @@ class Engine::Impl {
                       UINT64_MAX);
       vkResetFences(context_.device(), 1, &render_finished_fence);
 
-      // sleep a little bit, this somehow reduces delay in splat load thread
-      using namespace std::chrono_literals;
-      std::this_thread::sleep_for(0.1ms);
-
       // get timestamps
       uint64_t rank_time = 0;
       uint64_t sort_time = 0;
