@@ -1134,33 +1134,40 @@ class Engine::Impl {
       descriptors_[frame_index].gaussian.Update(
           0, splat_info_buffer_, splat_info_buffer_.offset(frame_index),
           splat_info_buffer_.element_size());
-      descriptors_[frame_index].gaussian.Update(1, splat_storage_.position, 0,
-                                                splat_storage_.position.size());
-      descriptors_[frame_index].gaussian.Update(2, splat_storage_.cov3d, 0,
-                                                splat_storage_.cov3d.size());
-      descriptors_[frame_index].gaussian.Update(3, splat_storage_.opacity, 0,
-                                                splat_storage_.opacity.size());
-      descriptors_[frame_index].gaussian.Update(4, splat_storage_.sh, 0,
-                                                splat_storage_.sh.size());
 
       descriptors_[frame_index].splat_instance.Update(
           0, splat_draw_indirect_, 0, splat_draw_indirect_.size());
-      descriptors_[frame_index].splat_instance.Update(
-          1, splat_storage_.instance, 0, splat_storage_.instance.size());
-      descriptors_[frame_index].splat_instance.Update(
-          2, splat_visible_point_count_, 0, splat_visible_point_count_.size());
-      descriptors_[frame_index].splat_instance.Update(
-          3, splat_storage_.key, 0, splat_storage_.key.size());
-      descriptors_[frame_index].splat_instance.Update(
-          4, splat_storage_.index, 0, splat_storage_.index.size());
-      descriptors_[frame_index].splat_instance.Update(
-          5, splat_storage_.inverse_index, 0,
-          splat_storage_.inverse_index.size());
 
       // update uniform buffer
       splat_info_buffer_[frame_index].point_count = loaded_point_count_;
 
       if (loaded_point_count_ != 0) {
+        descriptors_[frame_index].gaussian.Update(
+            1, splat_storage_.position, 0,
+            loaded_point_count_ * 3 * sizeof(float));
+        descriptors_[frame_index].gaussian.Update(
+            2, splat_storage_.cov3d, 0,
+            loaded_point_count_ * 6 * sizeof(float));
+        descriptors_[frame_index].gaussian.Update(
+            3, splat_storage_.opacity, 0,
+            loaded_point_count_ * 1 * sizeof(float));
+        descriptors_[frame_index].gaussian.Update(
+            4, splat_storage_.sh, 0, loaded_point_count_ * 48 * sizeof(float));
+
+        descriptors_[frame_index].splat_instance.Update(
+            1, splat_storage_.instance, 0,
+            loaded_point_count_ * 10 * sizeof(float));
+        descriptors_[frame_index].splat_instance.Update(
+            2, splat_visible_point_count_, 0,
+            splat_visible_point_count_.size());
+        descriptors_[frame_index].splat_instance.Update(
+            3, splat_storage_.key, 0, loaded_point_count_ * sizeof(uint32_t));
+        descriptors_[frame_index].splat_instance.Update(
+            4, splat_storage_.index, 0, loaded_point_count_ * sizeof(uint32_t));
+        descriptors_[frame_index].splat_instance.Update(
+            5, splat_storage_.inverse_index, 0,
+            loaded_point_count_ * sizeof(uint32_t));
+
         // rank
         {
           std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
