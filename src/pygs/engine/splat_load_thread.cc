@@ -238,6 +238,7 @@ class SplatLoadThread::Impl {
           buffer_barriers_.insert(buffer_barriers_.end(),
                                   buffer_barriers.begin(),
                                   buffer_barriers.end());
+          buffer_barriers.clear();
         }
 
         // copy to staging buffer
@@ -370,6 +371,7 @@ class SplatLoadThread::Impl {
         loaded_point_count_ = timeline_;
         buffer_barriers_.insert(buffer_barriers_.end(), buffer_barriers.begin(),
                                 buffer_barriers.end());
+        buffer_barriers.clear();
       }
 
       vkDestroyCommandPool(context_.device(), command_pool, NULL);
