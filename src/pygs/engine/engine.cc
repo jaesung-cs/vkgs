@@ -22,6 +22,7 @@
 #include <pygs/scene/camera.h>
 #include <pygs/scene/splats.h>
 #include <pygs/util/timer.h>
+#include <pygs/util/clock.h>
 
 #include "pygs/engine/radixsort.h"
 #include "pygs/engine/splat_load_thread.h"
@@ -1007,6 +1008,10 @@ class Engine::Impl {
                       static_cast<double>(frame_info.rendering_time) / 1e6,
                       static_cast<double>(frame_info.rendering_time) /
                           total_time * 100.);
+          ImGui::Text("present   : %7.3fms",
+                      static_cast<double>(frame_info.present_done_timestamp -
+                                          frame_info.present_timestamp) /
+                          1e6);
 
           static int vsync = 1;
           ImGui::Text("Vsync");
@@ -1601,7 +1606,9 @@ class Engine::Impl {
       present_info.swapchainCount = 1;
       present_info.pSwapchains = &swapchain_handle;
       present_info.pImageIndices = &image_index;
+      frame_info.present_timestamp = Clock::timestamp();
       vkQueuePresentKHR(context_.graphics_queue(), &present_info);
+      frame_info.present_done_timestamp = Clock::timestamp();
 
       frame_counter_++;
     }
@@ -1780,6 +1787,9 @@ class Engine::Impl {
     uint64_t projection_time = 0;
     uint64_t rendering_time = 0;
     uint64_t end_to_end_time = 0;
+
+    uint64_t present_timestamp = 0;
+    uint64_t present_done_timestamp = 0;
   };
   std::vector<FrameInfo> frame_infos_;
 

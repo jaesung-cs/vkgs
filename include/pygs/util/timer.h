@@ -4,26 +4,26 @@
 #include <chrono>
 #include <iostream>
 
+#include <pygs/util/clock.h>
+
 namespace pygs {
 
 class Timer {
  public:
   Timer() = delete;
 
-  Timer(const std::string& tag) : tag_(tag) {
-    start_ = std::chrono::high_resolution_clock::now();
-  }
+  Timer(const std::string& tag) : tag_(tag) { start_ = Clock::timestamp(); }
 
   ~Timer() {
-    auto now = std::chrono::high_resolution_clock::now();
-    auto ns = (now - start_).count();
-    auto s = static_cast<double>(ns) / 1e9;
-    std::cout << tag_ << " " << s << "s" << std::endl;
+    auto now = Clock::timestamp();
+    auto ns = now - start_;
+    auto ms = static_cast<double>(ns) / 1e6;
+    std::cout << tag_ << " " << ms << "ms" << std::endl;
   }
 
  private:
   std::string tag_;
-  std::chrono::high_resolution_clock::time_point start_;
+  int64_t start_ = 0;
 };
 
 }  // namespace pygs
