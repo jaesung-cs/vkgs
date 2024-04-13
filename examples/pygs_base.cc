@@ -1,7 +1,7 @@
 #include <iostream>
 #include <future>
 
-#include "argparse/argparse.hpp"
+#include <argparse/argparse.hpp>
 
 #include <pygs/engine/engine.h>
 #include <pygs/scene/splats.h>

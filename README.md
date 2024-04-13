@@ -25,8 +25,8 @@ $ git submodule update --init --recursive
 - glm
 - glfw
 - imgui
+- argparse
 - [VkRadixSort](https://github.com/MircoWerner/VkRadixSort): modified to support indirect dispatch, copied shader code to `src/pygs/engine/vulkan/shader/multi_radixsort.h`.
-- [argparse](https://github.com/p-ranav/argparse): copied header file to project.
 
 
 ### Build

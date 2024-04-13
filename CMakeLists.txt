@@ -9,6 +9,7 @@ find_package(Vulkan REQUIRED COMPONENTS shaderc_combined)
 add_subdirectory(third_party/VulkanMemoryAllocator EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/glfw EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/glm EXCLUDE_FROM_ALL)
+add_subdirectory(third_party/argparse EXCLUDE_FROM_ALL)
 
 # pygs
 add_library(pygs STATIC
@@ -57,4 +58,4 @@ target_link_libraries(pygs
 
 # executable
 add_executable(pygs_base examples/pygs_base.cc)
-target_link_libraries(pygs_base PRIVATE pygs)
+target_link_libraries(pygs_base PRIVATE pygs argparse)
