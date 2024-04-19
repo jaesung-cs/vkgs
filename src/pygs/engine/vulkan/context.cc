@@ -128,12 +128,12 @@ class Context::Impl {
     }
 
     // features
-    VkPhysicalDeviceHostQueryResetFeatures host_query_reset_features = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES};
+    VkPhysicalDeviceMaintenance4Features maintenance_4_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES};
 
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
-    timeline_semaphore_features.pNext = &host_query_reset_features;
+    timeline_semaphore_features.pNext = &maintenance_4_features;
 
     VkPhysicalDeviceSynchronization2Features synchronization_2_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
