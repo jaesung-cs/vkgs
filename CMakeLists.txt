@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(Vulkan REQUIRED COMPONENTS shaderc_combined)
 add_subdirectory(third_party/VulkanMemoryAllocator EXCLUDE_FROM_ALL)
+add_subdirectory(third_party/vulkan_radix_sort EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/glfw EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/glm EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/argparse EXCLUDE_FROM_ALL)
@@ -16,7 +17,6 @@ add_library(pygs STATIC
   src/pygs/scene/camera.cc
   src/pygs/scene/splats.cc
   src/pygs/engine/engine.cc
-  src/pygs/engine/radixsort.cc
   src/pygs/engine/splat_load_thread.cc
   src/pygs/engine/vulkan/attachment.cc
   src/pygs/engine/vulkan/buffer.cc
@@ -53,7 +53,7 @@ target_include_directories(pygs
 
 target_link_libraries(pygs
   PUBLIC glm
-  PRIVATE Vulkan::Vulkan Vulkan::shaderc_combined VulkanMemoryAllocator glfw
+  PRIVATE Vulkan::Vulkan Vulkan::shaderc_combined VulkanMemoryAllocator vk_radix_sort glfw
 )
 
 # executable

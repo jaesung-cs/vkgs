@@ -19,12 +19,13 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <vk_radix_sort.h>
+
 #include <pygs/scene/camera.h>
 #include <pygs/scene/splats.h>
 #include <pygs/util/timer.h>
 #include <pygs/util/clock.h>
 
-#include "pygs/engine/radixsort.h"
 #include "pygs/engine/splat_load_thread.h"
 #include "pygs/engine/vulkan/context.h"
 #include "pygs/engine/vulkan/swapchain.h"
@@ -529,7 +530,17 @@ class Engine::Impl {
     {
       Timer timer("sorter");
       // create sorter
-      radix_sorter_ = Radixsort(context_, MAX_SPLAT_COUNT);
+      VxSorterLayoutCreateInfo sorter_layout_info = {};
+      sorter_layout_info.device = context_.device();
+      sorter_layout_info.histogramWorkgroupSize = 1024;
+      vxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
+
+      VxSorterCreateInfo sorter_info = {};
+      sorter_info.sorterLayout = sorter_layout_;
+      sorter_info.allocator = context_.allocator();
+      sorter_info.maxElementCount = MAX_SPLAT_COUNT;
+      sorter_info.maxCommandsInFlight = 2;
+      vxCreateSorter(&sorter_info, &sorter_);
     }
 
     PreparePrimitives();
@@ -539,6 +550,9 @@ class Engine::Impl {
     splat_load_thread_ = {};
 
     vkDeviceWaitIdle(context_.device());
+
+    vxDestroySorterLayout(sorter_layout_);
+    vxDestroySorter(sorter_);
 
     for (auto semaphore : image_acquired_semaphores_)
       vkDestroySemaphore(context_.device(), semaphore, NULL);
@@ -1350,8 +1364,9 @@ class Engine::Impl {
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                timestamp_query_pool, 3);
 
-          radix_sorter_.Sort(cb, frame_index, splat_visible_point_count_,
-                             splat_storage_.key, splat_storage_.index);
+          vxCmdRadixSortKeyValueIndirect(
+              cb, sorter_, splat_visible_point_count_, 0, splat_storage_.key, 0,
+              splat_storage_.index, 0, NULL, 0);
 
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                timestamp_query_pool, 4);
@@ -1747,7 +1762,10 @@ class Engine::Impl {
   vk::ComputePipeline rank_pipeline_;
   vk::ComputePipeline inverse_index_pipeline_;
   vk::ComputePipeline projection_pipeline_;
-  Radixsort radix_sorter_;
+
+  // sorter
+  VxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
+  VxSorter sorter_ = VK_NULL_HANDLE;
 
   // normal pass
   vk::Framebuffer framebuffer_;

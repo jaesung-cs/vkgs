@@ -3,7 +3,17 @@ Gaussian Splatting
 
 ## Desktop Viewer
 
-![](/media/screenshot.png)
+- with VkRadixSort:
+
+  ![](/media/screenshot.jpg)
+
+  ~100FPS with ~2.4M visible splats. Radix sort is bottleneck.
+
+- With my radix sort implementation:
+
+  ![](/media/screenshot-fast.jpg)
+
+  ~200FPS with 3M visible splats. Much faster sort speed. Rendering is bottleneck.
 
 Like other web based viewer, it uses traditional graphics pipeline, drawing splats projected in 2D screen space.
 
@@ -14,19 +24,22 @@ The screenshot shows splats rendered with render pass, with depth buffer and 4x 
 ### Requirements
 - `VulkanSDK>=1.3`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
+  - Requires several features available in `1.3`.
 - `cmake>=3.24`
-- submodules
-```bash
-$ git submodule update --init --recursive
-```
+  - `Vulkan::shaderc_combined` new in version `3.24`.
+
 
 ### Dependencies
-- VulkanMemoryAllocator
-- glm
-- glfw
-- imgui
-- argparse
-- [VkRadixSort](https://github.com/MircoWerner/VkRadixSort): modified to support indirect dispatch, copied shader code to `src/pygs/engine/vulkan/shader/multi_radixsort.h`.
+- submodules
+  ```bash
+  $ git submodule update --init --recursive
+  ```
+  - VulkanMemoryAllocator
+  - glm
+  - glfw
+  - imgui
+  - argparse
+  - [vulkan_radix_sort](https://github.com/jaesung-cs/vulkan_radix_sort): my implementation of state-of-the-art radix sort algorithm, Onesweep.
 
 
 ### Build
@@ -34,6 +47,7 @@ $ git submodule update --init --recursive
 $ cmake . -B build
 $ cmake --build build --config Release -j
 ```
+
 
 ### Run
 ```bash
@@ -49,7 +63,7 @@ Drag and drop .ply file (pre-)trained from official gaussian splatting.
 1. To benchmark cub sort performance
 
 
-### Requirements
+### Requirements (WIP)
 
 - conda
 ```bash
