@@ -934,6 +934,13 @@ class Engine::Impl {
 
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
+      static glm::vec3 lt(0.f);
+      static glm::vec3 gt(0.f);
+      static glm::vec3 lr(0.f);
+      static glm::quat lq;
+      static glm::vec3 gr(0.f);
+      static glm::quat gq;
+      static float scale = 1.f;
       glm::mat4 model(1.f);
 
       // draw ui
@@ -1028,7 +1035,6 @@ class Engine::Impl {
           ImGui::Checkbox("Grid", &show_grid_);
 
           ImGui::Text("Translation");
-          static glm::vec3 lt(0.f);
           ImGui::PushID("Translation");
           ImGui::DragFloat3("local", glm::value_ptr(lt), 0.01f);
           if (ImGui::IsItemDeactivated()) {
@@ -1036,7 +1042,6 @@ class Engine::Impl {
             lt = glm::vec3(0.f);
           }
 
-          static glm::vec3 gt(0.f);
           ImGui::DragFloat3("global", glm::value_ptr(gt), 0.01f);
           if (ImGui::IsItemDeactivated()) {
             translation_ += gt;
@@ -1046,18 +1051,16 @@ class Engine::Impl {
 
           ImGui::Text("Rotation");
           ImGui::PushID("Rotation");
-          static glm::vec3 lr(0.f);
           ImGui::DragFloat3("local", glm::value_ptr(lr), 0.1f);
-          glm::quat lq = glm::quat(glm::radians(lr));
+          lq = glm::quat(glm::radians(lr));
           if (ImGui::IsItemDeactivated()) {
             rotation_ = rotation_ * lq;
             lr = glm::vec3(0.f);
             lq = glm::quat(1.f, 0.f, 0.f, 0.f);
           }
 
-          static glm::vec3 gr(0.f);
           ImGui::DragFloat3("global", glm::value_ptr(gr), 0.1f);
-          glm::quat gq = glm::quat(glm::radians(gr));
+          gq = glm::quat(glm::radians(gr));
           if (ImGui::IsItemDeactivated()) {
             translation_ = gq * translation_;
             rotation_ = gq * rotation_;
@@ -1068,7 +1071,6 @@ class Engine::Impl {
 
           ImGui::Text("Scale");
           ImGui::PushID("Scale");
-          static float scale = 1.f;
           ImGui::DragFloat("local", &scale, 0.01f, 0.1f, 10.f, "%.3f",
                            ImGuiSliderFlags_Logarithmic);
           if (ImGui::IsItemDeactivated()) {
@@ -1076,14 +1078,14 @@ class Engine::Impl {
             scale = 1.f;
           }
           ImGui::PopID();
-
-          model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) *
-                  ToTranslationMatrix4(translation_ + gt) *
-                  glm::toMat4(rotation_ * lq) * ToTranslationMatrix4(lt);
         }
         ImGui::End();
         ImGui::Render();
       }
+
+      model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) *
+              ToTranslationMatrix4(translation_ + gt) *
+              glm::toMat4(rotation_ * lq) * ToTranslationMatrix4(lt);
 
       // record command buffer
       vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE,
