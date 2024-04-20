@@ -530,17 +530,17 @@ class Engine::Impl {
     {
       Timer timer("sorter");
       // create sorter
-      VxSorterLayoutCreateInfo sorter_layout_info = {};
+      VrdxSorterLayoutCreateInfo sorter_layout_info = {};
+      sorter_layout_info.physicalDevice = context_.physical_device();
       sorter_layout_info.device = context_.device();
-      sorter_layout_info.histogramWorkgroupSize = 1024;
-      vxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
+      vrdxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
 
-      VxSorterCreateInfo sorter_info = {};
+      VrdxSorterCreateInfo sorter_info = {};
       sorter_info.sorterLayout = sorter_layout_;
       sorter_info.allocator = context_.allocator();
       sorter_info.maxElementCount = MAX_SPLAT_COUNT;
       sorter_info.maxCommandsInFlight = 2;
-      vxCreateSorter(&sorter_info, &sorter_);
+      vrdxCreateSorter(&sorter_info, &sorter_);
     }
 
     PreparePrimitives();
@@ -551,8 +551,8 @@ class Engine::Impl {
 
     vkDeviceWaitIdle(context_.device());
 
-    vxDestroySorterLayout(sorter_layout_);
-    vxDestroySorter(sorter_);
+    vrdxDestroySorterLayout(sorter_layout_);
+    vrdxDestroySorter(sorter_);
 
     for (auto semaphore : image_acquired_semaphores_)
       vkDestroySemaphore(context_.device(), semaphore, NULL);
@@ -1364,9 +1364,9 @@ class Engine::Impl {
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                timestamp_query_pool, 3);
 
-          vxCmdRadixSortKeyValueIndirect(
-              cb, sorter_, splat_visible_point_count_, 0, splat_storage_.key, 0,
-              splat_storage_.index, 0, NULL, 0);
+          vrdxCmdSortKeyValueIndirect(cb, sorter_, splat_visible_point_count_,
+                                      0, splat_storage_.key, 0,
+                                      splat_storage_.index, 0, NULL, 0);
 
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                timestamp_query_pool, 4);
@@ -1764,8 +1764,8 @@ class Engine::Impl {
   vk::ComputePipeline projection_pipeline_;
 
   // sorter
-  VxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
-  VxSorter sorter_ = VK_NULL_HANDLE;
+  VrdxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
+  VrdxSorter sorter_ = VK_NULL_HANDLE;
 
   // normal pass
   vk::Framebuffer framebuffer_;

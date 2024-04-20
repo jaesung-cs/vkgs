@@ -54,7 +54,7 @@ $ cmake --build build --config Release -j
 $ ./build/pygs_base
 $ ./build/pygs_base -i <ply_filepath>
 ```
-Drag and drop .ply file (pre-)trained from official gaussian splatting.
+Drag and drop pretrained .ply file from official gaussian splatting.
 
 
 ## Python and CUDA (WIP)
