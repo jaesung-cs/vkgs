@@ -91,10 +91,58 @@ class Context::Impl {
     // physical device
     uint32_t physical_device_count = 0;
     vkEnumeratePhysicalDevices(instance_, &physical_device_count, NULL);
+    if (physical_device_count == 0) throw std::runtime_error("No GPU found");
+
     std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
     vkEnumeratePhysicalDevices(instance_, &physical_device_count,
                                physical_devices.data());
-    physical_device_ = physical_devices[0];
+
+    uint32_t physical_device_id = 0;
+    uint32_t physical_device_score = 0;
+    for (int i = 0; i < physical_device_count; ++i) {
+      uint32_t score = 0;
+      VkPhysicalDevice physical_device = physical_devices[i];
+
+      // +1 for discrete GPU
+      VkPhysicalDeviceProperties physical_device_properties;
+      vkGetPhysicalDeviceProperties(physical_device,
+                                    &physical_device_properties);
+      if (physical_device_properties.deviceType ==
+          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        score += 1;
+      }
+
+      // +10 for having graphics queue with presention support
+      uint32_t queue_family_count = 0;
+      vkGetPhysicalDeviceQueueFamilyProperties(physical_device,
+                                               &queue_family_count, NULL);
+      std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+      vkGetPhysicalDeviceQueueFamilyProperties(
+          physical_device, &queue_family_count, queue_families.data());
+
+      constexpr VkQueueFlags graphics_queue_flags = VK_QUEUE_GRAPHICS_BIT;
+      for (int i = 0; i < queue_families.size(); ++i) {
+        const auto& queue_family = queue_families[i];
+
+        bool is_graphics_queue_type =
+            (queue_family.queueFlags & graphics_queue_flags) ==
+            graphics_queue_flags;
+        bool presentation_support = glfwGetPhysicalDevicePresentationSupport(
+            instance_, physical_device, i);
+
+        if (is_graphics_queue_type && presentation_support) {
+          score += 10;
+          break;
+        }
+      }
+
+      if (physical_device_score < score) {
+        physical_device_id = i;
+        physical_device_score = score;
+      }
+    }
+
+    physical_device_ = physical_devices[physical_device_id];
 
     // physical device properties
     VkPhysicalDeviceProperties physical_device_properties;
