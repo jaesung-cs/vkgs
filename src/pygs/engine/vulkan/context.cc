@@ -64,7 +64,6 @@ class Context::Impl {
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     messenger_info.messageType =
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     messenger_info.pfnUserCallback = DebugCallback;
@@ -96,6 +95,14 @@ class Context::Impl {
     vkEnumeratePhysicalDevices(instance_, &physical_device_count,
                                physical_devices.data());
     physical_device_ = physical_devices[0];
+
+    // physical device properties
+    VkPhysicalDeviceProperties physical_device_properties;
+    vkGetPhysicalDeviceProperties(physical_device_,
+                                  &physical_device_properties);
+    device_name_ = physical_device_properties.deviceName;
+
+    std::cout << device_name_ << std::endl;
 
     // find graphics queue
     uint32_t queue_family_count = 0;
@@ -244,6 +251,7 @@ class Context::Impl {
     vkDestroyInstance(instance_, NULL);
   }
 
+  const std::string& device_name() const noexcept { return device_name_; }
   VkInstance instance() const noexcept { return instance_; }
   VkPhysicalDevice physical_device() const noexcept { return physical_device_; }
   VkDevice device() const noexcept { return device_; }
@@ -301,6 +309,8 @@ class Context::Impl {
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
 
+  std::string device_name_;
+
   PFN_vkGetMemoryFdKHR GetMemoryFdKHR_ = nullptr;
   PFN_vkGetSemaphoreFdKHR GetSemaphoreFdKHR_ = nullptr;
 
@@ -316,6 +326,7 @@ Context::Context(int) : impl_(std::make_shared<Impl>()) {}
 
 Context::~Context() = default;
 
+const std::string& Context::device_name() const { return impl_->device_name(); }
 VkInstance Context::instance() const { return impl_->instance(); }
 
 VkPhysicalDevice Context::physical_device() const {

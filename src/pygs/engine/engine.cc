@@ -963,6 +963,7 @@ class Engine::Impl {
 
         const auto& io = ImGui::GetIO();
         if (ImGui::Begin("pygs")) {
+          ImGui::Text("%s", context_.device_name().c_str());
           ImGui::Text("%d total splats", frame_info.total_point_count);
           ImGui::Text("%d loaded splats", frame_info.loaded_point_count);
 
@@ -991,6 +992,8 @@ class Engine::Impl {
           ImGui::Text("%d (%.2f%%) visible splats", visible_point_count,
                       visible_points_ratio);
 
+          ImGui::Text("size      : %dx%d", swapchain_.width(),
+                      swapchain_.height());
           ImGui::Text("fps       : %7.3f", io.Framerate);
           ImGui::Text("            %7.3fms", 1e3 / io.Framerate);
           ImGui::Text("frame e2e : %7.3fms",

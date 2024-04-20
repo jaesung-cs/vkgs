@@ -28,6 +28,7 @@ class Context {
 
   ~Context();
 
+  const std::string& device_name() const;
   VkInstance instance() const;
   VkPhysicalDevice physical_device() const;
   VkDevice device() const;
