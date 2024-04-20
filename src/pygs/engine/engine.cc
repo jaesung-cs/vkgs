@@ -284,7 +284,7 @@ class Engine::Impl {
       input_bindings[0].stride = sizeof(float) * 2;
       input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-      // ndc position, cov2d, rgba
+      // ndc position, scale rot, rgba
       input_bindings[1].binding = 1;
       input_bindings[1].stride = sizeof(float) * 10;
       input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
@@ -296,7 +296,7 @@ class Engine::Impl {
       input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
       input_attributes[0].offset = 0;
 
-      // cov2d
+      // scale rot
       input_attributes[1].location = 1;
       input_attributes[1].binding = 1;
       input_attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;

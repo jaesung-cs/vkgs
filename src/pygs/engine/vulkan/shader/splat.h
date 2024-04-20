@@ -13,28 +13,16 @@ layout (location = 0) in vec2 position;
 
 // instance
 layout (location = 1) in vec3 ndc_position;
-layout (location = 2) in vec3 cov2d;
+layout (location = 2) in vec3 scale_rot;  // (s0, s1, theta)
 layout (location = 3) in vec4 color;
 
 layout (location = 0) out vec4 out_color;
 layout (location = 1) out vec2 out_position;
 
 void main() {
-  // eigendecomposition
-  // [a c] = [x y]
-  // [c b]   [y z]
-  float a = cov2d.x;
-  float b = cov2d.z;
-  float c = cov2d.y;
-  float D = sqrt((a - b) * (a - b) + 4.f * c * c);
-  float s0 = sqrt(0.5f * (a + b + D));
-  float s1 = sqrt(0.5f * (a + b - D));
-  // decompose to R^T S^2 R
-  float sin2t = 2.f * c / D;
-  float cos2t = (a - b) / D;
-  float theta = atan(sin2t, cos2t) / 2.f;
+  float theta = scale_rot.z;
   mat2 rot = mat2(cos(theta), sin(theta), -sin(theta), cos(theta));
-  mat2 scale = mat2(s0, 0.f, 0.f, s1);
+  mat2 scale = mat2(scale_rot.x, 0.f, 0.f, scale_rot.y);
 
   float confidence_radius = 4.f;
 

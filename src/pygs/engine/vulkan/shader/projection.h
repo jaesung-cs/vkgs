@@ -51,7 +51,7 @@ layout (std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
 };
 
 layout (std430, set = 2, binding = 1) writeonly buffer Instances {
-  float instances[];  // (N, 10). 3 for ndc position, 3 for cov2d, 4 for color
+  float instances[];  // (N, 10). 3 for ndc position, 3 for scale rot, 4 for color
 };
 
 layout (std430, set = 2, binding = 2) buffer VisiblePointCount {
@@ -115,6 +115,20 @@ void main() {
   cov2d[0][0] += 1.f / screen_size.x / screen_size.x;
   cov2d[1][1] += 1.f / screen_size.y / screen_size.y;
 
+  // eigendecomposition
+  // [a c] = [x y]
+  // [c b]   [y z]
+  float a = cov2d[0][0];
+  float b = cov2d[1][1];
+  float c = cov2d[1][0];
+  float D = sqrt((a - b) * (a - b) + 4.f * c * c);
+  float s0 = sqrt(0.5f * (a + b + D));
+  float s1 = sqrt(0.5f * (a + b - D));
+  // decompose to R^T S^2 R
+  float sin2t = 2.f * c / D;
+  float cos2t = (a - b) / D;
+  float theta = atan(sin2t, cos2t) / 2.f;
+
   pos = projection * pos;
   pos = pos / pos.w;
 
@@ -158,9 +172,9 @@ void main() {
   instances[inverse_id * 10 + 0] = pos.x;
   instances[inverse_id * 10 + 1] = pos.y;
   instances[inverse_id * 10 + 2] = pos.z;
-  instances[inverse_id * 10 + 3] = cov2d[0][0];
-  instances[inverse_id * 10 + 4] = cov2d[1][0];
-  instances[inverse_id * 10 + 5] = cov2d[1][1];
+  instances[inverse_id * 10 + 3] = s0;
+  instances[inverse_id * 10 + 4] = s1;
+  instances[inverse_id * 10 + 5] = theta;
   instances[inverse_id * 10 + 6] = color.r;
   instances[inverse_id * 10 + 7] = color.g;
   instances[inverse_id * 10 + 8] = color.b;
