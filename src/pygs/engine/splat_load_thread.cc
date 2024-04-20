@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <string>
 #include <algorithm>
+#include <cstring>
 
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"
