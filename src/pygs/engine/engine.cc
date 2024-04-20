@@ -740,6 +740,24 @@ class Engine::Impl {
         }
       }
 
+      if (!io.WantCaptureKeyboard) {
+        if (ImGui::IsKeyDown(ImGuiKey_W)) {
+          camera_.Translate(0.f, 0.f, 10.f);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_S)) {
+          camera_.Translate(0.f, 0.f, -10.f);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_A)) {
+          camera_.Translate(10.f, 0.f);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_D)) {
+          camera_.Translate(-10.f, 0.f);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+          camera_.Translate(0.f, 10.f);
+        }
+      }
+
       int width, height;
       glfwGetFramebufferSize(window_, &width, &height);
       camera_.SetWindowSize(width, height);

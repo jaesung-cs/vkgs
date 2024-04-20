@@ -47,7 +47,7 @@ void Camera::Rotate(float x, float y) {
       std::clamp(phi_ - rotation_sensitivity_ * y, eps, glm::pi<float>() - eps);
 }
 
-void Camera::Translate(float x, float y) {
+void Camera::Translate(float x, float y, float z) {
   // camera = center + r (sin phi sin theta, cos phi, sin phi cos theta)
   const auto sin_phi = std::sin(phi_);
   const auto cos_phi = std::cos(phi_);
@@ -56,7 +56,8 @@ void Camera::Translate(float x, float y) {
   center_ +=
       translation_sensitivity_ * r_ *
       (-x * glm::vec3(cos_theta, 0.f, -sin_theta) +
-       y * glm::vec3(-cos_phi * sin_theta, sin_phi, -cos_phi * cos_theta));
+       y * glm::vec3(-cos_phi * sin_theta, sin_phi, -cos_phi * cos_theta) +
+       -z * glm::vec3(sin_phi * sin_theta, cos_phi, sin_phi * cos_theta));
 }
 
 void Camera::Zoom(float x) { r_ /= std::exp(zoom_sensitivity_ * x); }

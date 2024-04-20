@@ -22,7 +22,7 @@ class Camera {
   uint32_t height() const noexcept { return height_; }
 
   void Rotate(float x, float y);
-  void Translate(float x, float y);
+  void Translate(float x, float y, float z = 0.f);
   void Zoom(float x);
 
  private:

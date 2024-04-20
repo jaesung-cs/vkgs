@@ -56,6 +56,14 @@ $ ./build/pygs_base -i <ply_filepath>
 ```
 Drag and drop pretrained .ply file from official gaussian splatting.
 
+Left drag to rotate.
+
+Right drag to translate.
+
+Left+Right drag to zoom in/out.
+
+WASD, Space to move.
+
 
 ## Python and CUDA (WIP)
 
