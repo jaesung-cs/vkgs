@@ -81,8 +81,6 @@ void main() {
   vec3 v1 = vec3(gaussian_cov3d[id * 6 + 3], gaussian_cov3d[id * 6 + 4], gaussian_cov3d[id * 6 + 5]);
   vec4 pos = vec4(gaussian_position[id * 3 + 0], gaussian_position[id * 3 + 1], gaussian_position[id * 3 + 2], 1.f);
 
-	vec3 dir = normalize(pos.xyz - camera_position);
-
   // [v0.x v0.y v0.z]
   // [v0.y v1.x v1.y]
   // [v0.z v1.y v1.z]
@@ -92,6 +90,9 @@ void main() {
   mat3 model3d = mat3(model);
   cov3d = model3d * cov3d * transpose(model3d);
   pos = model * pos;
+
+  // direction in world space for SH calculation
+	vec3 dir = normalize(pos.xyz - camera_position);
 
   // view matrix
   mat3 view3d = mat3(view);
