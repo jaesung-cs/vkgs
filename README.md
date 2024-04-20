@@ -24,7 +24,7 @@ Tested only on my desktop PC with NVIDIA GeForce RTX 4090, on Windows and Linux.
 
 Rendering is bottleneck.
 The number of visible points is the main factor.
-Drawing 2~5 millions points with the simplest point shader (even with depth test/write on and color blend off) already costs 2~3ms.
+Drawing 2-5 millions points with the simplest point shader (even with depth test/write on and color blend off) already costs 2-3ms.
 Without reducing the number of points to draw (e.g. deleting less important splts during training, using octree, early stopping in tile-based rendering), it seems hard to make more dramatic improvements in rendering speed.
 
 
