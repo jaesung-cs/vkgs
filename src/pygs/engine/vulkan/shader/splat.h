@@ -30,7 +30,7 @@ void main() {
   mat2 rot = mat2(cos(theta), sin(theta), -sin(theta), cos(theta));
   mat2 scale = mat2(scale_rot.x, 0.f, 0.f, scale_rot.y);
 
-  float confidence_radius = 4.f;
+  float confidence_radius = 3.f;
 
   gl_Position = vec4(ndc_position + vec3(rot * scale * position * confidence_radius, 0.f), 1.f);
   out_color = color;
