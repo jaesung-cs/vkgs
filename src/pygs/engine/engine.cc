@@ -187,7 +187,7 @@ class Engine::Impl {
       descriptor_layout_info.bindings[1].descriptor_type =
           VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[1].stage_flags =
-          VK_SHADER_STAGE_COMPUTE_BIT;
+          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
       descriptor_layout_info.bindings[2] = {};
       descriptor_layout_info.bindings[2].binding = 2;
@@ -240,7 +240,8 @@ class Engine::Impl {
     // graphics pipeline layout
     {
       vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
-      pipeline_layout_info.layouts = {camera_descriptor_layout_};
+      pipeline_layout_info.layouts = {camera_descriptor_layout_,
+                                      instance_layout_};
 
       pipeline_layout_info.push_constants.resize(1);
       pipeline_layout_info.push_constants[0].stageFlags =
@@ -278,42 +279,6 @@ class Engine::Impl {
 
     // splat pipeline
     {
-      std::vector<VkVertexInputBindingDescription> input_bindings(2);
-      // xy
-      input_bindings[0].binding = 0;
-      input_bindings[0].stride = sizeof(float) * 2;
-      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-      // ndc position, scale rot, rgba
-      input_bindings[1].binding = 1;
-      input_bindings[1].stride = sizeof(float) * 10;
-      input_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-      std::vector<VkVertexInputAttributeDescription> input_attributes(4);
-      // vertex position
-      input_attributes[0].location = 0;
-      input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
-      input_attributes[0].offset = 0;
-
-      // scale rot
-      input_attributes[1].location = 1;
-      input_attributes[1].binding = 1;
-      input_attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[1].offset = 0;
-
-      // projected position
-      input_attributes[2].location = 2;
-      input_attributes[2].binding = 1;
-      input_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[2].offset = sizeof(float) * 3;
-
-      // point rgba
-      input_attributes[3].location = 3;
-      input_attributes[3].binding = 1;
-      input_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[3].offset = sizeof(float) * 6;
-
       std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
           1);
       color_blend_attachments[0] = {};
@@ -335,9 +300,7 @@ class Engine::Impl {
       pipeline_info.render_pass = render_pass_;
       pipeline_info.vertex_shader = vk::shader::splat_vert;
       pipeline_info.fragment_shader = vk::shader::splat_frag;
-      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-      pipeline_info.input_bindings = std::move(input_bindings);
-      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
       pipeline_info.depth_test = true;
       pipeline_info.depth_write = false;
       pipeline_info.color_blend_attachments =
@@ -784,14 +747,16 @@ class Engine::Impl {
 
  private:
   void PreparePrimitives() {
-    std::vector<float> splat_vertex = {
-        // xy, ccw in NDC space.
-        -1.f, -1.f,  // 0
-        -1.f, 1.f,   // 1
-        1.f,  -1.f,  // 2
-        1.f,  1.f,   // 3
-    };
-    std::vector<uint32_t> splat_index = {0, 1, 2, 3};
+    std::vector<uint32_t> splat_index;
+    splat_index.reserve(MAX_SPLAT_COUNT * 6);
+    for (int i = 0; i < MAX_SPLAT_COUNT; ++i) {
+      splat_index.push_back(4 * i + 0);
+      splat_index.push_back(4 * i + 1);
+      splat_index.push_back(4 * i + 2);
+      splat_index.push_back(4 * i + 2);
+      splat_index.push_back(4 * i + 1);
+      splat_index.push_back(4 * i + 3);
+    }
 
     std::vector<float> axis_position = {
         0.f, 0.f, 0.f, 1.f, 0.f, 0.f,  // x
@@ -852,9 +817,6 @@ class Engine::Impl {
       grid_color.push_back(1.f);
     }
 
-    splat_vertex_buffer_ = vk::Buffer(
-        context_, splat_vertex.size() * sizeof(float),
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     splat_index_buffer_ = vk::Buffer(
         context_, splat_index.size() * sizeof(float),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -892,7 +854,6 @@ class Engine::Impl {
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cb, &begin_info);
 
-    splat_vertex_buffer_.FromCpu(cb, splat_vertex);
     splat_index_buffer_.FromCpu(cb, splat_index);
 
     axis_.position_buffer.FromCpu(cb, axis_position);
@@ -1700,6 +1661,7 @@ class Engine::Impl {
 
     std::vector<VkDescriptorSet> descriptors = {
         descriptors_[frame_index].camera,
+        descriptors_[frame_index].splat_instance,
     };
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             graphics_pipeline_layout_, 0, descriptors.size(),
@@ -1743,11 +1705,6 @@ class Engine::Impl {
     // draw splat
     if (loaded_point_count_ != 0) {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
-
-      std::vector<VkBuffer> vbs = {splat_vertex_buffer_,
-                                   splat_storage_.instance};
-      std::vector<VkDeviceSize> vb_offsets = {0, 0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
 
       vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
 
@@ -1865,8 +1822,7 @@ class Engine::Impl {
 
   vk::CpuBuffer visible_point_count_cpu_buffer_;  // (2) for debug
 
-  vk::Buffer splat_vertex_buffer_;  // gaussian2d quad
-  vk::Buffer splat_index_buffer_;   // gaussian2d quad
+  vk::Buffer splat_index_buffer_;  // gaussian2d quads
 
   VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;
   uint64_t transfer_timeline_ = 0;

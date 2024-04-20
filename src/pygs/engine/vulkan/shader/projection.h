@@ -67,8 +67,8 @@ void main() {
   if (id >= point_count) return;
 
   if (id == 0) {
-    indexCount = 4;
-    instanceCount = visible_point_count;
+    indexCount = 6 * visible_point_count;
+    instanceCount = 1;
     firstIndex = 0;
     vertexOffset = 0;
     firstInstance = 0;
