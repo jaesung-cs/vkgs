@@ -15,7 +15,6 @@ add_subdirectory(third_party/argparse EXCLUDE_FROM_ALL)
 # pygs
 add_library(pygs STATIC
   src/pygs/scene/camera.cc
-  src/pygs/scene/splats.cc
   src/pygs/engine/engine.cc
   src/pygs/engine/splat_load_thread.cc
   src/pygs/engine/vulkan/attachment.cc

@@ -1,10 +1,8 @@
 #include <iostream>
-#include <future>
 
 #include <argparse/argparse.hpp>
 
 #include <pygs/engine/engine.h>
-#include <pygs/scene/splats.h>
 
 int main(int argc, char** argv) {
   argparse::ArgumentParser parser("pygs");

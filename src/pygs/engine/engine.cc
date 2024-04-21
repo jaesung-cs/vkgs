@@ -22,7 +22,6 @@
 #include <vk_radix_sort.h>
 
 #include <pygs/scene/camera.h>
-#include <pygs/scene/splats.h>
 #include <pygs/util/timer.h>
 #include <pygs/util/clock.h>
 
@@ -562,88 +561,6 @@ class Engine::Impl {
     glfwTerminate();
   }
 
-  void AddSplats(const Splats& splats) {
-    uint32_t point_count = splats.size();
-
-    const auto& position = splats.positions();
-    const auto& sh = splats.sh();
-    const auto& opacity = splats.opacity();
-    const auto& rotation = splats.rots();
-    const auto& scale = splats.scales();
-
-    std::vector<float> gaussian_cov3d;
-    gaussian_cov3d.reserve(6 * point_count);
-    for (int i = 0; i < point_count; ++i) {
-      glm::quat q(rotation[i * 4 + 0], rotation[i * 4 + 1], rotation[i * 4 + 2],
-                  rotation[i * 4 + 3]);
-      glm::mat3 r = glm::toMat3(q);
-      glm::mat3 s = glm::mat4(1.f);
-      s[0][0] = scale[i * 3 + 0];
-      s[1][1] = scale[i * 3 + 1];
-      s[2][2] = scale[i * 3 + 2];
-      glm::mat3 m = r * s * s * glm::transpose(r);  // cov = RSSR^T
-
-      gaussian_cov3d.push_back(m[0][0]);
-      gaussian_cov3d.push_back(m[1][0]);
-      gaussian_cov3d.push_back(m[2][0]);
-      gaussian_cov3d.push_back(m[1][1]);
-      gaussian_cov3d.push_back(m[2][1]);
-      gaussian_cov3d.push_back(m[2][2]);
-    }
-
-    VkCommandBufferAllocateInfo command_buffer_info = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    command_buffer_info.commandPool = context_.command_pool();
-    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    command_buffer_info.commandBufferCount = 1;
-    VkCommandBuffer cb;
-    vkAllocateCommandBuffers(context_.device(), &command_buffer_info, &cb);
-
-    VkCommandBufferBeginInfo begin_info = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cb, &begin_info);
-
-    splat_storage_.position.FromCpu(cb, position);
-    splat_storage_.cov3d.FromCpu(cb, gaussian_cov3d);
-    splat_storage_.opacity.FromCpu(cb, opacity);
-    splat_storage_.sh.FromCpu(cb, sh);
-
-    vkEndCommandBuffer(cb);
-
-    std::vector<VkCommandBufferSubmitInfo> command_buffer_submit_info(1);
-    command_buffer_submit_info[0] = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-    command_buffer_submit_info[0].commandBuffer = cb;
-
-    std::vector<VkSemaphoreSubmitInfo> wait_semaphore_info(1);
-    wait_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    wait_semaphore_info[0].semaphore = transfer_semaphore_;
-    wait_semaphore_info[0].value = transfer_timeline_;
-    wait_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-
-    std::vector<VkSemaphoreSubmitInfo> signal_semaphore_info(1);
-    signal_semaphore_info[0] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    signal_semaphore_info[0].semaphore = transfer_semaphore_;
-    signal_semaphore_info[0].value = transfer_timeline_ + 1;
-    signal_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-
-    VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-    submit_info.waitSemaphoreInfoCount = wait_semaphore_info.size();
-    submit_info.pWaitSemaphoreInfos = wait_semaphore_info.data();
-    submit_info.commandBufferInfoCount = command_buffer_submit_info.size();
-    submit_info.pCommandBufferInfos = command_buffer_submit_info.data();
-    submit_info.signalSemaphoreInfoCount = signal_semaphore_info.size();
-    submit_info.pSignalSemaphoreInfos = signal_semaphore_info.data();
-    vkQueueSubmit2(context_.graphics_queue(), 1, &submit_info, NULL);
-
-    transfer_timeline_++;
-  }
-
-  void AddSplatsAsync(std::future<Splats>&& splats_future) {
-    pending_splats_.push(std::move(splats_future));
-  }
-
   void LoadSplats(const std::string& ply_filepath) {
     splat_load_thread_.cancel();
     loaded_point_count_ = 0;
@@ -749,20 +666,6 @@ class Engine::Impl {
       int width, height;
       glfwGetFramebufferSize(window_, &width, &height);
       camera_.SetWindowSize(width, height);
-
-      // handle pending splat load in order
-      while (!pending_splats_.empty()) {
-        auto& front = pending_splats_.front();
-
-        using namespace std::chrono_literals;
-        if (front.wait_for(0s) == std::future_status::ready) {
-          auto splats = front.get();
-          AddSplats(splats);
-          pending_splats_.pop();
-        } else {
-          break;
-        }
-      }
 
       Draw();
     }
@@ -1913,8 +1816,6 @@ class Engine::Impl {
   bool show_axis_ = true;
   bool show_grid_ = true;
 
-  std::queue<std::future<Splats>> pending_splats_;
-
   vk::CpuBuffer visible_point_count_cpu_buffer_;  // (2) for debug
 
   vk::Buffer splat_index_buffer_;  // gaussian2d quads
@@ -1935,12 +1836,6 @@ class Engine::Impl {
 Engine::Engine() : impl_(std::make_shared<Impl>()) {}
 
 Engine::~Engine() = default;
-
-void Engine::AddSplats(const Splats& splats) { impl_->AddSplats(splats); }
-
-void Engine::AddSplatsAsync(std::future<Splats>&& splats_future) {
-  impl_->AddSplatsAsync(std::move(splats_future));
-}
 
 void Engine::LoadSplats(const std::string& ply_filepath) {
   impl_->LoadSplats(ply_filepath);
