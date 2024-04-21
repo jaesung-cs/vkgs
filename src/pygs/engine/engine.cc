@@ -563,7 +563,6 @@ class Engine::Impl {
 
   void LoadSplats(const std::string& ply_filepath) {
     splat_load_thread_.cancel();
-    loaded_point_count_ = 0;
     splat_load_thread_.Start(ply_filepath);
   }
 
@@ -881,6 +880,18 @@ class Engine::Impl {
           ImGui::Text("%d total splats", frame_info.total_point_count);
           ImGui::Text("%d loaded splats", frame_info.loaded_point_count);
 
+          auto loading_progress =
+              frame_info.total_point_count > 0
+                  ? static_cast<float>(frame_info.loaded_point_count) /
+                        frame_info.total_point_count
+                  : 1.f;
+          ImGui::Text("loading:");
+          ImGui::SameLine();
+          ImGui::ProgressBar(loading_progress, ImVec2(-1.f, 16.f));
+          if (ImGui::Button("cancel")) {
+            splat_load_thread_.cancel();
+          }
+
           const auto* visible_point_count_buffer =
               reinterpret_cast<const uint32_t*>(
                   visible_point_count_cpu_buffer_.data());
@@ -1045,7 +1056,9 @@ class Engine::Impl {
       frame_info.loaded_point_count = progress.loaded_point_count;
       frame_info.ply_buffer = progress.ply_buffer;
 
-      loaded_point_count_ = progress.loaded_point_count;
+      if (!progress.buffer_barriers.empty()) {
+        loaded_point_count_ = progress.total_point_count;
+      }
 
       // update descriptor
       descriptors_[frame_index].gaussian.Update(

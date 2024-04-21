@@ -1,6 +1,7 @@
 #include "pygs/engine/splat_load_thread.h"
 
 #include <thread>
+#include <atomic>
 #include <mutex>
 #include <fstream>
 #include <sstream>
@@ -37,6 +38,7 @@ class SplatLoadThread::Impl {
 
   ~Impl() {
     if (thread_.joinable()) {
+      terminate_ = true;
       thread_.join();
     }
 
@@ -46,11 +48,14 @@ class SplatLoadThread::Impl {
 
   void Start(const std::string& ply_filepath) {
     if (thread_.joinable()) {
+      terminate_ = true;
       thread_.join();
     }
 
     // now that thread is completed, the following is thread safe
+    terminate_ = false;
     total_point_count_ = 0;
+    loaded_point_count_ = 0;
 
     thread_ = std::thread([this, ply_filepath] {
       Timer timer("splat load thread");
@@ -154,7 +159,20 @@ class SplatLoadThread::Impl {
       {
         Timer timer("splat binary read");
         buffer.resize(offset * point_count);
-        in.read(buffer.data(), offset * point_count);
+
+        constexpr uint32_t chunk_size = 131072;
+        for (uint32_t start = 0; start < point_count; start += chunk_size) {
+          if (terminate_) break;
+
+          auto chunk_point_count =
+              std::min<uint32_t>(chunk_size, point_count - start);
+          in.read(buffer.data() + offset * start, offset * chunk_point_count);
+
+          {
+            std::unique_lock<std::mutex> guard{mutex_};
+            loaded_point_count_ = start + chunk_point_count;
+          }
+        }
       }
 
       // copy to staging buffer
@@ -235,7 +253,6 @@ class SplatLoadThread::Impl {
       // update loaded point count
       {
         std::unique_lock<std::mutex> guard{mutex_};
-        loaded_point_count_ = point_count;
         buffer_barriers_.insert(buffer_barriers_.end(), buffer_barriers.begin(),
                                 buffer_barriers.end());
         buffer_barriers.clear();
@@ -259,15 +276,14 @@ class SplatLoadThread::Impl {
     return result;
   }
 
-  void cancel() {
-    // do nothing
-  }
+  void cancel() { terminate_ = true; }
 
  private:
   vk::Context context_;
 
   std::thread thread_;
   std::mutex mutex_;
+  std::atomic_bool terminate_{false};
 
   uint32_t total_point_count_ = 0;
   uint32_t loaded_point_count_ = 0;
