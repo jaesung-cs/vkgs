@@ -16,6 +16,12 @@ The screenshot shows splats rendered with render pass, with depth buffer and 4x 
 
 Tested only on my desktop PC with NVIDIA GeForce RTX 4090, on Windows and Linux. Let me know if there is any issue building or running the viewer.
 
+Current Onesweep radix sort implementation doesn't seem to work on MacOS.
+
+https://raphlinus.github.io/gpu/2021/11/17/prefix-sum-portable.html
+
+Now I'm on implementing reduce-then-scan radix sort.
+
 
 ### Rendering Algorithm Details
 1. (COMPUTE) rank: cull splats outside view frustum, create key-value pairs to sort, based on view space depth.
