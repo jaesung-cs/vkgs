@@ -3,9 +3,11 @@ Gaussian Splatting
 
 ## Desktop Viewer
 
-![](/media/screenshot-fast.jpg)
+![](/media/screenshot-fast2.jpg)
 
-~200FPS with 3M visible splats, with NVIDIA GeForce RTX 4090.
+~230FPS with 3M visible splats and 1600x900 screen size, on NVIDIA GeForce RTX 4090.
+
+FPS may vary depending on splat size, screen size, splat distribution, etc.
 
 Like other web based viewer, it uses traditional graphics pipeline, drawing splats projected in 2D screen space.
 
