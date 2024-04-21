@@ -28,7 +28,7 @@ class Descriptor::Impl {
     VkDescriptorBufferInfo buffer_info = {};
     buffer_info.buffer = buffer;
     buffer_info.offset = offset;
-    buffer_info.range = size;
+    buffer_info.range = size > 0 ? size : VK_WHOLE_SIZE;
 
     VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     write.dstSet = descriptor_;
