@@ -41,6 +41,7 @@
 #include "pygs/engine/vulkan/cpu_buffer.h"
 #include "pygs/engine/vulkan/uniform_buffer.h"
 #include "pygs/engine/vulkan/shader/uniforms.h"
+#include "pygs/engine/vulkan/shader/parse_ply.h"
 #include "pygs/engine/vulkan/shader/projection.h"
 #include "pygs/engine/vulkan/shader/rank.h"
 #include "pygs/engine/vulkan/shader/inverse_index.h"
@@ -220,12 +221,29 @@ class Engine::Impl {
       instance_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
+    {
+      vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
+      descriptor_layout_info.bindings.resize(1);
+      descriptor_layout_info.bindings[0] = {};
+      descriptor_layout_info.bindings[0].binding = 0;
+      descriptor_layout_info.bindings[0].descriptor_type =
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[0].stage_flags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
+
+      ply_descriptor_layout_ =
+          vk::DescriptorLayout(context_, descriptor_layout_info);
+    }
+
     // compute pipeline layout
     {
       vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
-      pipeline_layout_info.layouts = {camera_descriptor_layout_,
-                                      gaussian_descriptor_layout_,
-                                      instance_layout_};
+      pipeline_layout_info.layouts = {
+          camera_descriptor_layout_,
+          gaussian_descriptor_layout_,
+          instance_layout_,
+          ply_descriptor_layout_,
+      };
 
       pipeline_layout_info.push_constants.resize(1);
       pipeline_layout_info.push_constants[0].stageFlags =
@@ -251,6 +269,14 @@ class Engine::Impl {
 
       graphics_pipeline_layout_ =
           vk::PipelineLayout(context_, pipeline_layout_info);
+    }
+
+    // parse ply pipeline
+    {
+      vk::ComputePipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = compute_pipeline_layout_;
+      pipeline_info.compute_shader = vk::shader::parse_ply_comp;
+      parse_ply_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
     // rank pipeline
@@ -380,6 +406,7 @@ class Engine::Impl {
           vk::Descriptor(context_, gaussian_descriptor_layout_);
       descriptors_[i].splat_instance =
           vk::Descriptor(context_, instance_layout_);
+      descriptors_[i].ply = vk::Descriptor(context_, ply_descriptor_layout_);
     }
 
     splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 2);
@@ -619,12 +646,8 @@ class Engine::Impl {
 
   void LoadSplats(const std::string& ply_filepath) {
     splat_load_thread_.cancel();
-
     loaded_point_count_ = 0;
-
-    splat_load_thread_.Start(ply_filepath, splat_storage_.position,
-                             splat_storage_.cov3d, splat_storage_.sh,
-                             splat_storage_.opacity);
+    splat_load_thread_.Start(ply_filepath);
   }
 
   void Run() {
@@ -1129,29 +1152,7 @@ class Engine::Impl {
       auto progress = splat_load_thread_.progress();
       frame_info.total_point_count = progress.total_point_count;
       frame_info.loaded_point_count = progress.loaded_point_count;
-
-      // acquire ownership
-      // according to spec:
-      //   The buffer range or image subresource range specified in an
-      //   acquireoperation must match exactly that of a previous release
-      //   operation.
-      if (!progress.buffer_barriers.empty()) {
-        std::vector<VkBufferMemoryBarrier2> buffer_barriers =
-            std::move(progress.buffer_barriers);
-
-        // change src/dst synchronization scope
-        for (auto& buffer_barrier : buffer_barriers) {
-          buffer_barrier.srcStageMask = 0;
-          buffer_barrier.srcAccessMask = 0;
-          buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-          buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        }
-
-        VkDependencyInfo dependency = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dependency.bufferMemoryBarrierCount = buffer_barriers.size();
-        dependency.pBufferMemoryBarriers = buffer_barriers.data();
-        vkCmdPipelineBarrier2(cb, &dependency);
-      }
+      frame_info.ply_buffer = progress.ply_buffer;
 
       loaded_point_count_ = progress.loaded_point_count;
 
@@ -1162,9 +1163,6 @@ class Engine::Impl {
 
       descriptors_[frame_index].splat_instance.Update(
           0, splat_draw_indirect_, 0, splat_draw_indirect_.size());
-
-      // update uniform buffer
-      splat_info_buffer_[frame_index].point_count = loaded_point_count_;
 
       if (loaded_point_count_ != 0) {
         descriptors_[frame_index].gaussian.Update(
@@ -1192,7 +1190,109 @@ class Engine::Impl {
         descriptors_[frame_index].splat_instance.Update(
             5, splat_storage_.inverse_index, 0,
             loaded_point_count_ * sizeof(uint32_t));
+      }
 
+      // update uniform buffer
+      splat_info_buffer_[frame_index].point_count = loaded_point_count_;
+
+      // acquire ownership
+      // according to spec:
+      //   The buffer range or image subresource range specified in an
+      //   acquireoperation must match exactly that of a previous release
+      //   operation.
+      if (!progress.buffer_barriers.empty()) {
+        std::vector<VkBufferMemoryBarrier2> buffer_barriers =
+            std::move(progress.buffer_barriers);
+
+        // change src/dst synchronization scope
+        for (auto& buffer_barrier : buffer_barriers) {
+          buffer_barrier.srcStageMask = 0;
+          buffer_barrier.srcAccessMask = 0;
+          buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        }
+
+        VkDependencyInfo dependency = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.bufferMemoryBarrierCount = buffer_barriers.size();
+        dependency.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &dependency);
+
+        // parse ply file
+        // TODO: make parse async
+        descriptors_[frame_index].ply.Update(0, progress.ply_buffer, 0);
+
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          parse_ply_pipeline_);
+
+        VkDescriptorSet descriptor = descriptors_[frame_index].gaussian;
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                compute_pipeline_layout_, 1, 1, &descriptor, 0,
+                                NULL);
+
+        descriptor = descriptors_[frame_index].ply;
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                compute_pipeline_layout_, 3, 1, &descriptor, 0,
+                                NULL);
+
+        constexpr int local_size = 256;
+        vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size,
+                      1, 1);
+
+        buffer_barriers.resize(4);
+        buffer_barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[0].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[0].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[0].buffer = splat_storage_.position;
+        buffer_barriers[0].offset = 0;
+        buffer_barriers[0].size = loaded_point_count_ * 3 * sizeof(float);
+
+        buffer_barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[1].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[1].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[1].buffer = splat_storage_.cov3d;
+        buffer_barriers[1].offset = 0;
+        buffer_barriers[1].size = loaded_point_count_ * 6 * sizeof(float);
+
+        buffer_barriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[2].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[2].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[2].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[2].buffer = splat_storage_.sh;
+        buffer_barriers[2].offset = 0;
+        buffer_barriers[2].size = loaded_point_count_ * 48 * sizeof(float);
+
+        buffer_barriers[3] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        buffer_barriers[3].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[3].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        buffer_barriers[3].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        buffer_barriers[3].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        buffer_barriers[3].buffer = splat_storage_.opacity;
+        buffer_barriers[3].offset = 0;
+        buffer_barriers[3].size = loaded_point_count_ * 1 * sizeof(float);
+
+        dependency = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.bufferMemoryBarrierCount = buffer_barriers.size();
+        dependency.pBufferMemoryBarriers = buffer_barriers.data();
+        vkCmdPipelineBarrier2(cb, &dependency);
+
+        // hold buffer until the end of frame
+        frame_info.ply_buffer = progress.ply_buffer;
+      }
+
+      if (loaded_point_count_ != 0) {
         // rank
         {
           std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
@@ -1737,10 +1837,12 @@ class Engine::Impl {
   vk::DescriptorLayout camera_descriptor_layout_;
   vk::DescriptorLayout gaussian_descriptor_layout_;
   vk::DescriptorLayout instance_layout_;
+  vk::DescriptorLayout ply_descriptor_layout_;
   vk::PipelineLayout compute_pipeline_layout_;
   vk::PipelineLayout graphics_pipeline_layout_;
 
   // preprocess
+  vk::ComputePipeline parse_ply_pipeline_;
   vk::ComputePipeline rank_pipeline_;
   vk::ComputePipeline inverse_index_pipeline_;
   vk::ComputePipeline projection_pipeline_;
@@ -1773,6 +1875,7 @@ class Engine::Impl {
     vk::Descriptor camera;
     vk::Descriptor gaussian;
     vk::Descriptor splat_instance;
+    vk::Descriptor ply;
   };
   std::vector<FrameDescriptor> descriptors_;
 
@@ -1790,6 +1893,8 @@ class Engine::Impl {
 
     uint64_t present_timestamp = 0;
     uint64_t present_done_timestamp = 0;
+
+    vk::Buffer ply_buffer;
   };
   std::vector<FrameInfo> frame_infos_;
 

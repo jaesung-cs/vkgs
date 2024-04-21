@@ -21,21 +21,27 @@ class Buffer::Impl {
     vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info,
                     &buffer_, &allocation_, NULL);
 
-    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-    allocation_create_info.flags =
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-        VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    VmaAllocationInfo allocation_info;
-    vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info,
-                    &staging_buffer_, &staging_allocation_, &allocation_info);
-    map_ = allocation_info.pMappedData;
+    if (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) {
+      buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+      allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+      allocation_create_info.flags =
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+          VMA_ALLOCATION_CREATE_MAPPED_BIT;
+      VmaAllocationInfo allocation_info;
+      vmaCreateBuffer(context.allocator(), &buffer_info,
+                      &allocation_create_info, &staging_buffer_,
+                      &staging_allocation_, &allocation_info);
+      map_ = allocation_info.pMappedData;
+    }
   }
 
   ~Impl() {
     vmaDestroyBuffer(context_.allocator(), buffer_, allocation_);
-    vmaDestroyBuffer(context_.allocator(), staging_buffer_,
-                     staging_allocation_);
+
+    if (staging_allocation_) {
+      vmaDestroyBuffer(context_.allocator(), staging_buffer_,
+                       staging_allocation_);
+    }
   }
 
   operator VkBuffer() const noexcept { return buffer_; }

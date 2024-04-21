@@ -19,6 +19,8 @@ class Buffer {
 
   ~Buffer();
 
+  operator bool() const noexcept { return impl_ != nullptr; }
+
   operator VkBuffer() const;
 
   VkDeviceSize size() const;

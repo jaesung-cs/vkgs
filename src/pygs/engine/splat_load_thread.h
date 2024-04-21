@@ -18,6 +18,8 @@ class SplatLoadThread {
     uint32_t total_point_count = 0;
     uint32_t loaded_point_count = 0;
 
+    vk::Buffer ply_buffer;
+
     // buffer barriers by load thread from previous to current progress() call.
     // this must be consumed by receiving thread.
     std::vector<VkBufferMemoryBarrier2> buffer_barriers;
@@ -30,8 +32,7 @@ class SplatLoadThread {
 
   ~SplatLoadThread();
 
-  void Start(const std::string& ply_filepath, vk::Buffer position,
-             vk::Buffer cov3d, vk::Buffer sh, vk::Buffer opacity);
+  void Start(const std::string& ply_filepath);
 
   Progress progress();
 
