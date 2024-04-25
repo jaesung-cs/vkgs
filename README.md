@@ -20,7 +20,17 @@ Current Onesweep radix sort implementation doesn't seem to work on MacOS.
 
 https://raphlinus.github.io/gpu/2021/11/17/prefix-sum-portable.html
 
-Now I'm on implementing reduce-then-scan radix sort.
+So I've implemented reduce-then-scan radix sort. No big performance difference even on NVidia GPU.
+
+
+### Performance
+- NVidia GeForce RTX 4090, Windows
+  - garden.ply (30000 iters), 1600x900, ~230FPS with 3M visible splats.
+- Apple M2 Pro
+  - garden.ply (30000 iters), 3200x1800 (retina display), ~20FPS with 3M visible splats. 9.5ms (20%) sort, 42ms (80%) rendering.
+  - garden.ply (30000 iters), 1600x900, ~29FPS with 3M visible splats. 9.5ms (27%) sort, 24.5ms (73%) rendering.
+  - bicycle.ply (30000 iters), 1200x800, ~40FPS with 2M visible splats. 6.6ms (27%) sort, 17.5ms (73%) rendering.
+    - Similar performance reported by [UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting), 46FPS with Apple M1 Max.
 
 
 ### Rendering Algorithm Details
@@ -54,7 +64,7 @@ Without reducing the number of points to draw (e.g. deleting less important splt
   - glfw
   - imgui
   - argparse
-  - [vulkan_radix_sort](https://github.com/jaesung-cs/vulkan_radix_sort): my Vulkan/GLSL implementation of [Onesweep](https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus), state-of-the-art radix sort algorithm.
+  - [vulkan_radix_sort](https://github.com/jaesung-cs/vulkan_radix_sort): my Vulkan/GLSL implementation of [Onesweep](https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus) and Reduce-then-scan.
 
 
 ### Build
@@ -78,6 +88,11 @@ Right drag to translate.
 Left+Right drag to zoom in/out.
 
 WASD, Space to move.
+
+
+### References
+- https://github.com/aras-p/UnityGaussianSplatting : Performance report, probably similar rendering pipeline
+- https://github.com/shg8/3DGS.cpp : Vulkan viewer, but tile-based rendering with compute shader.
 
 
 ## Python and CUDA (WIP)
