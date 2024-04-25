@@ -540,8 +540,8 @@ class Engine::Impl {
 
     vkDeviceWaitIdle(context_.device());
 
-    vrdxDestroySorterLayout(sorter_layout_);
     vrdxDestroySorter(sorter_);
+    vrdxDestroySorterLayout(sorter_layout_);
 
     for (auto semaphore : image_acquired_semaphores_)
       vkDestroySemaphore(context_.device(), semaphore, NULL);

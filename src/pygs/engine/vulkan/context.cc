@@ -75,10 +75,15 @@ class Context::Impl {
     std::vector<const char*> instance_extensions(glfw_extensions,
                                                  glfw_extensions + count);
     instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    instance_extensions.push_back(
+        VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    instance_extensions.push_back(
+        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
     VkInstanceCreateInfo instance_info = {
         VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pNext = &messenger_info;
+    instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     instance_info.pApplicationInfo = &application_info;
     instance_info.enabledLayerCount = layers.size();
     instance_info.ppEnabledLayerNames = layers.data();
@@ -177,7 +182,8 @@ class Context::Impl {
 
       if (is_graphics_queue_type && presentation_support) {
         graphics_queue_family_index_ = i;
-      } else if (is_transfer_queue_type) {
+      }
+      if (!is_graphics_queue_type && is_transfer_queue_type) {
         transfer_queue_family_index_ = i;
       }
     }
@@ -196,28 +202,35 @@ class Context::Impl {
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
     // queues
-    std::vector<float> graphics_queue_priorities = {
-        0.5f,
-    };
-    std::vector<float> transfer_queue_priorities = {
-        1.f,
-    };
-    std::vector<VkDeviceQueueCreateInfo> queue_infos(2);
-    queue_infos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    queue_infos[0].queueFamilyIndex = graphics_queue_family_index_;
-    queue_infos[0].queueCount = graphics_queue_priorities.size();
-    queue_infos[0].pQueuePriorities = graphics_queue_priorities.data();
+    std::vector<VkDeviceQueueCreateInfo> queue_infos;
+    std::vector<float> queue_priorities = {0.5f, 1.f};
 
-    queue_infos[1] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    queue_infos[1].queueFamilyIndex = transfer_queue_family_index_;
-    queue_infos[1].queueCount = transfer_queue_priorities.size();
-    queue_infos[1].pQueuePriorities = transfer_queue_priorities.data();
+    if (graphics_queue_family_index_ != transfer_queue_family_index_) {
+      queue_infos.resize(2);
+      queue_infos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+      queue_infos[0].queueFamilyIndex = graphics_queue_family_index_;
+      queue_infos[0].queueCount = 1;
+      queue_infos[0].pQueuePriorities = &queue_priorities[0];
+
+      queue_infos[1] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+      queue_infos[1].queueFamilyIndex = transfer_queue_family_index_;
+      queue_infos[1].queueCount = 1;
+      queue_infos[1].pQueuePriorities = &queue_priorities[1];
+    } else {
+      queue_infos.resize(1);
+      queue_infos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+      queue_infos[0].queueFamilyIndex = graphics_queue_family_index_;
+      queue_infos[0].queueCount = 2;
+      queue_infos[0].pQueuePriorities = &queue_priorities[0];
+    }
 
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 #ifdef _WIN32
         "VK_KHR_external_memory_win32",
         "VK_KHR_external_semaphore_win32",
+#elif __APPLE__
+        "VK_KHR_portability_subset",
 #else
         VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
@@ -231,6 +244,17 @@ class Context::Impl {
     device_info.enabledExtensionCount = device_extensions.size();
     device_info.ppEnabledExtensionNames = device_extensions.data();
     vkCreateDevice(physical_device_, &device_info, NULL, &device_);
+
+    vkGetDeviceQueue(device_, graphics_queue_family_index_, 0,
+                     &graphics_queue_);
+
+    if (transfer_queue_family_index_ == graphics_queue_family_index_) {
+      vkGetDeviceQueue(device_, transfer_queue_family_index_, 1,
+                       &transfer_queue_);
+    } else {
+      vkGetDeviceQueue(device_, transfer_queue_family_index_, 0,
+                       &transfer_queue_);
+    }
 
     vkGetDeviceQueue(device_, graphics_queue_family_index_, 0,
                      &graphics_queue_);
@@ -267,14 +291,17 @@ class Context::Impl {
     vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
 
     std::vector<VkDescriptorPoolSize> pool_sizes = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1048576},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2048},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2048},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 64},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2048},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 64},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
     };
     VkDescriptorPoolCreateInfo descriptor_pool_info = {
         VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     descriptor_pool_info.flags =
         VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    descriptor_pool_info.maxSets = 1048576;
+    descriptor_pool_info.maxSets = 2048;
     descriptor_pool_info.poolSizeCount = pool_sizes.size();
     descriptor_pool_info.pPoolSizes = pool_sizes.data();
     vkCreateDescriptorPool(device_, &descriptor_pool_info, NULL,
