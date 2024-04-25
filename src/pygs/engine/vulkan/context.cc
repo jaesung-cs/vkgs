@@ -55,7 +55,7 @@ class Context::Impl {
     application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
     application_info.pEngineName = "rtgs_vulkan";
     application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
-    application_info.apiVersion = VK_API_VERSION_1_3;
+    application_info.apiVersion = VK_API_VERSION_1_2;
 
     VkDebugUtilsMessengerCreateInfoEXT messenger_info = {
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
@@ -183,20 +183,12 @@ class Context::Impl {
     }
 
     // features
-    VkPhysicalDeviceMaintenance4Features maintenance_4_features = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES};
-
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
-    timeline_semaphore_features.pNext = &maintenance_4_features;
-
-    VkPhysicalDeviceSynchronization2Features synchronization_2_features = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
-    synchronization_2_features.pNext = &timeline_semaphore_features;
 
     VkPhysicalDeviceImagelessFramebufferFeatures imageless_framebuffer_feature =
         {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
-    imageless_framebuffer_feature.pNext = &synchronization_2_features;
+    imageless_framebuffer_feature.pNext = &timeline_semaphore_features;
 
     VkPhysicalDeviceFeatures2 features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
@@ -264,7 +256,7 @@ class Context::Impl {
     allocator_info.physicalDevice = physical_device_;
     allocator_info.device = device_;
     allocator_info.instance = instance_;
-    allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
+    allocator_info.vulkanApiVersion = application_info.apiVersion;
     vmaCreateAllocator(&allocator_info, &allocator_);
 
     VkCommandPoolCreateInfo command_pool_info = {
