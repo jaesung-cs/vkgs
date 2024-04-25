@@ -1354,9 +1354,10 @@ class Engine::Impl {
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                timestamp_query_pool, 3);
 
-          vrdxCmdSortKeyValueIndirect(cb, sorter_, splat_visible_point_count_,
-                                      0, splat_storage_.key, 0,
-                                      splat_storage_.index, 0, NULL, 0);
+          vrdxCmdSortKeyValueIndirect(
+              cb, sorter_, VRDX_SORT_METHOD_REDUCE_THEN_SCAN,
+              splat_visible_point_count_, 0, splat_storage_.key, 0,
+              splat_storage_.index, 0, NULL, 0);
 
           vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                timestamp_query_pool, 4);
