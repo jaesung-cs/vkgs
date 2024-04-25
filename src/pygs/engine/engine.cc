@@ -585,9 +585,9 @@ class Engine::Impl {
     color_attachment_ =
         vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
                        VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-    depth_attachment_ = vk::Attachment(
-        context_, swapchain_.width(), swapchain_.height(),
-        VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
+    depth_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
 
     vk::FramebufferCreateInfo framebuffer_info;
     framebuffer_info.render_pass = render_pass_;
@@ -832,9 +832,9 @@ class Engine::Impl {
       color_attachment_ = vk::Attachment(
           context_, swapchain_.width(), swapchain_.height(),
           VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-      depth_attachment_ = vk::Attachment(
-          context_, swapchain_.width(), swapchain_.height(),
-          VK_FORMAT_D24_UNORM_S8_UINT, VK_SAMPLE_COUNT_4_BIT, false);
+      depth_attachment_ =
+          vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
 
       vk::FramebufferCreateInfo framebuffer_info;
       framebuffer_info.render_pass = render_pass_;

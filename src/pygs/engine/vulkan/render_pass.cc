@@ -20,7 +20,7 @@ class RenderPass::Impl {
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     attachments[1] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
-    attachments[1].format = VK_FORMAT_D24_UNORM_S8_UINT;
+    attachments[1].format = VK_FORMAT_D16_UNORM;
     attachments[1].samples = VK_SAMPLE_COUNT_4_BIT;
     attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
