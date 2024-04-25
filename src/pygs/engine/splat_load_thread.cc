@@ -216,10 +216,9 @@ class SplatLoadThread::Impl {
       vkCmdCopyBuffer(cb, staging_, ply_buffer, 1, &region);
 
       // transfer ownership
-      std::vector<VkBufferMemoryBarrier2> buffer_barriers(1);
-      buffer_barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-      buffer_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-      buffer_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      std::vector<VkBufferMemoryBarrier> buffer_barriers(1);
+      buffer_barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+      buffer_barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
       buffer_barriers[0].srcQueueFamilyIndex =
           context_.transfer_queue_family_index();
       buffer_barriers[0].dstQueueFamilyIndex =
@@ -227,23 +226,19 @@ class SplatLoadThread::Impl {
       buffer_barriers[0].buffer = ply_buffer;
       buffer_barriers[0].offset = 0;
       buffer_barriers[0].size = size;
-      VkDependencyInfo dependency = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dependency.bufferMemoryBarrierCount = buffer_barriers.size();
-      dependency.pBufferMemoryBarriers = buffer_barriers.data();
-      vkCmdPipelineBarrier2(cb, &dependency);
+      vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL,
+                           buffer_barriers.size(), buffer_barriers.data(), 0,
+                           NULL);
 
       vkEndCommandBuffer(cb);
 
       // submit
       {
-        VkCommandBufferSubmitInfo command_buffer_info = {
-            VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-        command_buffer_info.commandBuffer = cb;
-
-        VkSubmitInfo2 submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-        submit_info.commandBufferInfoCount = 1;
-        submit_info.pCommandBufferInfos = &command_buffer_info;
-        vkQueueSubmit2(context_.transfer_queue(), 1, &submit_info, fence_);
+        VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &cb;
+        vkQueueSubmit(context_.transfer_queue(), 1, &submit_info, fence_);
 
         Timer timer("splat staging to device");
         vkWaitForFences(context_.device(), 1, &fence_, VK_TRUE, UINT64_MAX);
@@ -287,7 +282,7 @@ class SplatLoadThread::Impl {
 
   uint32_t total_point_count_ = 0;
   uint32_t loaded_point_count_ = 0;
-  std::vector<VkBufferMemoryBarrier2> buffer_barriers_;
+  std::vector<VkBufferMemoryBarrier> buffer_barriers_;
 
   VkFence fence_ = VK_NULL_HANDLE;
 

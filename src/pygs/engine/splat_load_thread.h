@@ -22,7 +22,7 @@ class SplatLoadThread {
 
     // buffer barriers by load thread from previous to current progress() call.
     // this must be consumed by receiving thread.
-    std::vector<VkBufferMemoryBarrier2> buffer_barriers;
+    std::vector<VkBufferMemoryBarrier> buffer_barriers;
   };
 
  public:
