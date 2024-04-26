@@ -26,6 +26,7 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
 ### Performance
 - NVidia GeForce RTX 4090, Windows
   - garden.ply (30000 iters), 1600x900, ~230FPS with 3M visible splats.
+    - 2~3x faster than 3DGS.cpp
 - Apple M2 Pro
   - garden.ply (30000 iters), 3200x1800 (retina display), ~20FPS with 3M visible splats. 9.5ms (20%) sort, 42ms (80%) rendering.
   - garden.ply (30000 iters), 1600x900, ~29FPS with 3M visible splats. 9.5ms (27%) sort, 24.5ms (73%) rendering.
@@ -47,9 +48,9 @@ Without reducing the number of points to draw (e.g. deleting less important splt
 
 
 ### Requirements
-- `VulkanSDK>=1.3`
-  - Download from https://vulkan.lunarg.com/ and follow install instruction.
-  - Requires several features available in `1.3`.
+- `VulkanSDK>=1.2`
+  - Download the latest version from https://vulkan.lunarg.com/ and follow install instruction.
+  - `1.3` is recommended, but `1.2` should also work.
 - `cmake>=3.24`
   - `Vulkan::shaderc_combined` new in version `3.24`.
 
