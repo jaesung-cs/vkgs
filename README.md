@@ -108,8 +108,19 @@ WASD, Space to move.
 ```bash
 $ conda create -n pygs python=3.10
 $ conda activate pygs
-$ conda install conda-forge::cmake
+$ conda install conda-forge::cmake conda-forge::pybind11
 $ conda install nvidia/label/cuda-12.2.2::cuda-toolkit  # or any other version
+```
+
+
+### Test
+
+```bash
+$ pip install -e binding/python
+$ python
+>>> import pygs
+>>> print(pygs.add(2,3))
+5
 ```
 
 

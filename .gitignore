@@ -1,6 +1,8 @@
 .vscode/
 
-/build/
+build/
+*.egg-info
+*.cp310-*.pyd
 
 /models/
 
