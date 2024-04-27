@@ -119,8 +119,7 @@ $ conda install nvidia/label/cuda-12.2.2::cuda-toolkit  # or any other version
 $ pip install -e binding/python
 $ python
 >>> import pygs
->>> print(pygs.add(2,3))
-5
+>>> pygs.start()
 ```
 
 
