@@ -3,6 +3,7 @@
 #include <iostream>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 #include <pygs/engine/engine.h>
 
@@ -11,7 +12,10 @@ namespace {
 std::thread thread;
 std::atomic_bool terminated = false;
 
-void start() {
+std::mutex mutex;
+std::unique_ptr<pygs::Engine> engine;
+
+void Show() {
   if (thread.joinable()) {
     if (terminated) {
       thread.join();
@@ -23,18 +27,35 @@ void start() {
   }
 
   thread = std::thread([] {
-    pygs::Engine engine;
-    engine.Run();
+    if (engine == nullptr) {
+      std::unique_lock<std::mutex> guard{mutex};
+      engine = std::make_unique<pygs::Engine>();
+    }
+    engine->Run();
     std::cout << "[pygs] bye" << std::endl;
     terminated = true;
   });
 }
 
-void cleanup_callback() {
+void Close() {
+  {
+    std::unique_lock<std::mutex> guard{mutex};
+    if (engine) {
+      engine->Close();
+    }
+  }
+}
+
+void CleanupCallback() {
+  std::cout << "[pygs] cleanup" << std::endl;
+
+  if (engine) {
+    engine->Close();
+  }
+
   if (thread.joinable()) {
-    // TODO: send termination to thread
-    std::cout << "[pygs] cleanup" << std::endl;
     thread.join();
+    engine = nullptr;
   }
 }
 
@@ -43,7 +64,8 @@ void cleanup_callback() {
 namespace py = pybind11;
 
 PYBIND11_MODULE(_pygs_cpp, m) {
-  m.def("start", &start, py::call_guard<py::gil_scoped_release>());
+  m.def("show", &Show);
+  m.def("close", &Close);
 
-  m.add_object("_cleanup", py::capsule(cleanup_callback));
+  m.add_object("_cleanup", py::capsule(CleanupCallback));
 }

@@ -11,8 +11,12 @@ if sys.platform.startswith("win"):
 import _pygs_cpp as _C  # noqa
 
 
-def start():
-    _C.start()
+def show():
+    _C.show()
 
 
-__all__ = ["start"]
+def close():
+    _C.close()
+
+
+__all__ = ["show", "close"]
