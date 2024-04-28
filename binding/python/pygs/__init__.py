@@ -1,6 +1,7 @@
 
 import os
 import sys
+import errno
 
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 if sys.platform.startswith("win"):
@@ -17,8 +18,12 @@ def show():
 
 def load(ply_filepath):
     ply_filepath = os.path.abspath(ply_filepath)
-    print(f"load {ply_filepath}")
-    _C.load(ply_filepath)
+    if os.path.exists(ply_filepath):
+        print(f"load {ply_filepath}")
+        _C.load(ply_filepath)
+    else:
+        raise FileNotFoundError(
+            errno.ENOENT, os.strerror(errno.ENOENT), ply_filepath)
 
 
 def close():

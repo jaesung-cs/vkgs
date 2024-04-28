@@ -22,7 +22,6 @@
 #include <vk_radix_sort.h>
 
 #include <pygs/scene/camera.h>
-#include <pygs/util/timer.h>
 #include <pygs/util/clock.h>
 
 #include "pygs/engine/splat_load_thread.h"
@@ -109,10 +108,7 @@ class Engine::Impl {
     if (glfwInit() == GLFW_FALSE)
       throw std::runtime_error("Failed to initialize glfw.");
 
-    {
-      Timer timer("context");
-      context_ = vk::Context(0);
-    }
+    context_ = vk::Context(0);
 
     // render pass
     render_pass_ = vk::RenderPass(context_);
@@ -474,8 +470,6 @@ class Engine::Impl {
 
     // preallocate splat storage
     {
-      Timer timer("allocate");
-
       splat_storage_.position =
           vk::Buffer(context_, MAX_SPLAT_COUNT * 3 * sizeof(float),
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT |
@@ -511,13 +505,11 @@ class Engine::Impl {
     }
 
     {
-      Timer timer("thread");
       // create splat load thread
       splat_load_thread_ = SplatLoadThread(context_);
     }
 
     {
-      Timer timer("sorter");
       // create sorter
       VrdxSorterLayoutCreateInfo sorter_layout_info = {};
       sorter_layout_info.physicalDevice = context_.physical_device();
