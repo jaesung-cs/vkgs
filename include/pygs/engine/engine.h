@@ -14,6 +14,7 @@ class Engine {
   ~Engine();
 
   void LoadSplats(const std::string& ply_filepath);
+  void LoadSplatsAsync(const std::string& ply_filepath);
 
   void Run();
 

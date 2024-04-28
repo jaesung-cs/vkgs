@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
+#include <mutex>
 
 #include <vulkan/vulkan.h>
 
@@ -567,6 +568,11 @@ class Engine::Impl {
     splat_load_thread_.Start(ply_filepath);
   }
 
+  void LoadSplatsAsync(const std::string& ply_filepath) {
+    std::unique_lock<std::mutex> guard{mutex_};
+    pending_ply_filepath_ = ply_filepath;
+  }
+
   void Run() {
     // create window
     width_ = 1600;
@@ -660,6 +666,15 @@ class Engine::Impl {
         }
         if (ImGui::IsKeyDown(ImGuiKey_Space)) {
           camera_.Translate(0.f, speed * dt);
+        }
+      }
+
+      // load pending file from async request
+      {
+        std::unique_lock<std::mutex> guard{mutex_};
+        if (!pending_ply_filepath_.empty()) {
+          LoadSplats(pending_ply_filepath_);
+          pending_ply_filepath_.clear();
         }
       }
 
@@ -1653,6 +1668,9 @@ class Engine::Impl {
 
   std::atomic_bool terminate_ = false;
 
+  std::mutex mutex_;
+  std::string pending_ply_filepath_;
+
   GLFWwindow* window_ = nullptr;
   int width_ = 0;
   int height_ = 0;
@@ -1781,6 +1799,10 @@ Engine::~Engine() = default;
 
 void Engine::LoadSplats(const std::string& ply_filepath) {
   impl_->LoadSplats(ply_filepath);
+}
+
+void Engine::LoadSplatsAsync(const std::string& ply_filepath) {
+  impl_->LoadSplatsAsync(ply_filepath);
 }
 
 void Engine::Run() { impl_->Run(); }

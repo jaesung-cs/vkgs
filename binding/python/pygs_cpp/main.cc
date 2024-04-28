@@ -35,6 +35,12 @@ void Show() {
   });
 }
 
+void Load(const std::string& ply_filepath) {
+  if (engine) {
+    engine->LoadSplatsAsync(ply_filepath);
+  }
+}
+
 void Close() {
   if (engine) {
     engine->Close();
@@ -60,6 +66,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(_pygs_cpp, m) {
   m.def("show", &Show);
+  m.def("load", &Load);
   m.def("close", &Close);
 
   m.add_object("_cleanup", py::capsule(CleanupCallback));

@@ -15,8 +15,14 @@ def show():
     _C.show()
 
 
+def load(ply_filepath):
+    ply_filepath = os.path.abspath(ply_filepath)
+    print(f"load {ply_filepath}")
+    _C.load(ply_filepath)
+
+
 def close():
     _C.close()
 
 
-__all__ = ["show", "close"]
+__all__ = ["show", "load", "close"]
