@@ -18,14 +18,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
-#include <pygs/util/timer.h>
-
 namespace pygs {
-namespace {
-
-float sigmoid(float x) { return 1.f / (1.f + std::exp(-x)); }
-
-}  // namespace
 
 class SplatLoadThread::Impl {
  public:
@@ -58,7 +51,6 @@ class SplatLoadThread::Impl {
     loaded_point_count_ = 0;
 
     thread_ = std::thread([this, ply_filepath] {
-      Timer timer("splat load thread");
       std::ifstream in(ply_filepath, std::ios::binary);
 
       // parse header
@@ -101,7 +93,6 @@ class SplatLoadThread::Impl {
       VkDeviceSize size = 60 * sizeof(uint32_t) +
                           static_cast<VkDeviceSize>(offset) * point_count;
       if (staging_size_ < size) {
-        Timer timer("splat staging buffer allocation");
         if (staging_)
           vmaDestroyBuffer(context_.allocator(), staging_, allocation_);
 
@@ -123,7 +114,6 @@ class SplatLoadThread::Impl {
 
       vk::Buffer ply_buffer;
       {
-        Timer timer("splat device buffer allocation");
         ply_buffer = vk::Buffer(context_, size,
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -157,7 +147,6 @@ class SplatLoadThread::Impl {
       // read all binary data
       std::vector<char> buffer;
       {
-        Timer timer("splat binary read");
         buffer.resize(offset * point_count);
 
         constexpr uint32_t chunk_size = 131072;
@@ -177,7 +166,6 @@ class SplatLoadThread::Impl {
 
       // copy to staging buffer
       {
-        Timer timer("splat copy to staging");
         std::memcpy(staging_map_, ply_offsets.data(),
                     ply_offsets.size() * sizeof(uint32_t));
         std::memcpy(staging_map_ + 60 * sizeof(uint32_t), buffer.data(),
@@ -240,7 +228,6 @@ class SplatLoadThread::Impl {
         submit_info.pCommandBuffers = &cb;
         vkQueueSubmit(context_.transfer_queue(), 1, &submit_info, fence_);
 
-        Timer timer("splat staging to device");
         vkWaitForFences(context_.device(), 1, &fence_, VK_TRUE, UINT64_MAX);
         vkResetFences(context_.device(), 1, &fence_);
       }

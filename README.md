@@ -102,14 +102,39 @@ WASD, Space to move.
 1. To benchmark cub sort performance
 
 
-### Requirements (WIP)
+### Requirements
 
 - conda
 ```bash
 $ conda create -n pygs python=3.10
 $ conda activate pygs
-$ conda install conda-forge::cmake
+$ conda install conda-forge::cmake conda-forge::pybind11
 $ conda install nvidia/label/cuda-12.2.2::cuda-toolkit  # or any other version
+```
+
+
+### Build
+
+The python package dynamically links to c++ shared library file.
+
+So, first build the shared library first, then install python package.
+
+```bash
+$ cmake . -B build
+$ cmake --build build --config Release -j
+$ pip install -e binding/python
+```
+
+
+### Test
+
+```bash
+$ python
+>>> import pygs
+>>> pygs.show()
+>>> pygs.load("./models/bicycle_30000.ply")
+>>> pygs.load("./models/garden_30000.ply")
+>>> pygs.close()
 ```
 
 
