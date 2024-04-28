@@ -3,7 +3,6 @@
 #include <iostream>
 #include <thread>
 #include <atomic>
-#include <mutex>
 
 #include <pygs/engine/engine.h>
 
@@ -12,7 +11,6 @@ namespace {
 std::thread thread;
 std::atomic_bool terminated = false;
 
-std::mutex mutex;
 std::unique_ptr<pygs::Engine> engine;
 
 void Show() {
@@ -26,11 +24,11 @@ void Show() {
     }
   }
 
+  if (engine == nullptr) {
+    engine = std::make_unique<pygs::Engine>();
+  }
+
   thread = std::thread([] {
-    if (engine == nullptr) {
-      std::unique_lock<std::mutex> guard{mutex};
-      engine = std::make_unique<pygs::Engine>();
-    }
     engine->Run();
     std::cout << "[pygs] bye" << std::endl;
     terminated = true;
@@ -38,11 +36,8 @@ void Show() {
 }
 
 void Close() {
-  {
-    std::unique_lock<std::mutex> guard{mutex};
-    if (engine) {
-      engine->Close();
-    }
+  if (engine) {
+    engine->Close();
   }
 }
 

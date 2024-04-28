@@ -21,11 +21,6 @@
 #include <pygs/util/timer.h>
 
 namespace pygs {
-namespace {
-
-float sigmoid(float x) { return 1.f / (1.f + std::exp(-x)); }
-
-}  // namespace
 
 class SplatLoadThread::Impl {
  public:
