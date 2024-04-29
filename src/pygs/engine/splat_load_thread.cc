@@ -245,7 +245,7 @@ class SplatLoadThread::Impl {
     });
   }
 
-  Progress progress() {
+  Progress GetProgress() {
     Progress result;
     std::unique_lock<std::mutex> guard{mutex_};
     result.total_point_count = total_point_count_;
@@ -258,7 +258,7 @@ class SplatLoadThread::Impl {
     return result;
   }
 
-  void cancel() { terminate_ = true; }
+  void Cancel() { terminate_ = true; }
 
  private:
   vk::Context context_;
@@ -294,10 +294,10 @@ void SplatLoadThread::Start(const std::string& ply_filepath) {
   impl_->Start(ply_filepath);
 }
 
-SplatLoadThread::Progress SplatLoadThread::progress() {
-  return impl_->progress();
+SplatLoadThread::Progress SplatLoadThread::GetProgress() {
+  return impl_->GetProgress();
 }
 
-void SplatLoadThread::cancel() { impl_->cancel(); }
+void SplatLoadThread::Cancel() { impl_->Cancel(); }
 
 }  // namespace pygs

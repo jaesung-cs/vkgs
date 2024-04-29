@@ -556,7 +556,7 @@ class Engine::Impl {
   }
 
   void LoadSplats(const std::string& ply_filepath) {
-    splat_load_thread_.cancel();
+    splat_load_thread_.Cancel();
     splat_load_thread_.Start(ply_filepath);
   }
 
@@ -903,7 +903,7 @@ class Engine::Impl {
           ImGui::SameLine();
           ImGui::ProgressBar(loading_progress, ImVec2(-1.f, 16.f));
           if (ImGui::Button("cancel")) {
-            splat_load_thread_.cancel();
+            splat_load_thread_.Cancel();
           }
 
           const auto* visible_point_count_buffer =
@@ -1065,7 +1065,7 @@ class Engine::Impl {
                           timestamp_query_pool, 0);
 
       // check loading status
-      auto progress = splat_load_thread_.progress();
+      auto progress = splat_load_thread_.GetProgress();
       frame_info.total_point_count = progress.total_point_count;
       frame_info.loaded_point_count = progress.loaded_point_count;
       frame_info.ply_buffer = progress.ply_buffer;

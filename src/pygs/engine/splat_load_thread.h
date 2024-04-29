@@ -34,9 +34,9 @@ class SplatLoadThread {
 
   void Start(const std::string& ply_filepath);
 
-  Progress progress();
+  Progress GetProgress();
 
-  void cancel();
+  void Cancel();
 
  private:
   class Impl;
