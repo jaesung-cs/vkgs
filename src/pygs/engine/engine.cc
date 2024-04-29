@@ -1239,9 +1239,9 @@ class Engine::Impl {
           vkCmdPipelineBarrier(cb,
                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
                                    VK_PIPELINE_STAGE_TRANSFER_BIT,
-                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, 0,
-                               NULL, buffer_barriers.size(),
-                               buffer_barriers.data(), 0, NULL);
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
+                               buffer_barriers.size(), buffer_barriers.data(),
+                               0, NULL);
 
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rank_pipeline_);
 
