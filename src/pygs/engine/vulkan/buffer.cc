@@ -20,25 +20,12 @@ class Buffer::Impl {
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info,
                     &buffer_, &allocation_, NULL);
-
-    if (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) {
-      buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-      allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-      allocation_create_info.flags =
-          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-          VMA_ALLOCATION_CREATE_MAPPED_BIT;
-      VmaAllocationInfo allocation_info;
-      vmaCreateBuffer(context.allocator(), &buffer_info,
-                      &allocation_create_info, &staging_buffer_,
-                      &staging_allocation_, &allocation_info);
-      map_ = allocation_info.pMappedData;
-    }
   }
 
   ~Impl() {
     vmaDestroyBuffer(context_.allocator(), buffer_, allocation_);
 
-    if (staging_allocation_) {
+    if (staging_buffer_) {
       vmaDestroyBuffer(context_.allocator(), staging_buffer_,
                        staging_allocation_);
     }
@@ -50,6 +37,22 @@ class Buffer::Impl {
 
   void FromCpu(VkCommandBuffer command_buffer, const void* src,
                VkDeviceSize size) {
+    if (!staging_buffer_) {
+      VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      buffer_info.size = size_;
+      buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+      VmaAllocationCreateInfo allocation_create_info = {};
+      allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+      allocation_create_info.flags =
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+          VMA_ALLOCATION_CREATE_MAPPED_BIT;
+      VmaAllocationInfo allocation_info;
+      vmaCreateBuffer(context_.allocator(), &buffer_info,
+                      &allocation_create_info, &staging_buffer_,
+                      &staging_allocation_, &allocation_info);
+      map_ = allocation_info.pMappedData;
+    }
+
     std::memcpy(map_, src, size);
 
     VkBufferCopy region = {};
@@ -64,6 +67,7 @@ class Buffer::Impl {
   VkDeviceSize size_ = 0;
   VkBuffer buffer_ = VK_NULL_HANDLE;
   VmaAllocation allocation_ = VK_NULL_HANDLE;
+
   VkBuffer staging_buffer_ = VK_NULL_HANDLE;
   VmaAllocation staging_allocation_ = VK_NULL_HANDLE;
   void* map_ = nullptr;
