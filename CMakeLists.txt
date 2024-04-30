@@ -12,8 +12,10 @@ add_subdirectory(third_party/glfw EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/glm EXCLUDE_FROM_ALL)
 add_subdirectory(third_party/argparse EXCLUDE_FROM_ALL)
 
+set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
 # pygs
-add_library(pygs STATIC
+add_library(pygs SHARED
   src/pygs/scene/camera.cc
   src/pygs/engine/engine.cc
   src/pygs/engine/splat_load_thread.cc
@@ -57,4 +59,7 @@ target_link_libraries(pygs
 
 # executable
 add_executable(pygs_base examples/pygs_base.cc)
-target_link_libraries(pygs_base PRIVATE pygs argparse)
+target_link_libraries(pygs_base
+  PUBLIC pygs
+  PRIVATE argparse
+)

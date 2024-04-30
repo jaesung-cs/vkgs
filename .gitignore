@@ -1,6 +1,10 @@
 .vscode/
 
-/build/
+build/
+*.egg-info
+*.cp310-*.pyd
+*.so
+__pycache__
 
 /models/
 

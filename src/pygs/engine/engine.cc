@@ -1,10 +1,10 @@
 #include <pygs/engine/engine.h>
 
-#include <queue>
+#include <atomic>
 #include <iostream>
 #include <stdexcept>
-#include <unordered_map>
 #include <algorithm>
+#include <mutex>
 
 #include <vulkan/vulkan.h>
 
@@ -22,7 +22,6 @@
 #include <vk_radix_sort.h>
 
 #include <pygs/scene/camera.h>
-#include <pygs/util/timer.h>
 #include <pygs/util/clock.h>
 
 #include "pygs/engine/splat_load_thread.h"
@@ -109,10 +108,7 @@ class Engine::Impl {
     if (glfwInit() == GLFW_FALSE)
       throw std::runtime_error("Failed to initialize glfw.");
 
-    {
-      Timer timer("context");
-      context_ = vk::Context(0);
-    }
+    context_ = vk::Context(0);
 
     // render pass
     render_pass_ = vk::RenderPass(context_);
@@ -474,8 +470,6 @@ class Engine::Impl {
 
     // preallocate splat storage
     {
-      Timer timer("allocate");
-
       splat_storage_.position =
           vk::Buffer(context_, MAX_SPLAT_COUNT * 3 * sizeof(float),
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT |
@@ -511,13 +505,11 @@ class Engine::Impl {
     }
 
     {
-      Timer timer("thread");
       // create splat load thread
       splat_load_thread_ = SplatLoadThread(context_);
     }
 
     {
-      Timer timer("sorter");
       // create sorter
       VrdxSorterLayoutCreateInfo sorter_layout_info = {};
       sorter_layout_info.physicalDevice = context_.physical_device();
@@ -533,6 +525,11 @@ class Engine::Impl {
     }
 
     PreparePrimitives();
+
+    // Setup Dear ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
   }
 
   ~Impl() {
@@ -553,17 +550,19 @@ class Engine::Impl {
 
     for (auto query_pool : timestamp_query_pools_)
       vkDestroyQueryPool(context_.device(), query_pool, NULL);
-
-    ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
     glfwTerminate();
   }
 
   void LoadSplats(const std::string& ply_filepath) {
-    splat_load_thread_.cancel();
+    splat_load_thread_.Cancel();
     splat_load_thread_.Start(ply_filepath);
+  }
+
+  void LoadSplatsAsync(const std::string& ply_filepath) {
+    std::unique_lock<std::mutex> guard{mutex_};
+    pending_ply_filepath_ = ply_filepath;
   }
 
   void Run() {
@@ -571,11 +570,32 @@ class Engine::Impl {
     width_ = 1600;
     height_ = 900;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     window_ = glfwCreateWindow(width_, height_, "pygs", NULL, NULL);
 
     // file drop callback
     glfwSetWindowUserPointer(window_, this);
     glfwSetDropCallback(window_, DropCallback);
+
+    ImGui_ImplGlfw_InitForVulkan(window_, true);
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.Instance = context_.instance();
+    init_info.PhysicalDevice = context_.physical_device();
+    init_info.Device = context_.device();
+    init_info.QueueFamily = context_.graphics_queue_family_index();
+    init_info.Queue = context_.graphics_queue();
+    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.DescriptorPool = context_.descriptor_pool();
+    init_info.RenderPass = render_pass_;
+    init_info.Subpass = 0;
+    init_info.MinImageCount = 3;
+    init_info.ImageCount = 3;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
+    init_info.Allocator = VK_NULL_HANDLE;
+    init_info.CheckVkResultFn = check_vk_result;
+    ImGui_ImplVulkan_Init(&init_info);
+
+    ImGuiIO& io = ImGui::GetIO();
 
     // create swapchain
     VkSurfaceKHR surface;
@@ -598,32 +618,11 @@ class Engine::Impl {
                                     swapchain_.image_spec()};
     framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
 
-    // Setup Dear ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::StyleColorsDark();
-
-    ImGui_ImplGlfw_InitForVulkan(window_, true);
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = context_.instance();
-    init_info.PhysicalDevice = context_.physical_device();
-    init_info.Device = context_.device();
-    init_info.QueueFamily = context_.graphics_queue_family_index();
-    init_info.Queue = context_.graphics_queue();
-    init_info.PipelineCache = VK_NULL_HANDLE;
-    init_info.DescriptorPool = context_.descriptor_pool();
-    init_info.RenderPass = render_pass_;
-    init_info.Subpass = 0;
-    init_info.MinImageCount = 3;
-    init_info.ImageCount = swapchain_.image_count();
-    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
-    init_info.Allocator = VK_NULL_HANDLE;
-    init_info.CheckVkResultFn = check_vk_result;
-    ImGui_ImplVulkan_Init(&init_info);
+    glfwShowWindow(window_);
+    terminate_ = false;
 
     // main loop
-    while (!glfwWindowShouldClose(window_)) {
+    while (!glfwWindowShouldClose(window_) && !terminate_) {
       glfwPollEvents();
 
       // handle events
@@ -662,13 +661,33 @@ class Engine::Impl {
         }
       }
 
+      // load pending file from async request
+      {
+        std::unique_lock<std::mutex> guard{mutex_};
+        if (!pending_ply_filepath_.empty()) {
+          LoadSplats(pending_ply_filepath_);
+          pending_ply_filepath_.clear();
+        }
+      }
+
       int width, height;
       glfwGetFramebufferSize(window_, &width, &height);
       camera_.SetWindowSize(width, height);
 
       Draw();
     }
+
+    vkDeviceWaitIdle(context_.device());
+
+    glfwDestroyWindow(window_);
+
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+
+    terminate_ = false;
   }
+
+  void Close() { terminate_ = true; }
 
  private:
   void PreparePrimitives() {
@@ -884,7 +903,7 @@ class Engine::Impl {
           ImGui::SameLine();
           ImGui::ProgressBar(loading_progress, ImVec2(-1.f, 16.f));
           if (ImGui::Button("cancel")) {
-            splat_load_thread_.cancel();
+            splat_load_thread_.Cancel();
           }
 
           const auto* visible_point_count_buffer =
@@ -1046,7 +1065,7 @@ class Engine::Impl {
                           timestamp_query_pool, 0);
 
       // check loading status
-      auto progress = splat_load_thread_.progress();
+      auto progress = splat_load_thread_.GetProgress();
       frame_info.total_point_count = progress.total_point_count;
       frame_info.loaded_point_count = progress.loaded_point_count;
       frame_info.ply_buffer = progress.ply_buffer;
@@ -1220,9 +1239,9 @@ class Engine::Impl {
           vkCmdPipelineBarrier(cb,
                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
                                    VK_PIPELINE_STAGE_TRANSFER_BIT,
-                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, 0,
-                               NULL, buffer_barriers.size(),
-                               buffer_barriers.data(), 0, NULL);
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
+                               buffer_barriers.size(), buffer_barriers.data(),
+                               0, NULL);
 
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rank_pipeline_);
 
@@ -1639,6 +1658,11 @@ class Engine::Impl {
     vkCmdEndRenderPass(cb);
   }
 
+  std::atomic_bool terminate_ = false;
+
+  std::mutex mutex_;
+  std::string pending_ply_filepath_;
+
   GLFWwindow* window_ = nullptr;
   int width_ = 0;
   int height_ = 0;
@@ -1769,6 +1793,12 @@ void Engine::LoadSplats(const std::string& ply_filepath) {
   impl_->LoadSplats(ply_filepath);
 }
 
+void Engine::LoadSplatsAsync(const std::string& ply_filepath) {
+  impl_->LoadSplatsAsync(ply_filepath);
+}
+
 void Engine::Run() { impl_->Run(); }
+
+void Engine::Close() { impl_->Close(); }
 
 }  // namespace pygs
