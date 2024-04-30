@@ -10,7 +10,7 @@ root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 runtime_library_dirs = [
     os.path.join(root, "build"),
-] if sys.platform.startswith("linux") else []
+] if not sys.platform.startswith("win") else []
 
 ext_modules = [
     Pybind11Extension(
