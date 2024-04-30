@@ -98,17 +98,24 @@ WASD, Space to move.
 
 ## Python and CUDA (WIP)
 
-1. To pass data torch cuda to renderer
-1. To benchmark cub sort performance
+GUI is created in an off thread.
+According to GLFW documentation, the user should create window in main thread.
+However, managing windows off-thread seems working in Windows and Linux somehow.
+
+Unfortunately, Apple doesn't allow this.
+Apple’s UI frameworks can only be called from the main thread.
+Here's a related [thread](https://forums.developer.apple.com/forums/thread/659010) by Apple staff.
 
 
 ### Requirements
 
-- conda
+- Windows or Linux (Doesn't work for MacOS.)
+- conda: cmake, pybind11, cuda-toolkit (cuda WIP, not necessary yet)
 ```bash
 $ conda create -n pygs python=3.10
 $ conda activate pygs
-$ conda install conda-forge::cmake conda-forge::pybind11
+$ conda install conda-forge::cmake
+$ conda install conda-forge::pybind11
 $ conda install nvidia/label/cuda-12.2.2::cuda-toolkit  # or any other version
 ```
 
@@ -132,7 +139,7 @@ $ pip install -e binding/python
 $ python
 >>> import pygs
 >>> pygs.show()
->>> pygs.load("./models/bicycle_30000.ply")
+>>> pygs.load("./models/bicycle_30000.ply")  # asynchronously load model to viewer
 >>> pygs.load("./models/garden_30000.ply")
 >>> pygs.close()
 ```
