@@ -80,7 +80,7 @@ $ cmake --build build --config Release -j
 $ ./build/pygs_base
 $ ./build/pygs_base -i <ply_filepath>
 ```
-Drag and drop pretrained .ply file from official gaussian splatting.
+Drag and drop pretrained .ply file from [official gaussian splatting](https://github.com/graphdeco-inria/gaussian-splatting), Pre-trained Models (14 GB).
 
 Left drag to rotate.
 
