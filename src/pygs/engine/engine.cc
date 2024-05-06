@@ -114,7 +114,6 @@ class Engine::Impl {
     render_pass_1_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_1_BIT);
     render_pass_2_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_2_BIT);
     render_pass_4_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_4_BIT);
-    render_pass_8_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_8_BIT);
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
@@ -339,10 +338,6 @@ class Engine::Impl {
       pipeline_info.render_pass = render_pass_4_;
       pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
       splat_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
-
-      pipeline_info.render_pass = render_pass_8_;
-      pipeline_info.samples = VK_SAMPLE_COUNT_8_BIT;
-      splat_pipeline_8_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // color pipeline
@@ -409,10 +404,6 @@ class Engine::Impl {
       pipeline_info.render_pass = render_pass_4_;
       pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
       color_line_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
-
-      pipeline_info.render_pass = render_pass_8_;
-      pipeline_info.samples = VK_SAMPLE_COUNT_8_BIT;
-      color_line_pipeline_8_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // uniforms and descriptors
@@ -907,10 +898,6 @@ class Engine::Impl {
           framebuffer_info.render_pass = render_pass_4_;
           break;
 
-        case VK_SAMPLE_COUNT_8_BIT:
-          framebuffer_info.render_pass = render_pass_8_;
-          break;
-
         default:
           throw std::runtime_error("Unsupported MSAA type");
       }
@@ -1037,8 +1024,6 @@ class Engine::Impl {
           msaa_changed |= ImGui::RadioButton("2x", &msaa, 1);
           ImGui::SameLine();
           msaa_changed |= ImGui::RadioButton("4x", &msaa, 2);
-          ImGui::SameLine();
-          msaa_changed |= ImGui::RadioButton("8x", &msaa, 3);
 
           ImGui::Checkbox("Axis", &show_axis_);
           ImGui::SameLine();
@@ -1646,9 +1631,6 @@ class Engine::Impl {
         } else if (msaa == 2) {
           init_info.RenderPass = render_pass_4_;
           samples_ = VK_SAMPLE_COUNT_4_BIT;
-        } else if (msaa == 3) {
-          init_info.RenderPass = render_pass_8_;
-          samples_ = VK_SAMPLE_COUNT_8_BIT;
         }
 
         init_info.MSAASamples = samples_;
@@ -1692,10 +1674,6 @@ class Engine::Impl {
 
           case VK_SAMPLE_COUNT_4_BIT:
             framebuffer_info.render_pass = render_pass_4_;
-            break;
-
-          case VK_SAMPLE_COUNT_8_BIT:
-            framebuffer_info.render_pass = render_pass_8_;
             break;
 
           default:
@@ -1756,10 +1734,6 @@ class Engine::Impl {
         render_pass_begin_info.renderPass = render_pass_4_;
         break;
 
-      case VK_SAMPLE_COUNT_8_BIT:
-        render_pass_begin_info.renderPass = render_pass_8_;
-        break;
-
       default:
         throw std::runtime_error("Unsupported MSAA type");
     }
@@ -1808,11 +1782,6 @@ class Engine::Impl {
         case VK_SAMPLE_COUNT_4_BIT:
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             color_line_pipeline_4_);
-          break;
-
-        case VK_SAMPLE_COUNT_8_BIT:
-          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            color_line_pipeline_8_);
           break;
 
         default:
@@ -1865,11 +1834,6 @@ class Engine::Impl {
         case VK_SAMPLE_COUNT_4_BIT:
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             splat_pipeline_4_);
-          break;
-
-        case VK_SAMPLE_COUNT_8_BIT:
-          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            splat_pipeline_8_);
           break;
 
         default:
@@ -1931,15 +1895,12 @@ class Engine::Impl {
   vk::RenderPass render_pass_1_;
   vk::RenderPass render_pass_2_;
   vk::RenderPass render_pass_4_;
-  vk::RenderPass render_pass_8_;
   vk::GraphicsPipeline color_line_pipeline_1_;
   vk::GraphicsPipeline color_line_pipeline_2_;
   vk::GraphicsPipeline color_line_pipeline_4_;
-  vk::GraphicsPipeline color_line_pipeline_8_;
   vk::GraphicsPipeline splat_pipeline_1_;
   vk::GraphicsPipeline splat_pipeline_2_;
   vk::GraphicsPipeline splat_pipeline_4_;
-  vk::GraphicsPipeline splat_pipeline_8_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
