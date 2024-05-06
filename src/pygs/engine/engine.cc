@@ -607,7 +607,7 @@ class Engine::Impl {
     init_info.Device = context_.device();
     init_info.QueueFamily = context_.graphics_queue_family_index();
     init_info.Queue = context_.graphics_queue();
-    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.PipelineCache = context_.pipeline_cache();
     init_info.DescriptorPool = context_.descriptor_pool();
     init_info.Subpass = 0;
     init_info.MinImageCount = 3;
@@ -1563,7 +1563,7 @@ class Engine::Impl {
         init_info.Device = context_.device();
         init_info.QueueFamily = context_.graphics_queue_family_index();
         init_info.Queue = context_.graphics_queue();
-        init_info.PipelineCache = VK_NULL_HANDLE;
+        init_info.PipelineCache = context_.pipeline_cache();
         init_info.DescriptorPool = context_.descriptor_pool();
         init_info.Subpass = 0;
         init_info.MinImageCount = 3;

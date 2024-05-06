@@ -102,8 +102,8 @@ class GraphicsPipeline::Impl {
     pipeline_info.layout = create_info.layout;
     pipeline_info.renderPass = create_info.render_pass;
     pipeline_info.subpass = create_info.subpass;
-    vkCreateGraphicsPipelines(device, NULL, 1, &pipeline_info, NULL,
-                              &pipeline_);
+    vkCreateGraphicsPipelines(device, context_.pipeline_cache(), 1,
+                              &pipeline_info, NULL, &pipeline_);
 
     vkDestroyShaderModule(device, vertex_module, NULL);
     vkDestroyShaderModule(device, fragment_module, NULL);
