@@ -16,6 +16,7 @@ struct GraphicsPipelineCreateInfo {
   VkPipelineLayout layout = VK_NULL_HANDLE;
   VkRenderPass render_pass = VK_NULL_HANDLE;
   uint32_t subpass = 0;
+  VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
   std::string vertex_shader;
   std::string fragment_shader;
   VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;

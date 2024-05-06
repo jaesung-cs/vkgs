@@ -5,7 +5,7 @@ Gaussian Splatting
 
 ![](/media/screenshot-fast2.jpg)
 
-~230FPS with 3M visible splats and 1600x900 screen size, on NVIDIA GeForce RTX 4090.
+~230FPS with 3M visible splats, 4x MSAA, and 1600x900 screen size, on NVIDIA GeForce RTX 4090 (~340FPS with no MSAA.)
 
 FPS may vary depending on splat size, screen size, splat distribution, etc.
 
@@ -25,12 +25,12 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
 
 ### Performance
 - NVidia GeForce RTX 4090, Windows
-  - garden.ply (30000 iters), 1600x900, ~230FPS with 3M visible splats.
-    - 2~3x faster than 3DGS.cpp
+  - garden.ply (30000 iters), 1600x900, 4xMSAA, ~230FPS with 3M visible splats. (2~3x faster than 3DGS.cpp)
+  - garden.ply (30000 iters), 1600x900, No MSAA, ~340FPS with 3M visible splats. (3~5x faster than 3DGS.cpp)
 - Apple M2 Pro
-  - garden.ply (30000 iters), 3200x1800 (retina display), ~20FPS with 3M visible splats. 9.5ms (20%) sort, 42ms (80%) rendering.
-  - garden.ply (30000 iters), 1600x900, ~29FPS with 3M visible splats. 9.5ms (27%) sort, 24.5ms (73%) rendering.
-  - bicycle.ply (30000 iters), 1200x800, ~40FPS with 2M visible splats. 6.6ms (27%) sort, 17.5ms (73%) rendering.
+  - garden.ply (30000 iters), 3200x1800 (retina display), 4xMSAA, ~20FPS with 3M visible splats. 9.5ms (20%) sort, 42ms (80%) rendering.
+  - garden.ply (30000 iters), 1600x900, 4xMSAA, ~29FPS with 3M visible splats. 9.5ms (27%) sort, 24.5ms (73%) rendering.
+  - bicycle.ply (30000 iters), 1200x800, 4xMSAA, ~40FPS with 2M visible splats. 6.6ms (27%) sort, 17.5ms (73%) rendering.
     - Similar performance reported by [UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting), 46FPS with Apple M1 Max.
 
 
@@ -94,6 +94,16 @@ WASD, Space to move.
 ### References
 - https://github.com/aras-p/UnityGaussianSplatting : Performance report, probably similar rendering pipeline
 - https://github.com/shg8/3DGS.cpp : Vulkan viewer, but tile-based rendering with compute shader.
+
+
+### Notes
+- Order Independent Transparency (OIT) doesn't work. There are many nearly-opaque splats overlapped in a pixel, thus colors are blended in unsatisfactory manner.
+
+- Rendering guassian splats with 4x MSAA is slow. Turning MSAA off gives about 2x rendering time boost.
+
+- I've tried 4x MSAA and depth resolve for opaque objects in the first subpass and gaussian splat rendering with no MSAA in the second subpass, where 4x MSAA color/depth images are resolved to 1x MSAA images. Multisample colors are blended with background color into a pixel.
+
+    ![](/media/depth_resolve.jpg)
 
 
 ## Python and CUDA (WIP)

@@ -111,7 +111,9 @@ class Engine::Impl {
     context_ = vk::Context(0);
 
     // render pass
-    render_pass_ = vk::RenderPass(context_);
+    render_pass_1_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_1_BIT);
+    render_pass_2_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_2_BIT);
+    render_pass_4_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_4_BIT);
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
@@ -318,7 +320,8 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = graphics_pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
+      pipeline_info.render_pass = render_pass_1_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_1_BIT;
       pipeline_info.vertex_shader = vk::shader::splat_vert;
       pipeline_info.fragment_shader = vk::shader::splat_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -326,7 +329,15 @@ class Engine::Impl {
       pipeline_info.depth_write = false;
       pipeline_info.color_blend_attachments =
           std::move(color_blend_attachments);
-      splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      splat_pipeline_1_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_2_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_2_BIT;
+      splat_pipeline_2_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_4_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
+      splat_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // color pipeline
@@ -373,7 +384,8 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = graphics_pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
+      pipeline_info.render_pass = render_pass_1_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_1_BIT;
       pipeline_info.vertex_shader = vk::shader::color_vert;
       pipeline_info.fragment_shader = vk::shader::color_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
@@ -383,7 +395,15 @@ class Engine::Impl {
       pipeline_info.depth_write = true;
       pipeline_info.color_blend_attachments =
           std::move(color_blend_attachments);
-      color_line_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      color_line_pipeline_1_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_2_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_2_BIT;
+      color_line_pipeline_2_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_4_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
+      color_line_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // uniforms and descriptors
@@ -586,11 +606,11 @@ class Engine::Impl {
     init_info.Queue = context_.graphics_queue();
     init_info.PipelineCache = VK_NULL_HANDLE;
     init_info.DescriptorPool = context_.descriptor_pool();
-    init_info.RenderPass = render_pass_;
     init_info.Subpass = 0;
     init_info.MinImageCount = 3;
     init_info.ImageCount = 3;
-    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
+    init_info.RenderPass = render_pass_1_;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     init_info.Allocator = VK_NULL_HANDLE;
     init_info.CheckVkResultFn = check_vk_result;
     ImGui_ImplVulkan_Init(&init_info);
@@ -602,21 +622,7 @@ class Engine::Impl {
     glfwCreateWindowSurface(context_.instance(), window_, NULL, &surface);
     swapchain_ = vk::Swapchain(context_, surface);
 
-    color_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-    depth_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-
-    vk::FramebufferCreateInfo framebuffer_info;
-    framebuffer_info.render_pass = render_pass_;
-    framebuffer_info.width = swapchain_.width();
-    framebuffer_info.height = swapchain_.height();
-    framebuffer_info.image_specs = {color_attachment_.image_spec(),
-                                    depth_attachment_.image_spec(),
-                                    swapchain_.image_spec()};
-    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+    RecreateFramebuffer();
 
     glfwShowWindow(window_);
     terminate_ = false;
@@ -842,22 +848,7 @@ class Engine::Impl {
       vkWaitForFences(context_.device(), render_finished_fences_.size(),
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain_.Recreate();
-
-      color_attachment_ = vk::Attachment(
-          context_, swapchain_.width(), swapchain_.height(),
-          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-      depth_attachment_ =
-          vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-
-      vk::FramebufferCreateInfo framebuffer_info;
-      framebuffer_info.render_pass = render_pass_;
-      framebuffer_info.width = swapchain_.width();
-      framebuffer_info.height = swapchain_.height();
-      framebuffer_info.image_specs = {color_attachment_.image_spec(),
-                                      depth_attachment_.image_spec(),
-                                      swapchain_.image_spec()};
-      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+      RecreateFramebuffer();
     }
 
     int32_t acquire_index = frame_counter_ % 3;
@@ -881,6 +872,9 @@ class Engine::Impl {
       static glm::quat gq;
       static float scale = 1.f;
       glm::mat4 model(1.f);
+
+      bool msaa_changed = false;
+      static int msaa = 0;
 
       // draw ui
       {
@@ -968,6 +962,14 @@ class Engine::Impl {
             swapchain_.SetVsync(true);
           else
             swapchain_.SetVsync(false);
+
+          ImGui::Text("MSAA");
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("Off", &msaa, 0);
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("2x", &msaa, 1);
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("4x", &msaa, 2);
 
           ImGui::Checkbox("Axis", &show_axis_);
           ImGui::SameLine();
@@ -1550,6 +1552,44 @@ class Engine::Impl {
       frame_info.present_done_timestamp = Clock::timestamp();
 
       frame_counter_++;
+
+      if (msaa_changed) {
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance = context_.instance();
+        init_info.PhysicalDevice = context_.physical_device();
+        init_info.Device = context_.device();
+        init_info.QueueFamily = context_.graphics_queue_family_index();
+        init_info.Queue = context_.graphics_queue();
+        init_info.PipelineCache = VK_NULL_HANDLE;
+        init_info.DescriptorPool = context_.descriptor_pool();
+        init_info.Subpass = 0;
+        init_info.MinImageCount = 3;
+        init_info.ImageCount = 3;
+        init_info.Allocator = VK_NULL_HANDLE;
+        init_info.CheckVkResultFn = check_vk_result;
+
+        if (msaa == 0) {
+          init_info.RenderPass = render_pass_1_;
+          samples_ = VK_SAMPLE_COUNT_1_BIT;
+        } else if (msaa == 1) {
+          init_info.RenderPass = render_pass_2_;
+          samples_ = VK_SAMPLE_COUNT_2_BIT;
+        } else if (msaa == 2) {
+          init_info.RenderPass = render_pass_4_;
+          samples_ = VK_SAMPLE_COUNT_4_BIT;
+        }
+
+        init_info.MSAASamples = samples_;
+
+        // wait for all presentations submitted, before recreate imgui vulkan
+        vkWaitForFences(context_.device(), render_finished_fences_.size(),
+                        render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
+
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplVulkan_Init(&init_info);
+
+        RecreateFramebuffer();
+      }
     }
   }
 
@@ -1567,21 +1607,43 @@ class Engine::Impl {
         depth_attachment_,
         target_image_view,
     };
+
     VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info.attachmentCount =
-        render_pass_attachments.size();
-    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
-
     VkRenderPassBeginInfo render_pass_begin_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     render_pass_begin_info.pNext = &render_pass_attachments_info;
-    render_pass_begin_info.renderPass = render_pass_;
     render_pass_begin_info.framebuffer = framebuffer_;
     render_pass_begin_info.renderArea.offset = {0, 0};
     render_pass_begin_info.renderArea.extent = {width, height};
     render_pass_begin_info.clearValueCount = clear_values.size();
     render_pass_begin_info.pClearValues = clear_values.data();
+
+    switch (samples_) {
+      case VK_SAMPLE_COUNT_1_BIT:
+        render_pass_attachments = {
+            target_image_view,
+            depth_attachment_,
+        };
+        render_pass_begin_info.renderPass = render_pass_1_;
+        break;
+
+      case VK_SAMPLE_COUNT_2_BIT:
+        render_pass_begin_info.renderPass = render_pass_2_;
+        break;
+
+      case VK_SAMPLE_COUNT_4_BIT:
+        render_pass_begin_info.renderPass = render_pass_4_;
+        break;
+
+      default:
+        throw std::runtime_error("Unsupported MSAA type");
+    }
+
+    render_pass_attachments_info.attachmentCount =
+        render_pass_attachments.size();
+    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
+
     vkCmdBeginRenderPass(cb, &render_pass_begin_info,
                          VK_SUBPASS_CONTENTS_INLINE);
 
@@ -1609,8 +1671,25 @@ class Engine::Impl {
 
     // draw axis and grid
     {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        color_line_pipeline_);
+      switch (samples_) {
+        case VK_SAMPLE_COUNT_1_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            color_line_pipeline_1_);
+          break;
+
+        case VK_SAMPLE_COUNT_2_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            color_line_pipeline_2_);
+          break;
+
+        case VK_SAMPLE_COUNT_4_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            color_line_pipeline_4_);
+          break;
+
+        default:
+          throw std::runtime_error("Unsupported MSAA type");
+      }
 
       glm::mat4 model(1.f);
       model[0][0] = 10.f;
@@ -1644,7 +1723,25 @@ class Engine::Impl {
 
     // draw splat
     if (loaded_point_count_ != 0) {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
+      switch (samples_) {
+        case VK_SAMPLE_COUNT_1_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipeline_1_);
+          break;
+
+        case VK_SAMPLE_COUNT_2_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipeline_2_);
+          break;
+
+        case VK_SAMPLE_COUNT_4_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipeline_4_);
+          break;
+
+        default:
+          throw std::runtime_error("Unsupported MSAA type");
+      }
 
       vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
 
@@ -1658,6 +1755,48 @@ class Engine::Impl {
     vkCmdEndRenderPass(cb);
   }
 
+  void RecreateFramebuffer() {
+    color_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
+    depth_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_D16_UNORM, samples_, false);
+
+    vk::FramebufferCreateInfo framebuffer_info;
+    framebuffer_info.width = swapchain_.width();
+    framebuffer_info.height = swapchain_.height();
+
+    framebuffer_info.image_specs = {
+        color_attachment_.image_spec(),
+        depth_attachment_.image_spec(),
+        swapchain_.image_spec(),
+    };
+
+    switch (samples_) {
+      case VK_SAMPLE_COUNT_1_BIT:
+        framebuffer_info.render_pass = render_pass_1_;
+        framebuffer_info.image_specs = {
+            swapchain_.image_spec(),
+            depth_attachment_.image_spec(),
+        };
+        break;
+
+      case VK_SAMPLE_COUNT_2_BIT:
+        framebuffer_info.render_pass = render_pass_2_;
+        break;
+
+      case VK_SAMPLE_COUNT_4_BIT:
+        framebuffer_info.render_pass = render_pass_4_;
+        break;
+
+      default:
+        throw std::runtime_error("Unsupported MSAA type");
+    }
+
+    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+  }
+
   std::atomic_bool terminate_ = false;
 
   std::mutex mutex_;
@@ -1666,6 +1805,8 @@ class Engine::Impl {
   GLFWwindow* window_ = nullptr;
   int width_ = 0;
   int height_ = 0;
+
+  VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
 
   Camera camera_;
 
@@ -1696,9 +1837,15 @@ class Engine::Impl {
 
   // normal pass
   vk::Framebuffer framebuffer_;
-  vk::RenderPass render_pass_;
-  vk::GraphicsPipeline color_line_pipeline_;
-  vk::GraphicsPipeline splat_pipeline_;
+  vk::RenderPass render_pass_1_;
+  vk::RenderPass render_pass_2_;
+  vk::RenderPass render_pass_4_;
+  vk::GraphicsPipeline color_line_pipeline_1_;
+  vk::GraphicsPipeline color_line_pipeline_2_;
+  vk::GraphicsPipeline color_line_pipeline_4_;
+  vk::GraphicsPipeline splat_pipeline_1_;
+  vk::GraphicsPipeline splat_pipeline_2_;
+  vk::GraphicsPipeline splat_pipeline_4_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
