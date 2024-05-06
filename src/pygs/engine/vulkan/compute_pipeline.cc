@@ -11,9 +11,13 @@ class ComputePipeline::Impl {
 
   Impl(Context context, const ComputePipelineCreateInfo& create_info)
       : context_(context) {
-    VkShaderModule compute_module =
-        CreateShaderModule(context_.device(), VK_SHADER_STAGE_COMPUTE_BIT,
-                           create_info.compute_shader);
+    VkShaderModule compute_module;
+    VkShaderModuleCreateInfo shader_info = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shader_info.codeSize = create_info.source.size();
+    shader_info.pCode = create_info.source.data();
+    vkCreateShaderModule(context_.device(), &shader_info, NULL,
+                         &compute_module);
 
     VkPipelineShaderStageCreateInfo stage_info = {
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};

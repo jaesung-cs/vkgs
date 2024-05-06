@@ -14,6 +14,27 @@ add_subdirectory(third_party/argparse EXCLUDE_FROM_ALL)
 
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
+# shaders
+file(GLOB SHADERS src/shader/*)
+foreach(SHADER IN LISTS SHADERS)
+  get_filename_component(INPUT_FILENAME ${SHADER} NAME)
+  string(REPLACE . _ OUTPUT_FILENAME ${INPUT_FILENAME})
+  add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT_FILENAME}.h
+    COMMAND
+      ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}
+      --target-env spirv1.5
+      -V
+      --vn ${OUTPUT_FILENAME}
+      -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT_FILENAME}.h
+      ${SHADER}
+    DEPENDS ${SHADER}
+    COMMENT "Compiling ${FILENAME}"
+  )
+  list(APPEND SHADER_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT_FILENAME}.h)
+endforeach()
+add_custom_target(shaders DEPENDS ${SHADER_HEADERS})
+
 # pygs
 add_library(pygs SHARED
   src/pygs/scene/camera.cc
@@ -56,6 +77,8 @@ target_link_libraries(pygs
   PUBLIC glm
   PRIVATE Vulkan::Vulkan Vulkan::shaderc_combined VulkanMemoryAllocator vk_radix_sort glfw
 )
+
+add_dependencies(pygs shaders)
 
 # executable
 add_executable(pygs_base examples/pygs_base.cc)

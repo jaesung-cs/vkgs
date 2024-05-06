@@ -1,11 +1,3 @@
-#ifndef PYGS_ENGINE_VULKAN_SHADER_SPLAT_H
-#define PYGS_ENGINE_VULKAN_SHADER_SPLAT_H
-
-namespace pygs {
-namespace vk {
-namespace shader {
-
-const char* splat_vert = R"shader(
 #version 460
 
 layout (std430, set = 1, binding = 1) readonly buffer Instances {
@@ -35,26 +27,3 @@ void main() {
   out_color = color;
   out_position = position * confidence_radius;
 }
-)shader";
-
-const char* splat_frag = R"shader(
-#version 460
-
-layout (location = 0) in vec4 color;
-layout (location = 1) in vec2 position;
-
-layout (location = 0) out vec4 out_color;
-
-void main() {
-  float gaussian_alpha = exp(-0.5f * dot(position, position));
-  float alpha = color.a * gaussian_alpha;
-  // premultiplied alpha
-  out_color = vec4(color.rgb * alpha, alpha);
-}
-)shader";
-
-}  // namespace shader
-}  // namespace vk
-}  // namespace pygs
-
-#endif  // PYGS_ENGINE_VULKAN_SHADER_SPLAT_H

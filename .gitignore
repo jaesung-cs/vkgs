@@ -1,5 +1,6 @@
 .vscode/
 
+/src/generated/
 build/
 *.egg-info
 *.cp310-*.pyd
@@ -9,3 +10,4 @@ __pycache__
 /models/
 
 /imgui.ini
+/pipeline_cache.bin

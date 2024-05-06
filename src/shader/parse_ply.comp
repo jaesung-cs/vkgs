@@ -1,11 +1,3 @@
-#ifndef PYGS_ENGINE_VULKAN_SHADER_PARSE_PLY_H
-#define PYGS_ENGINE_VULKAN_SHADER_PARSE_PLY_H
-
-namespace pygs {
-namespace vk {
-namespace shader {
-
-const char* parse_ply_comp = R"shader(
 #version 460 core
 
 layout (local_size_x = 256) in;
@@ -104,11 +96,3 @@ void main() {
     gaussian_opacity[id] = sigmoid(ply[base * id + local_offsets[58]]);
   }
 }
-
-)shader";
-
-}
-}  // namespace vk
-}  // namespace pygs
-
-#endif  // PYGS_ENGINE_VULKAN_SHADER_PARSE_PLY_H
