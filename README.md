@@ -51,8 +51,7 @@ Without reducing the number of points to draw (e.g. deleting less important splt
 - `VulkanSDK>=1.2`
   - Download the latest version from https://vulkan.lunarg.com/ and follow install instruction.
   - `1.3` is recommended, but `1.2` should also work.
-- `cmake>=3.24`
-  - `Vulkan::shaderc_combined` new in version `3.24`.
+- `cmake>=3.15`
 
 
 ### Dependencies

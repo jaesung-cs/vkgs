@@ -12,10 +12,18 @@ class GraphicsPipeline::Impl {
       : context_(context) {
     VkDevice device = context.device();
 
-    VkShaderModule vertex_module = CreateShaderModule(
-        device, VK_SHADER_STAGE_VERTEX_BIT, create_info.vertex_shader);
-    VkShaderModule fragment_module = CreateShaderModule(
-        device, VK_SHADER_STAGE_FRAGMENT_BIT, create_info.fragment_shader);
+    VkShaderModule vertex_module;
+    VkShaderModule fragment_module;
+
+    VkShaderModuleCreateInfo shader_info = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shader_info.codeSize = create_info.vertex_shader.size();
+    shader_info.pCode = create_info.vertex_shader.data();
+    vkCreateShaderModule(device, &shader_info, NULL, &vertex_module);
+
+    shader_info.codeSize = create_info.fragment_shader.size();
+    shader_info.pCode = create_info.fragment_shader.data();
+    vkCreateShaderModule(device, &shader_info, NULL, &fragment_module);
 
     std::vector<VkPipelineShaderStageCreateInfo> stages(2);
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -94,8 +102,8 @@ class GraphicsPipeline::Impl {
     pipeline_info.layout = create_info.layout;
     pipeline_info.renderPass = create_info.render_pass;
     pipeline_info.subpass = create_info.subpass;
-    vkCreateGraphicsPipelines(device, NULL, 1, &pipeline_info, NULL,
-                              &pipeline_);
+    vkCreateGraphicsPipelines(device, context_.pipeline_cache(), 1,
+                              &pipeline_info, NULL, &pipeline_);
 
     vkDestroyShaderModule(device, vertex_module, NULL);
     vkDestroyShaderModule(device, fragment_module, NULL);

@@ -39,12 +39,15 @@
 #include "pygs/engine/vulkan/cpu_buffer.h"
 #include "pygs/engine/vulkan/uniform_buffer.h"
 #include "pygs/engine/vulkan/shader/uniforms.h"
-#include "pygs/engine/vulkan/shader/parse_ply.h"
-#include "pygs/engine/vulkan/shader/projection.h"
-#include "pygs/engine/vulkan/shader/rank.h"
-#include "pygs/engine/vulkan/shader/inverse_index.h"
-#include "pygs/engine/vulkan/shader/splat.h"
-#include "pygs/engine/vulkan/shader/color.h"
+
+#include "generated/parse_ply_comp.h"
+#include "generated/projection_comp.h"
+#include "generated/rank_comp.h"
+#include "generated/inverse_index_comp.h"
+#include "generated/splat_vert.h"
+#include "generated/splat_frag.h"
+#include "generated/color_vert.h"
+#include "generated/color_frag.h"
 
 namespace pygs {
 namespace {
@@ -272,7 +275,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::parse_ply_comp;
+      pipeline_info.source = parse_ply_comp;
       parse_ply_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -280,7 +283,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::rank_comp;
+      pipeline_info.source = rank_comp;
       rank_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -288,7 +291,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::inverse_index_comp;
+      pipeline_info.source = inverse_index_comp;
       inverse_index_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -296,7 +299,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::projection_comp;
+      pipeline_info.source = projection_comp;
       projection_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -322,8 +325,8 @@ class Engine::Impl {
       pipeline_info.layout = graphics_pipeline_layout_;
       pipeline_info.render_pass = render_pass_1_;
       pipeline_info.samples = VK_SAMPLE_COUNT_1_BIT;
-      pipeline_info.vertex_shader = vk::shader::splat_vert;
-      pipeline_info.fragment_shader = vk::shader::splat_frag;
+      pipeline_info.vertex_shader = splat_vert;
+      pipeline_info.fragment_shader = splat_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
       pipeline_info.depth_test = true;
       pipeline_info.depth_write = false;
@@ -386,8 +389,8 @@ class Engine::Impl {
       pipeline_info.layout = graphics_pipeline_layout_;
       pipeline_info.render_pass = render_pass_1_;
       pipeline_info.samples = VK_SAMPLE_COUNT_1_BIT;
-      pipeline_info.vertex_shader = vk::shader::color_vert;
-      pipeline_info.fragment_shader = vk::shader::color_frag;
+      pipeline_info.vertex_shader = color_vert;
+      pipeline_info.fragment_shader = color_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
       pipeline_info.input_bindings = std::move(input_bindings);
       pipeline_info.input_attributes = std::move(input_attributes);
@@ -534,6 +537,7 @@ class Engine::Impl {
       VrdxSorterLayoutCreateInfo sorter_layout_info = {};
       sorter_layout_info.physicalDevice = context_.physical_device();
       sorter_layout_info.device = context_.device();
+      sorter_layout_info.pipelineCache = context_.pipeline_cache();
       vrdxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
 
       VrdxSorterCreateInfo sorter_info = {};
@@ -604,7 +608,7 @@ class Engine::Impl {
     init_info.Device = context_.device();
     init_info.QueueFamily = context_.graphics_queue_family_index();
     init_info.Queue = context_.graphics_queue();
-    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.PipelineCache = context_.pipeline_cache();
     init_info.DescriptorPool = context_.descriptor_pool();
     init_info.Subpass = 0;
     init_info.MinImageCount = 3;
@@ -1560,7 +1564,7 @@ class Engine::Impl {
         init_info.Device = context_.device();
         init_info.QueueFamily = context_.graphics_queue_family_index();
         init_info.Queue = context_.graphics_queue();
-        init_info.PipelineCache = VK_NULL_HANDLE;
+        init_info.PipelineCache = context_.pipeline_cache();
         init_info.DescriptorPool = context_.descriptor_pool();
         init_info.Subpass = 0;
         init_info.MinImageCount = 3;

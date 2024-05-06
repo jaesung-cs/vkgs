@@ -7,13 +7,14 @@
 
 #include "pygs/engine/vulkan/context.h"
 #include "pygs/engine/vulkan/pipeline_layout.h"
+#include "pygs/engine/vulkan/shader_module.h"
 
 namespace pygs {
 namespace vk {
 
 struct ComputePipelineCreateInfo {
   PipelineLayout layout;
-  std::string compute_shader;
+  ShaderSource source;
 };
 
 class ComputePipeline {
