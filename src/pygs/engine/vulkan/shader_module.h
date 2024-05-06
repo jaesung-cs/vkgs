@@ -8,9 +8,6 @@
 namespace pygs {
 namespace vk {
 
-VkShaderModule CreateShaderModule(VkDevice device, VkShaderStageFlagBits stage,
-                                  const std::string& source);
-
 class ShaderSource {
  public:
   ShaderSource() = default;
