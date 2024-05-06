@@ -103,12 +103,6 @@ class Engine::Impl {
     }
   }
 
- private:
-  enum class MsaaType {
-    NO_MSAA,
-    MSAA_4,
-  };
-
  public:
   Impl() {
     if (glfwInit() == GLFW_FALSE)
@@ -118,7 +112,9 @@ class Engine::Impl {
 
     // render pass
     render_pass_1_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_1_BIT);
+    render_pass_2_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_2_BIT);
     render_pass_4_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_4_BIT);
+    render_pass_8_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_8_BIT);
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
@@ -336,9 +332,17 @@ class Engine::Impl {
           std::move(color_blend_attachments);
       splat_pipeline_1_ = vk::GraphicsPipeline(context_, pipeline_info);
 
+      pipeline_info.render_pass = render_pass_2_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_2_BIT;
+      splat_pipeline_2_ = vk::GraphicsPipeline(context_, pipeline_info);
+
       pipeline_info.render_pass = render_pass_4_;
       pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
       splat_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_8_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_8_BIT;
+      splat_pipeline_8_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // color pipeline
@@ -398,9 +402,17 @@ class Engine::Impl {
           std::move(color_blend_attachments);
       color_line_pipeline_1_ = vk::GraphicsPipeline(context_, pipeline_info);
 
+      pipeline_info.render_pass = render_pass_2_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_2_BIT;
+      color_line_pipeline_2_ = vk::GraphicsPipeline(context_, pipeline_info);
+
       pipeline_info.render_pass = render_pass_4_;
       pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
       color_line_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_8_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_8_BIT;
+      color_line_pipeline_8_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // uniforms and descriptors
@@ -621,13 +633,10 @@ class Engine::Impl {
 
     color_attachment_ =
         vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-    depth4_attachment_ =
+                       VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
+    depth_attachment_ =
         vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-    depth1_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_1_BIT, false);
+                       VK_FORMAT_D16_UNORM, samples_, false);
 
     vk::FramebufferCreateInfo framebuffer_info;
     framebuffer_info.render_pass = render_pass_1_;
@@ -635,17 +644,9 @@ class Engine::Impl {
     framebuffer_info.height = swapchain_.height();
     framebuffer_info.image_specs = {
         swapchain_.image_spec(),
-        depth1_attachment_.image_spec(),
+        depth_attachment_.image_spec(),
     };
-    framebuffer_1_ = vk::Framebuffer(context_, framebuffer_info);
-
-    framebuffer_info.render_pass = render_pass_4_;
-    framebuffer_info.image_specs = {
-        color_attachment_.image_spec(),
-        depth4_attachment_.image_spec(),
-        swapchain_.image_spec(),
-    };
-    framebuffer_4_ = vk::Framebuffer(context_, framebuffer_info);
+    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
 
     glfwShowWindow(window_);
     terminate_ = false;
@@ -872,33 +873,49 @@ class Engine::Impl {
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain_.Recreate();
 
-      color_attachment_ = vk::Attachment(
-          context_, swapchain_.width(), swapchain_.height(),
-          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-      depth4_attachment_ =
+      color_attachment_ =
           vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-      depth1_attachment_ =
+                         VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
+      depth_attachment_ =
           vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_1_BIT, false);
+                         VK_FORMAT_D16_UNORM, samples_, false);
 
       vk::FramebufferCreateInfo framebuffer_info;
-      framebuffer_info.render_pass = render_pass_1_;
       framebuffer_info.width = swapchain_.width();
       framebuffer_info.height = swapchain_.height();
-      framebuffer_info.image_specs = {
-          swapchain_.image_spec(),
-          depth1_attachment_.image_spec(),
-      };
-      framebuffer_1_ = vk::Framebuffer(context_, framebuffer_info);
 
-      framebuffer_info.render_pass = render_pass_4_;
       framebuffer_info.image_specs = {
           color_attachment_.image_spec(),
-          depth4_attachment_.image_spec(),
+          depth_attachment_.image_spec(),
           swapchain_.image_spec(),
       };
-      framebuffer_4_ = vk::Framebuffer(context_, framebuffer_info);
+
+      switch (samples_) {
+        case VK_SAMPLE_COUNT_1_BIT:
+          framebuffer_info.render_pass = render_pass_1_;
+          framebuffer_info.image_specs = {
+              swapchain_.image_spec(),
+              depth_attachment_.image_spec(),
+          };
+          break;
+
+        case VK_SAMPLE_COUNT_2_BIT:
+          framebuffer_info.render_pass = render_pass_2_;
+          break;
+
+        case VK_SAMPLE_COUNT_4_BIT:
+          framebuffer_info.render_pass = render_pass_4_;
+          break;
+
+        case VK_SAMPLE_COUNT_8_BIT:
+          framebuffer_info.render_pass = render_pass_8_;
+          break;
+
+        default:
+          throw std::runtime_error("Unsupported MSAA type");
+      }
+
+      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     int32_t acquire_index = frame_counter_ % 3;
@@ -1017,7 +1034,11 @@ class Engine::Impl {
           ImGui::SameLine();
           msaa_changed |= ImGui::RadioButton("Off", &msaa, 0);
           ImGui::SameLine();
-          msaa_changed |= ImGui::RadioButton("4x", &msaa, 1);
+          msaa_changed |= ImGui::RadioButton("2x", &msaa, 1);
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("4x", &msaa, 2);
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("8x", &msaa, 3);
 
           ImGui::Checkbox("Axis", &show_axis_);
           ImGui::SameLine();
@@ -1618,13 +1639,19 @@ class Engine::Impl {
 
         if (msaa == 0) {
           init_info.RenderPass = render_pass_1_;
-          init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-          msaa_type_ = MsaaType::NO_MSAA;
+          samples_ = VK_SAMPLE_COUNT_1_BIT;
         } else if (msaa == 1) {
+          init_info.RenderPass = render_pass_2_;
+          samples_ = VK_SAMPLE_COUNT_2_BIT;
+        } else if (msaa == 2) {
           init_info.RenderPass = render_pass_4_;
-          init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
-          msaa_type_ = MsaaType::MSAA_4;
+          samples_ = VK_SAMPLE_COUNT_4_BIT;
+        } else if (msaa == 3) {
+          init_info.RenderPass = render_pass_8_;
+          samples_ = VK_SAMPLE_COUNT_8_BIT;
         }
+
+        init_info.MSAASamples = samples_;
 
         // wait for all presentations submitted, before recreate imgui vulkan
         vkWaitForFences(context_.device(), render_finished_fences_.size(),
@@ -1632,6 +1659,50 @@ class Engine::Impl {
 
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplVulkan_Init(&init_info);
+
+        color_attachment_ =
+            vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                           VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
+        depth_attachment_ =
+            vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                           VK_FORMAT_D16_UNORM, samples_, false);
+
+        vk::FramebufferCreateInfo framebuffer_info;
+        framebuffer_info.width = swapchain_.width();
+        framebuffer_info.height = swapchain_.height();
+
+        framebuffer_info.image_specs = {
+            color_attachment_.image_spec(),
+            depth_attachment_.image_spec(),
+            swapchain_.image_spec(),
+        };
+
+        switch (samples_) {
+          case VK_SAMPLE_COUNT_1_BIT:
+            framebuffer_info.render_pass = render_pass_1_;
+            framebuffer_info.image_specs = {
+                swapchain_.image_spec(),
+                depth_attachment_.image_spec(),
+            };
+            break;
+
+          case VK_SAMPLE_COUNT_2_BIT:
+            framebuffer_info.render_pass = render_pass_2_;
+            break;
+
+          case VK_SAMPLE_COUNT_4_BIT:
+            framebuffer_info.render_pass = render_pass_4_;
+            break;
+
+          case VK_SAMPLE_COUNT_8_BIT:
+            framebuffer_info.render_pass = render_pass_8_;
+            break;
+
+          default:
+            throw std::runtime_error("Unsupported MSAA type");
+        }
+
+        framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
       }
     }
   }
@@ -1645,42 +1716,48 @@ class Engine::Impl {
     clear_values[0].color.float32[3] = 1.f;
     clear_values[1].depthStencil.depth = 1.f;
 
-    std::vector<VkImageView> render_pass_attachments_1 = {
+    std::vector<VkImageView> render_pass_attachments_no_msaa = {
         target_image_view,
-        depth1_attachment_,
+        depth_attachment_,
     };
-    std::vector<VkImageView> render_pass_attachments_4 = {
+    std::vector<VkImageView> render_pass_attachments = {
         color_attachment_,
-        depth4_attachment_,
+        depth_attachment_,
         target_image_view,
     };
-    VkRenderPassAttachmentBeginInfo render_pass_attachments_info_1 = {
+    VkRenderPassAttachmentBeginInfo render_pass_attachments_info_no_msaa = {
         VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info_1.attachmentCount =
-        render_pass_attachments_1.size();
-    render_pass_attachments_info_1.pAttachments =
-        render_pass_attachments_1.data();
-    VkRenderPassAttachmentBeginInfo render_pass_attachments_info_4 = {
+    render_pass_attachments_info_no_msaa.attachmentCount =
+        render_pass_attachments_no_msaa.size();
+    render_pass_attachments_info_no_msaa.pAttachments =
+        render_pass_attachments_no_msaa.data();
+    VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info_4.attachmentCount =
-        render_pass_attachments_4.size();
-    render_pass_attachments_info_4.pAttachments =
-        render_pass_attachments_4.data();
+    render_pass_attachments_info.attachmentCount =
+        render_pass_attachments.size();
+    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
 
     VkRenderPassBeginInfo render_pass_begin_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    render_pass_begin_info.pNext = &render_pass_attachments_info;
+    render_pass_begin_info.framebuffer = framebuffer_;
 
-    switch (msaa_type_) {
-      case MsaaType::NO_MSAA:
-        render_pass_begin_info.pNext = &render_pass_attachments_info_1;
+    switch (samples_) {
+      case VK_SAMPLE_COUNT_1_BIT:
+        render_pass_begin_info.pNext = &render_pass_attachments_info_no_msaa;
         render_pass_begin_info.renderPass = render_pass_1_;
-        render_pass_begin_info.framebuffer = framebuffer_1_;
         break;
 
-      case MsaaType::MSAA_4:
-        render_pass_begin_info.pNext = &render_pass_attachments_info_4;
+      case VK_SAMPLE_COUNT_2_BIT:
+        render_pass_begin_info.renderPass = render_pass_2_;
+        break;
+
+      case VK_SAMPLE_COUNT_4_BIT:
         render_pass_begin_info.renderPass = render_pass_4_;
-        render_pass_begin_info.framebuffer = framebuffer_4_;
+        break;
+
+      case VK_SAMPLE_COUNT_8_BIT:
+        render_pass_begin_info.renderPass = render_pass_8_;
         break;
 
       default:
@@ -1717,15 +1794,25 @@ class Engine::Impl {
 
     // draw axis and grid
     {
-      switch (msaa_type_) {
-        case MsaaType::NO_MSAA:
+      switch (samples_) {
+        case VK_SAMPLE_COUNT_1_BIT:
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             color_line_pipeline_1_);
           break;
 
-        case MsaaType::MSAA_4:
+        case VK_SAMPLE_COUNT_2_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            color_line_pipeline_2_);
+          break;
+
+        case VK_SAMPLE_COUNT_4_BIT:
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             color_line_pipeline_4_);
+          break;
+
+        case VK_SAMPLE_COUNT_8_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            color_line_pipeline_8_);
           break;
 
         default:
@@ -1764,15 +1851,25 @@ class Engine::Impl {
 
     // draw splat
     if (loaded_point_count_ != 0) {
-      switch (msaa_type_) {
-        case MsaaType::NO_MSAA:
+      switch (samples_) {
+        case VK_SAMPLE_COUNT_1_BIT:
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             splat_pipeline_1_);
           break;
 
-        case MsaaType::MSAA_4:
+        case VK_SAMPLE_COUNT_2_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipeline_2_);
+          break;
+
+        case VK_SAMPLE_COUNT_4_BIT:
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             splat_pipeline_4_);
+          break;
+
+        case VK_SAMPLE_COUNT_8_BIT:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipeline_8_);
           break;
 
         default:
@@ -1800,7 +1897,7 @@ class Engine::Impl {
   int width_ = 0;
   int height_ = 0;
 
-  MsaaType msaa_type_ = MsaaType::NO_MSAA;
+  VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
 
   Camera camera_;
 
@@ -1830,18 +1927,22 @@ class Engine::Impl {
   VrdxSorter sorter_ = VK_NULL_HANDLE;
 
   // normal pass
-  vk::Framebuffer framebuffer_1_;
-  vk::Framebuffer framebuffer_4_;
+  vk::Framebuffer framebuffer_;
   vk::RenderPass render_pass_1_;
+  vk::RenderPass render_pass_2_;
   vk::RenderPass render_pass_4_;
+  vk::RenderPass render_pass_8_;
   vk::GraphicsPipeline color_line_pipeline_1_;
+  vk::GraphicsPipeline color_line_pipeline_2_;
   vk::GraphicsPipeline color_line_pipeline_4_;
+  vk::GraphicsPipeline color_line_pipeline_8_;
   vk::GraphicsPipeline splat_pipeline_1_;
+  vk::GraphicsPipeline splat_pipeline_2_;
   vk::GraphicsPipeline splat_pipeline_4_;
+  vk::GraphicsPipeline splat_pipeline_8_;
 
   vk::Attachment color_attachment_;
-  vk::Attachment depth4_attachment_;
-  vk::Attachment depth1_attachment_;
+  vk::Attachment depth_attachment_;
 
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
 
