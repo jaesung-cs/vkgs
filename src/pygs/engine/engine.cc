@@ -537,6 +537,7 @@ class Engine::Impl {
       VrdxSorterLayoutCreateInfo sorter_layout_info = {};
       sorter_layout_info.physicalDevice = context_.physical_device();
       sorter_layout_info.device = context_.device();
+      sorter_layout_info.pipelineCache = context_.pipeline_cache();
       vrdxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
 
       VrdxSorterCreateInfo sorter_info = {};
