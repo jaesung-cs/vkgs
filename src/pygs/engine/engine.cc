@@ -111,7 +111,8 @@ class Engine::Impl {
     context_ = vk::Context(0);
 
     // render pass
-    render_pass_ = vk::RenderPass(context_);
+    render_pass_1_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_1_BIT);
+    render_pass_4_ = vk::RenderPass(context_, VK_SAMPLE_COUNT_4_BIT);
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
@@ -318,7 +319,8 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = graphics_pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
+      pipeline_info.render_pass = render_pass_1_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_1_BIT;
       pipeline_info.vertex_shader = vk::shader::splat_vert;
       pipeline_info.fragment_shader = vk::shader::splat_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -326,7 +328,11 @@ class Engine::Impl {
       pipeline_info.depth_write = false;
       pipeline_info.color_blend_attachments =
           std::move(color_blend_attachments);
-      splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      splat_pipeline_1_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_4_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
+      splat_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // color pipeline
@@ -373,7 +379,8 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = graphics_pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
+      pipeline_info.render_pass = render_pass_1_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_1_BIT;
       pipeline_info.vertex_shader = vk::shader::color_vert;
       pipeline_info.fragment_shader = vk::shader::color_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
@@ -383,7 +390,11 @@ class Engine::Impl {
       pipeline_info.depth_write = true;
       pipeline_info.color_blend_attachments =
           std::move(color_blend_attachments);
-      color_line_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+      color_line_pipeline_1_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      pipeline_info.render_pass = render_pass_4_;
+      pipeline_info.samples = VK_SAMPLE_COUNT_4_BIT;
+      color_line_pipeline_4_ = vk::GraphicsPipeline(context_, pipeline_info);
     }
 
     // uniforms and descriptors
@@ -586,11 +597,11 @@ class Engine::Impl {
     init_info.Queue = context_.graphics_queue();
     init_info.PipelineCache = VK_NULL_HANDLE;
     init_info.DescriptorPool = context_.descriptor_pool();
-    init_info.RenderPass = render_pass_;
+    init_info.RenderPass = render_pass_4_;
     init_info.Subpass = 0;
     init_info.MinImageCount = 3;
     init_info.ImageCount = 3;
-    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
     init_info.Allocator = VK_NULL_HANDLE;
     init_info.CheckVkResultFn = check_vk_result;
     ImGui_ImplVulkan_Init(&init_info);
@@ -602,17 +613,33 @@ class Engine::Impl {
     glfwCreateWindowSurface(context_.instance(), window_, NULL, &surface);
     swapchain_ = vk::Swapchain(context_, surface);
 
-    depth_attachment_ =
+    color_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
+    depth4_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
+    depth1_attachment_ =
         vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
                        VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_1_BIT, false);
 
     vk::FramebufferCreateInfo framebuffer_info;
-    framebuffer_info.render_pass = render_pass_;
+    framebuffer_info.render_pass = render_pass_1_;
     framebuffer_info.width = swapchain_.width();
     framebuffer_info.height = swapchain_.height();
-    framebuffer_info.image_specs = {swapchain_.image_spec(),
-                                    depth_attachment_.image_spec()};
-    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+    framebuffer_info.image_specs = {
+        swapchain_.image_spec(),
+        depth1_attachment_.image_spec(),
+    };
+    framebuffer_1_ = vk::Framebuffer(context_, framebuffer_info);
+
+    framebuffer_info.render_pass = render_pass_4_;
+    framebuffer_info.image_specs = {
+        color_attachment_.image_spec(),
+        depth4_attachment_.image_spec(),
+        swapchain_.image_spec(),
+    };
+    framebuffer_4_ = vk::Framebuffer(context_, framebuffer_info);
 
     glfwShowWindow(window_);
     terminate_ = false;
@@ -839,17 +866,33 @@ class Engine::Impl {
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain_.Recreate();
 
-      depth_attachment_ =
+      color_attachment_ = vk::Attachment(
+          context_, swapchain_.width(), swapchain_.height(),
+          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
+      depth4_attachment_ =
+          vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
+      depth1_attachment_ =
           vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
                          VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_1_BIT, false);
 
       vk::FramebufferCreateInfo framebuffer_info;
-      framebuffer_info.render_pass = render_pass_;
+      framebuffer_info.render_pass = render_pass_1_;
       framebuffer_info.width = swapchain_.width();
       framebuffer_info.height = swapchain_.height();
-      framebuffer_info.image_specs = {swapchain_.image_spec(),
-                                      depth_attachment_.image_spec()};
-      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+      framebuffer_info.image_specs = {
+          swapchain_.image_spec(),
+          depth1_attachment_.image_spec(),
+      };
+      framebuffer_1_ = vk::Framebuffer(context_, framebuffer_info);
+
+      framebuffer_info.render_pass = render_pass_4_;
+      framebuffer_info.image_specs = {
+          color_attachment_.image_spec(),
+          depth4_attachment_.image_spec(),
+          swapchain_.image_spec(),
+      };
+      framebuffer_4_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
     int32_t acquire_index = frame_counter_ % 3;
@@ -1554,21 +1597,33 @@ class Engine::Impl {
     clear_values[0].color.float32[3] = 1.f;
     clear_values[1].depthStencil.depth = 1.f;
 
-    std::vector<VkImageView> render_pass_attachments = {
+    std::vector<VkImageView> render_pass_attachments_1 = {
         target_image_view,
-        depth_attachment_,
+        depth1_attachment_,
     };
-    VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
+    std::vector<VkImageView> render_pass_attachments_4 = {
+        color_attachment_,
+        depth4_attachment_,
+        target_image_view,
+    };
+    VkRenderPassAttachmentBeginInfo render_pass_attachments_info_1 = {
         VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info.attachmentCount =
-        render_pass_attachments.size();
-    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
+    render_pass_attachments_info_1.attachmentCount =
+        render_pass_attachments_1.size();
+    render_pass_attachments_info_1.pAttachments =
+        render_pass_attachments_1.data();
+    VkRenderPassAttachmentBeginInfo render_pass_attachments_info_4 = {
+        VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
+    render_pass_attachments_info_4.attachmentCount =
+        render_pass_attachments_4.size();
+    render_pass_attachments_info_4.pAttachments =
+        render_pass_attachments_4.data();
 
     VkRenderPassBeginInfo render_pass_begin_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    render_pass_begin_info.pNext = &render_pass_attachments_info;
-    render_pass_begin_info.renderPass = render_pass_;
-    render_pass_begin_info.framebuffer = framebuffer_;
+    render_pass_begin_info.pNext = &render_pass_attachments_info_4;
+    render_pass_begin_info.renderPass = render_pass_4_;
+    render_pass_begin_info.framebuffer = framebuffer_4_;
     render_pass_begin_info.renderArea.offset = {0, 0};
     render_pass_begin_info.renderArea.extent = {width, height};
     render_pass_begin_info.clearValueCount = clear_values.size();
@@ -1601,7 +1656,7 @@ class Engine::Impl {
     // draw axis and grid
     {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        color_line_pipeline_);
+                        color_line_pipeline_4_);
 
       glm::mat4 model(1.f);
       model[0][0] = 10.f;
@@ -1635,7 +1690,7 @@ class Engine::Impl {
 
     // draw splat
     if (loaded_point_count_ != 0) {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_4_);
 
       vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
 
@@ -1686,12 +1741,18 @@ class Engine::Impl {
   VrdxSorter sorter_ = VK_NULL_HANDLE;
 
   // normal pass
-  vk::Framebuffer framebuffer_;
-  vk::RenderPass render_pass_;
-  vk::GraphicsPipeline color_line_pipeline_;
-  vk::GraphicsPipeline splat_pipeline_;
+  vk::Framebuffer framebuffer_1_;
+  vk::Framebuffer framebuffer_4_;
+  vk::RenderPass render_pass_1_;
+  vk::RenderPass render_pass_4_;
+  vk::GraphicsPipeline color_line_pipeline_1_;
+  vk::GraphicsPipeline color_line_pipeline_4_;
+  vk::GraphicsPipeline splat_pipeline_1_;
+  vk::GraphicsPipeline splat_pipeline_4_;
 
-  vk::Attachment depth_attachment_;
+  vk::Attachment color_attachment_;
+  vk::Attachment depth4_attachment_;
+  vk::Attachment depth1_attachment_;
 
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
 
