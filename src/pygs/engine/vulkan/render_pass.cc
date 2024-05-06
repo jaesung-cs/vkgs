@@ -65,7 +65,6 @@ class RenderPass::Impl {
       attachments[2].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     }
 
-    // pass 0
     std::vector<VkAttachmentReference2> pass0_colors(1);
     pass0_colors[0] = {VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
     pass0_colors[0].attachment = 0;

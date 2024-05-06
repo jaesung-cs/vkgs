@@ -1602,35 +1602,29 @@ class Engine::Impl {
     clear_values[0].color.float32[3] = 1.f;
     clear_values[1].depthStencil.depth = 1.f;
 
-    std::vector<VkImageView> render_pass_attachments_no_msaa = {
-        target_image_view,
-        depth_attachment_,
-    };
     std::vector<VkImageView> render_pass_attachments = {
         color_attachment_,
         depth_attachment_,
         target_image_view,
     };
-    VkRenderPassAttachmentBeginInfo render_pass_attachments_info_no_msaa = {
-        VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info_no_msaa.attachmentCount =
-        render_pass_attachments_no_msaa.size();
-    render_pass_attachments_info_no_msaa.pAttachments =
-        render_pass_attachments_no_msaa.data();
+
     VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info.attachmentCount =
-        render_pass_attachments.size();
-    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
-
     VkRenderPassBeginInfo render_pass_begin_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     render_pass_begin_info.pNext = &render_pass_attachments_info;
     render_pass_begin_info.framebuffer = framebuffer_;
+    render_pass_begin_info.renderArea.offset = {0, 0};
+    render_pass_begin_info.renderArea.extent = {width, height};
+    render_pass_begin_info.clearValueCount = clear_values.size();
+    render_pass_begin_info.pClearValues = clear_values.data();
 
     switch (samples_) {
       case VK_SAMPLE_COUNT_1_BIT:
-        render_pass_begin_info.pNext = &render_pass_attachments_info_no_msaa;
+        render_pass_attachments = {
+            target_image_view,
+            depth_attachment_,
+        };
         render_pass_begin_info.renderPass = render_pass_1_;
         break;
 
@@ -1645,10 +1639,11 @@ class Engine::Impl {
       default:
         throw std::runtime_error("Unsupported MSAA type");
     }
-    render_pass_begin_info.renderArea.offset = {0, 0};
-    render_pass_begin_info.renderArea.extent = {width, height};
-    render_pass_begin_info.clearValueCount = clear_values.size();
-    render_pass_begin_info.pClearValues = clear_values.data();
+
+    render_pass_attachments_info.attachmentCount =
+        render_pass_attachments.size();
+    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
+
     vkCmdBeginRenderPass(cb, &render_pass_begin_info,
                          VK_SUBPASS_CONTENTS_INLINE);
 
