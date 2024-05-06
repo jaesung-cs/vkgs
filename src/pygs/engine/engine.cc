@@ -622,22 +622,7 @@ class Engine::Impl {
     glfwCreateWindowSurface(context_.instance(), window_, NULL, &surface);
     swapchain_ = vk::Swapchain(context_, surface);
 
-    color_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
-    depth_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_D16_UNORM, samples_, false);
-
-    vk::FramebufferCreateInfo framebuffer_info;
-    framebuffer_info.render_pass = render_pass_1_;
-    framebuffer_info.width = swapchain_.width();
-    framebuffer_info.height = swapchain_.height();
-    framebuffer_info.image_specs = {
-        swapchain_.image_spec(),
-        depth_attachment_.image_spec(),
-    };
-    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+    RecreateFramebuffer();
 
     glfwShowWindow(window_);
     terminate_ = false;
@@ -863,46 +848,7 @@ class Engine::Impl {
       vkWaitForFences(context_.device(), render_finished_fences_.size(),
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain_.Recreate();
-
-      color_attachment_ =
-          vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                         VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
-      depth_attachment_ =
-          vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                         VK_FORMAT_D16_UNORM, samples_, false);
-
-      vk::FramebufferCreateInfo framebuffer_info;
-      framebuffer_info.width = swapchain_.width();
-      framebuffer_info.height = swapchain_.height();
-
-      framebuffer_info.image_specs = {
-          color_attachment_.image_spec(),
-          depth_attachment_.image_spec(),
-          swapchain_.image_spec(),
-      };
-
-      switch (samples_) {
-        case VK_SAMPLE_COUNT_1_BIT:
-          framebuffer_info.render_pass = render_pass_1_;
-          framebuffer_info.image_specs = {
-              swapchain_.image_spec(),
-              depth_attachment_.image_spec(),
-          };
-          break;
-
-        case VK_SAMPLE_COUNT_2_BIT:
-          framebuffer_info.render_pass = render_pass_2_;
-          break;
-
-        case VK_SAMPLE_COUNT_4_BIT:
-          framebuffer_info.render_pass = render_pass_4_;
-          break;
-
-        default:
-          throw std::runtime_error("Unsupported MSAA type");
-      }
-
-      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+      RecreateFramebuffer();
     }
 
     int32_t acquire_index = frame_counter_ % 3;
@@ -1642,45 +1588,7 @@ class Engine::Impl {
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplVulkan_Init(&init_info);
 
-        color_attachment_ =
-            vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                           VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
-        depth_attachment_ =
-            vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                           VK_FORMAT_D16_UNORM, samples_, false);
-
-        vk::FramebufferCreateInfo framebuffer_info;
-        framebuffer_info.width = swapchain_.width();
-        framebuffer_info.height = swapchain_.height();
-
-        framebuffer_info.image_specs = {
-            color_attachment_.image_spec(),
-            depth_attachment_.image_spec(),
-            swapchain_.image_spec(),
-        };
-
-        switch (samples_) {
-          case VK_SAMPLE_COUNT_1_BIT:
-            framebuffer_info.render_pass = render_pass_1_;
-            framebuffer_info.image_specs = {
-                swapchain_.image_spec(),
-                depth_attachment_.image_spec(),
-            };
-            break;
-
-          case VK_SAMPLE_COUNT_2_BIT:
-            framebuffer_info.render_pass = render_pass_2_;
-            break;
-
-          case VK_SAMPLE_COUNT_4_BIT:
-            framebuffer_info.render_pass = render_pass_4_;
-            break;
-
-          default:
-            throw std::runtime_error("Unsupported MSAA type");
-        }
-
-        framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+        RecreateFramebuffer();
       }
     }
   }
@@ -1850,6 +1758,48 @@ class Engine::Impl {
     ImGui_ImplVulkan_RenderDrawData(draw_data, cb);
 
     vkCmdEndRenderPass(cb);
+  }
+
+  void RecreateFramebuffer() {
+    color_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
+    depth_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_D16_UNORM, samples_, false);
+
+    vk::FramebufferCreateInfo framebuffer_info;
+    framebuffer_info.width = swapchain_.width();
+    framebuffer_info.height = swapchain_.height();
+
+    framebuffer_info.image_specs = {
+        color_attachment_.image_spec(),
+        depth_attachment_.image_spec(),
+        swapchain_.image_spec(),
+    };
+
+    switch (samples_) {
+      case VK_SAMPLE_COUNT_1_BIT:
+        framebuffer_info.render_pass = render_pass_1_;
+        framebuffer_info.image_specs = {
+            swapchain_.image_spec(),
+            depth_attachment_.image_spec(),
+        };
+        break;
+
+      case VK_SAMPLE_COUNT_2_BIT:
+        framebuffer_info.render_pass = render_pass_2_;
+        break;
+
+      case VK_SAMPLE_COUNT_4_BIT:
+        framebuffer_info.render_pass = render_pass_4_;
+        break;
+
+      default:
+        throw std::runtime_error("Unsupported MSAA type");
+    }
+
+    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
   }
 
   std::atomic_bool terminate_ = false;
