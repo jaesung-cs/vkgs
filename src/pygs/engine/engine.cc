@@ -103,6 +103,12 @@ class Engine::Impl {
     }
   }
 
+ private:
+  enum class MsaaType {
+    NO_MSAA,
+    MSAA_4,
+  };
+
  public:
   Impl() {
     if (glfwInit() == GLFW_FALSE)
@@ -597,11 +603,11 @@ class Engine::Impl {
     init_info.Queue = context_.graphics_queue();
     init_info.PipelineCache = VK_NULL_HANDLE;
     init_info.DescriptorPool = context_.descriptor_pool();
-    init_info.RenderPass = render_pass_4_;
     init_info.Subpass = 0;
     init_info.MinImageCount = 3;
     init_info.ImageCount = 3;
-    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
+    init_info.RenderPass = render_pass_1_;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     init_info.Allocator = VK_NULL_HANDLE;
     init_info.CheckVkResultFn = check_vk_result;
     ImGui_ImplVulkan_Init(&init_info);
@@ -917,6 +923,9 @@ class Engine::Impl {
       static float scale = 1.f;
       glm::mat4 model(1.f);
 
+      bool msaa_changed = false;
+      static int msaa = 0;
+
       // draw ui
       {
         ImGui_ImplVulkan_NewFrame();
@@ -1003,6 +1012,12 @@ class Engine::Impl {
             swapchain_.SetVsync(true);
           else
             swapchain_.SetVsync(false);
+
+          ImGui::Text("MSAA");
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("Off", &msaa, 0);
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("4x", &msaa, 1);
 
           ImGui::Checkbox("Axis", &show_axis_);
           ImGui::SameLine();
@@ -1585,6 +1600,39 @@ class Engine::Impl {
       frame_info.present_done_timestamp = Clock::timestamp();
 
       frame_counter_++;
+
+      if (msaa_changed) {
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance = context_.instance();
+        init_info.PhysicalDevice = context_.physical_device();
+        init_info.Device = context_.device();
+        init_info.QueueFamily = context_.graphics_queue_family_index();
+        init_info.Queue = context_.graphics_queue();
+        init_info.PipelineCache = VK_NULL_HANDLE;
+        init_info.DescriptorPool = context_.descriptor_pool();
+        init_info.Subpass = 0;
+        init_info.MinImageCount = 3;
+        init_info.ImageCount = 3;
+        init_info.Allocator = VK_NULL_HANDLE;
+        init_info.CheckVkResultFn = check_vk_result;
+
+        if (msaa == 0) {
+          init_info.RenderPass = render_pass_1_;
+          init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+          msaa_type_ = MsaaType::NO_MSAA;
+        } else if (msaa == 1) {
+          init_info.RenderPass = render_pass_4_;
+          init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
+          msaa_type_ = MsaaType::MSAA_4;
+        }
+
+        // wait for all presentations submitted, before recreate imgui vulkan
+        vkWaitForFences(context_.device(), render_finished_fences_.size(),
+                        render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
+
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplVulkan_Init(&init_info);
+      }
     }
   }
 
@@ -1621,9 +1669,23 @@ class Engine::Impl {
 
     VkRenderPassBeginInfo render_pass_begin_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    render_pass_begin_info.pNext = &render_pass_attachments_info_4;
-    render_pass_begin_info.renderPass = render_pass_4_;
-    render_pass_begin_info.framebuffer = framebuffer_4_;
+
+    switch (msaa_type_) {
+      case MsaaType::NO_MSAA:
+        render_pass_begin_info.pNext = &render_pass_attachments_info_1;
+        render_pass_begin_info.renderPass = render_pass_1_;
+        render_pass_begin_info.framebuffer = framebuffer_1_;
+        break;
+
+      case MsaaType::MSAA_4:
+        render_pass_begin_info.pNext = &render_pass_attachments_info_4;
+        render_pass_begin_info.renderPass = render_pass_4_;
+        render_pass_begin_info.framebuffer = framebuffer_4_;
+        break;
+
+      default:
+        throw std::runtime_error("Unsupported MSAA type");
+    }
     render_pass_begin_info.renderArea.offset = {0, 0};
     render_pass_begin_info.renderArea.extent = {width, height};
     render_pass_begin_info.clearValueCount = clear_values.size();
@@ -1655,8 +1717,20 @@ class Engine::Impl {
 
     // draw axis and grid
     {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        color_line_pipeline_4_);
+      switch (msaa_type_) {
+        case MsaaType::NO_MSAA:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            color_line_pipeline_1_);
+          break;
+
+        case MsaaType::MSAA_4:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            color_line_pipeline_4_);
+          break;
+
+        default:
+          throw std::runtime_error("Unsupported MSAA type");
+      }
 
       glm::mat4 model(1.f);
       model[0][0] = 10.f;
@@ -1690,7 +1764,20 @@ class Engine::Impl {
 
     // draw splat
     if (loaded_point_count_ != 0) {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_4_);
+      switch (msaa_type_) {
+        case MsaaType::NO_MSAA:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipeline_1_);
+          break;
+
+        case MsaaType::MSAA_4:
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipeline_4_);
+          break;
+
+        default:
+          throw std::runtime_error("Unsupported MSAA type");
+      }
 
       vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
 
@@ -1712,6 +1799,8 @@ class Engine::Impl {
   GLFWwindow* window_ = nullptr;
   int width_ = 0;
   int height_ = 0;
+
+  MsaaType msaa_type_ = MsaaType::NO_MSAA;
 
   Camera camera_;
 
