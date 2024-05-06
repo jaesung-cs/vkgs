@@ -328,7 +328,7 @@ class Context::Impl {
   }
 
   ~Impl() {
-    VkDeviceSize size;
+    size_t size;
     vkGetPipelineCacheData(device_, pipeline_cache_, &size, NULL);
     if (size > 0) {
       std::vector<char> data(size);

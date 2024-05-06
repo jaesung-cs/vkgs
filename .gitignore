@@ -1,5 +1,7 @@
 .vscode/
 
+.DS_Store
+
 /src/generated/
 build/
 *.egg-info

@@ -15,7 +15,8 @@ add_subdirectory(third_party/argparse EXCLUDE_FROM_ALL)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 # shaders
-file(GLOB SHADERS src/shader/*)
+file(GLOB SHADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/shader/*)
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 foreach(SHADER IN LISTS SHADERS)
   get_filename_component(INPUT_FILENAME ${SHADER} NAME)
   string(REPLACE . _ OUTPUT_FILENAME ${INPUT_FILENAME})
