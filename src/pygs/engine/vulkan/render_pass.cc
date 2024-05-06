@@ -8,20 +8,20 @@ class RenderPass::Impl {
   Impl() = delete;
 
   Impl(Context context) : context_(context) {
-    std::vector<VkAttachmentDescription2> attachments(3);
+    std::vector<VkAttachmentDescription2> attachments(2);
     attachments[0] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
     attachments[0].format = VK_FORMAT_B8G8R8A8_UNORM;
-    attachments[0].samples = VK_SAMPLE_COUNT_4_BIT;
+    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     attachments[1] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
     attachments[1].format = VK_FORMAT_D16_UNORM;
-    attachments[1].samples = VK_SAMPLE_COUNT_4_BIT;
+    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -29,16 +29,6 @@ class RenderPass::Impl {
     attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attachments[1].finalLayout =
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    attachments[2] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
-    attachments[2].format = VK_FORMAT_B8G8R8A8_UNORM;
-    attachments[2].samples = VK_SAMPLE_COUNT_1_BIT;
-    attachments[2].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[2].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     std::vector<VkAttachmentReference2> pass0_colors(1);
     pass0_colors[0] = {VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
@@ -53,18 +43,11 @@ class RenderPass::Impl {
     pass0_depth.aspectMask =
         VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
-    VkAttachmentReference2 pass0_resolve = {
-        VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
-    pass0_resolve.attachment = 2;
-    pass0_resolve.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    pass0_resolve.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-
     std::vector<VkSubpassDescription2> subpasses(1);
     subpasses[0] = {VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
     subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpasses[0].colorAttachmentCount = pass0_colors.size();
     subpasses[0].pColorAttachments = pass0_colors.data();
-    subpasses[0].pResolveAttachments = &pass0_resolve;
     subpasses[0].pDepthStencilAttachment = &pass0_depth;
 
     std::vector<VkSubpassDependency2> dependencies(1);

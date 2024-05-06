@@ -58,7 +58,7 @@ class GraphicsPipeline::Impl {
 
     VkPipelineMultisampleStateCreateInfo multisample_state = {
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
+    multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state = {
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};

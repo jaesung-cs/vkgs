@@ -590,7 +590,7 @@ class Engine::Impl {
     init_info.Subpass = 0;
     init_info.MinImageCount = 3;
     init_info.ImageCount = 3;
-    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     init_info.Allocator = VK_NULL_HANDLE;
     init_info.CheckVkResultFn = check_vk_result;
     ImGui_ImplVulkan_Init(&init_info);
@@ -602,20 +602,16 @@ class Engine::Impl {
     glfwCreateWindowSurface(context_.instance(), window_, NULL, &surface);
     swapchain_ = vk::Swapchain(context_, surface);
 
-    color_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
     depth_attachment_ =
         vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
+                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_1_BIT, false);
 
     vk::FramebufferCreateInfo framebuffer_info;
     framebuffer_info.render_pass = render_pass_;
     framebuffer_info.width = swapchain_.width();
     framebuffer_info.height = swapchain_.height();
-    framebuffer_info.image_specs = {color_attachment_.image_spec(),
-                                    depth_attachment_.image_spec(),
-                                    swapchain_.image_spec()};
+    framebuffer_info.image_specs = {swapchain_.image_spec(),
+                                    depth_attachment_.image_spec()};
     framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
 
     glfwShowWindow(window_);
@@ -843,20 +839,16 @@ class Engine::Impl {
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain_.Recreate();
 
-      color_attachment_ = vk::Attachment(
-          context_, swapchain_.width(), swapchain_.height(),
-          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
       depth_attachment_ =
           vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
+                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_1_BIT, false);
 
       vk::FramebufferCreateInfo framebuffer_info;
       framebuffer_info.render_pass = render_pass_;
       framebuffer_info.width = swapchain_.width();
       framebuffer_info.height = swapchain_.height();
-      framebuffer_info.image_specs = {color_attachment_.image_spec(),
-                                      depth_attachment_.image_spec(),
-                                      swapchain_.image_spec()};
+      framebuffer_info.image_specs = {swapchain_.image_spec(),
+                                      depth_attachment_.image_spec()};
       framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
     }
 
@@ -1563,9 +1555,8 @@ class Engine::Impl {
     clear_values[1].depthStencil.depth = 1.f;
 
     std::vector<VkImageView> render_pass_attachments = {
-        color_attachment_,
-        depth_attachment_,
         target_image_view,
+        depth_attachment_,
     };
     VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
@@ -1700,7 +1691,6 @@ class Engine::Impl {
   vk::GraphicsPipeline color_line_pipeline_;
   vk::GraphicsPipeline splat_pipeline_;
 
-  vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
 
   vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
