@@ -631,42 +631,6 @@ class Engine::Impl {
     while (!glfwWindowShouldClose(window_) && !terminate_) {
       glfwPollEvents();
 
-      // handle events
-      if (!io.WantCaptureMouse) {
-        bool left = io.MouseDown[ImGuiMouseButton_Left];
-        bool right = io.MouseDown[ImGuiMouseButton_Right];
-        float dx = io.MouseDelta.x;
-        float dy = io.MouseDelta.y;
-
-        if (left && !right) {
-          camera_.Rotate(dx, dy);
-        } else if (!left && right) {
-          camera_.Translate(dx, dy);
-        } else if (left && right) {
-          camera_.Zoom(dy);
-        }
-      }
-
-      if (!io.WantCaptureKeyboard) {
-        constexpr float speed = 1000.f;
-        float dt = io.DeltaTime;
-        if (ImGui::IsKeyDown(ImGuiKey_W)) {
-          camera_.Translate(0.f, 0.f, speed * dt);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_S)) {
-          camera_.Translate(0.f, 0.f, -speed * dt);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_A)) {
-          camera_.Translate(speed * dt, 0.f);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_D)) {
-          camera_.Translate(-speed * dt, 0.f);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_Space)) {
-          camera_.Translate(0.f, speed * dt);
-        }
-      }
-
       // load pending file from async request
       {
         std::unique_lock<std::mutex> guard{mutex_};
@@ -886,6 +850,51 @@ class Engine::Impl {
         ImGui::NewFrame();
 
         const auto& io = ImGui::GetIO();
+
+        // handle events
+        if (!io.WantCaptureMouse) {
+          bool left = io.MouseDown[ImGuiMouseButton_Left];
+          bool right = io.MouseDown[ImGuiMouseButton_Right];
+          float dx = io.MouseDelta.x;
+          float dy = io.MouseDelta.y;
+
+          if (left && !right) {
+            camera_.Rotate(dx, dy);
+          } else if (!left && right) {
+            camera_.Translate(dx, dy);
+          } else if (left && right) {
+            camera_.Zoom(dy);
+          }
+
+          if (io.MouseWheel != 0.f) {
+            if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
+              camera_.DollyZoom(io.MouseWheel);
+            } else {
+              camera_.Zoom(io.MouseWheel * 10.f);
+            }
+          }
+        }
+
+        if (!io.WantCaptureKeyboard) {
+          constexpr float speed = 1000.f;
+          float dt = io.DeltaTime;
+          if (ImGui::IsKeyDown(ImGuiKey_W)) {
+            camera_.Translate(0.f, 0.f, speed * dt);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_S)) {
+            camera_.Translate(0.f, 0.f, -speed * dt);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_A)) {
+            camera_.Translate(speed * dt, 0.f);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_D)) {
+            camera_.Translate(-speed * dt, 0.f);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+            camera_.Translate(0.f, speed * dt);
+          }
+        }
+
         if (ImGui::Begin("pygs")) {
           ImGui::Text("%s", context_.device_name().c_str());
           ImGui::Text("%d total splats", frame_info.total_point_count);
@@ -984,10 +993,10 @@ class Engine::Impl {
           ImGui::SameLine();
           ImGui::Checkbox("Grid", &show_grid_);
 
-          static float fov_degree = 60.f;
-          // ImGui::SliderFloat("Fov", &fov_degree, 5.f, 175.f);
-          // more reasonable fov range
-          ImGui::SliderFloat("Fov Y", &fov_degree, 40.f, 100.f);
+          float fov_degree = glm::degrees(camera_.fov());
+          ImGui::SliderFloat("Fov Y", &fov_degree,
+                             glm::degrees(camera_.min_fov()),
+                             glm::degrees(camera_.max_fov()));
           camera_.SetFov(glm::radians(fov_degree));
 
           ImGui::Text("Translation");

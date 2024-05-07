@@ -69,4 +69,10 @@ void Camera::Translate(float x, float y, float z) {
 
 void Camera::Zoom(float x) { r_ /= std::exp(zoom_sensitivity_ * x); }
 
+void Camera::DollyZoom(float scroll) {
+  float new_fov = std::clamp(fovy_ + scroll * dolly_zoom_sensitivity_,
+                             min_fov(), max_fov());
+  SetFov(new_fov);
+}
+
 }  // namespace pygs
