@@ -877,7 +877,7 @@ class Engine::Impl {
       static int msaa = 0;
 
       bool depth_format_changed = false;
-      static int depth_format = 0;
+      static int depth_format = 1;
 
       // draw ui
       {
@@ -1765,7 +1765,7 @@ class Engine::Impl {
   int height_ = 0;
 
   VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
-  VkFormat depth_format_ = VK_FORMAT_D16_UNORM;
+  VkFormat depth_format_ = VK_FORMAT_D32_SFLOAT;
 
   Camera camera_;
 
