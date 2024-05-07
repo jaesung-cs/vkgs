@@ -1,6 +1,7 @@
 #include "context.h"
 
 #include <iostream>
+#include <fstream>
 #include <vector>
 
 #define GLFW_INCLUDE_NONE
@@ -9,6 +10,8 @@
 namespace pygs {
 namespace vk {
 namespace {
+
+const std::string pipeline_cache_filename = "pipeline_cache.bin";
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -306,9 +309,38 @@ class Context::Impl {
     descriptor_pool_info.pPoolSizes = pool_sizes.data();
     vkCreateDescriptorPool(device_, &descriptor_pool_info, NULL,
                            &descriptor_pool_);
+
+    std::vector<char> pipeline_cache_data;
+    {
+      std::ifstream in(pipeline_cache_filename, std::ios::binary);
+      if (in.is_open()) {
+        pipeline_cache_data =
+            std::vector<char>(std::istreambuf_iterator<char>(in), {});
+      }
+    }
+
+    VkPipelineCacheCreateInfo pipeline_cache_info = {
+        VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    pipeline_cache_info.initialDataSize = pipeline_cache_data.size();
+    pipeline_cache_info.pInitialData = pipeline_cache_data.data();
+    vkCreatePipelineCache(device_, &pipeline_cache_info, NULL,
+                          &pipeline_cache_);
   }
 
   ~Impl() {
+    size_t size;
+    vkGetPipelineCacheData(device_, pipeline_cache_, &size, NULL);
+    if (size > 0) {
+      std::vector<char> data(size);
+      vkGetPipelineCacheData(device_, pipeline_cache_, &size, data.data());
+
+      std::ofstream out(pipeline_cache_filename, std::ios::binary);
+      if (out.is_open()) {
+        out.write(data.data(), data.size());
+      }
+    }
+
+    vkDestroyPipelineCache(device_, pipeline_cache_, NULL);
     vkDestroyDescriptorPool(device_, descriptor_pool_, NULL);
     vkDestroyCommandPool(device_, command_pool_, NULL);
     vmaDestroyAllocator(allocator_);
@@ -333,6 +365,7 @@ class Context::Impl {
   VmaAllocator allocator() const noexcept { return allocator_; }
   VkCommandPool command_pool() const noexcept { return command_pool_; }
   VkDescriptorPool descriptor_pool() const noexcept { return descriptor_pool_; }
+  VkPipelineCache pipeline_cache() const noexcept { return pipeline_cache_; }
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd) {
     if (GetMemoryFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
@@ -375,6 +408,7 @@ class Context::Impl {
   VmaAllocator allocator_ = VK_NULL_HANDLE;
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
+  VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
 
   std::string device_name_;
 
@@ -420,6 +454,10 @@ VkCommandPool Context::command_pool() const { return impl_->command_pool(); }
 
 VkDescriptorPool Context::descriptor_pool() const {
   return impl_->descriptor_pool();
+}
+
+VkPipelineCache Context::pipeline_cache() const {
+  return impl_->pipeline_cache();
 }
 
 VkResult Context::GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo,

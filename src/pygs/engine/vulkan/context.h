@@ -39,6 +39,7 @@ class Context {
   VmaAllocator allocator() const;
   VkCommandPool command_pool() const;
   VkDescriptorPool descriptor_pool() const;
+  VkPipelineCache pipeline_cache() const;
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
   VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,

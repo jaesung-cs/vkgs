@@ -11,9 +11,13 @@ class ComputePipeline::Impl {
 
   Impl(Context context, const ComputePipelineCreateInfo& create_info)
       : context_(context) {
-    VkShaderModule compute_module =
-        CreateShaderModule(context_.device(), VK_SHADER_STAGE_COMPUTE_BIT,
-                           create_info.compute_shader);
+    VkShaderModule compute_module;
+    VkShaderModuleCreateInfo shader_info = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shader_info.codeSize = create_info.source.size();
+    shader_info.pCode = create_info.source.data();
+    vkCreateShaderModule(context_.device(), &shader_info, NULL,
+                         &compute_module);
 
     VkPipelineShaderStageCreateInfo stage_info = {
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -25,7 +29,7 @@ class ComputePipeline::Impl {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipeline_info.stage = stage_info;
     pipeline_info.layout = create_info.layout;
-    vkCreateComputePipelines(context_.device(), VK_NULL_HANDLE, 1,
+    vkCreateComputePipelines(context_.device(), context_.pipeline_cache(), 1,
                              &pipeline_info, NULL, &pipeline_);
 
     vkDestroyShaderModule(context_.device(), compute_module, NULL);

@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <mutex>
+#include <map>
 
 #include <vulkan/vulkan.h>
 
@@ -39,12 +40,15 @@
 #include "pygs/engine/vulkan/cpu_buffer.h"
 #include "pygs/engine/vulkan/uniform_buffer.h"
 #include "pygs/engine/vulkan/shader/uniforms.h"
-#include "pygs/engine/vulkan/shader/parse_ply.h"
-#include "pygs/engine/vulkan/shader/projection.h"
-#include "pygs/engine/vulkan/shader/rank.h"
-#include "pygs/engine/vulkan/shader/inverse_index.h"
-#include "pygs/engine/vulkan/shader/splat.h"
-#include "pygs/engine/vulkan/shader/color.h"
+
+#include "generated/parse_ply_comp.h"
+#include "generated/projection_comp.h"
+#include "generated/rank_comp.h"
+#include "generated/inverse_index_comp.h"
+#include "generated/splat_vert.h"
+#include "generated/splat_frag.h"
+#include "generated/color_vert.h"
+#include "generated/color_frag.h"
 
 namespace pygs {
 namespace {
@@ -53,22 +57,6 @@ void check_vk_result(VkResult err) {
   if (err == 0) return;
   std::cerr << "[imgui vulkan] Error: VkResult = " << err << std::endl;
   if (err < 0) abort();
-}
-
-glm::mat3 ToScaleMatrix3(const glm::vec3& s) {
-  glm::mat3 m(1.f);
-  m[0][0] = s[0];
-  m[1][1] = s[1];
-  m[2][2] = s[2];
-  return m;
-}
-
-glm::mat4 ToScaleMatrix4(const glm::vec3& s) {
-  glm::mat4 m(1.f);
-  m[0][0] = s[0];
-  m[1][1] = s[1];
-  m[2][2] = s[2];
-  return m;
 }
 
 glm::mat4 ToScaleMatrix4(float s) {
@@ -86,6 +74,16 @@ glm::mat4 ToTranslationMatrix4(const glm::vec3& t) {
   m[3][2] = t[2];
   return m;
 }
+
+struct RenderPassKey {
+  VkSampleCountFlagBits samples;
+  VkFormat depth_format;
+
+  bool operator<(const RenderPassKey& rhs) const noexcept {
+    return samples != rhs.samples ? samples < rhs.samples
+                                  : depth_format < rhs.depth_format;
+  }
+};
 
 }  // namespace
 
@@ -110,8 +108,20 @@ class Engine::Impl {
 
     context_ = vk::Context(0);
 
+    std::vector<RenderPassKey> render_pass_keys = {
+        {VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_D16_UNORM},
+        {VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_D32_SFLOAT},
+        {VK_SAMPLE_COUNT_2_BIT, VK_FORMAT_D16_UNORM},
+        {VK_SAMPLE_COUNT_2_BIT, VK_FORMAT_D32_SFLOAT},
+        {VK_SAMPLE_COUNT_4_BIT, VK_FORMAT_D16_UNORM},
+        {VK_SAMPLE_COUNT_4_BIT, VK_FORMAT_D32_SFLOAT},
+    };
+
     // render pass
-    render_pass_ = vk::RenderPass(context_);
+    for (const auto& key : render_pass_keys) {
+      render_passes_[key] =
+          vk::RenderPass(context_, key.samples, key.depth_format);
+    }
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
@@ -270,7 +280,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::parse_ply_comp;
+      pipeline_info.source = parse_ply_comp;
       parse_ply_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -278,7 +288,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::rank_comp;
+      pipeline_info.source = rank_comp;
       rank_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -286,7 +296,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::inverse_index_comp;
+      pipeline_info.source = inverse_index_comp;
       inverse_index_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -294,7 +304,7 @@ class Engine::Impl {
     {
       vk::ComputePipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = compute_pipeline_layout_;
-      pipeline_info.compute_shader = vk::shader::projection_comp;
+      pipeline_info.source = projection_comp;
       projection_pipeline_ = vk::ComputePipeline(context_, pipeline_info);
     }
 
@@ -318,15 +328,19 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = graphics_pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
-      pipeline_info.vertex_shader = vk::shader::splat_vert;
-      pipeline_info.fragment_shader = vk::shader::splat_frag;
+      pipeline_info.vertex_shader = splat_vert;
+      pipeline_info.fragment_shader = splat_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
       pipeline_info.depth_test = true;
       pipeline_info.depth_write = false;
       pipeline_info.color_blend_attachments =
           std::move(color_blend_attachments);
-      splat_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      for (const auto& key : render_pass_keys) {
+        pipeline_info.render_pass = render_passes_[key];
+        pipeline_info.samples = key.samples;
+        splat_pipelines_[key] = vk::GraphicsPipeline(context_, pipeline_info);
+      }
     }
 
     // color pipeline
@@ -373,9 +387,8 @@ class Engine::Impl {
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = graphics_pipeline_layout_;
-      pipeline_info.render_pass = render_pass_;
-      pipeline_info.vertex_shader = vk::shader::color_vert;
-      pipeline_info.fragment_shader = vk::shader::color_frag;
+      pipeline_info.vertex_shader = color_vert;
+      pipeline_info.fragment_shader = color_frag;
       pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
       pipeline_info.input_bindings = std::move(input_bindings);
       pipeline_info.input_attributes = std::move(input_attributes);
@@ -383,7 +396,13 @@ class Engine::Impl {
       pipeline_info.depth_write = true;
       pipeline_info.color_blend_attachments =
           std::move(color_blend_attachments);
-      color_line_pipeline_ = vk::GraphicsPipeline(context_, pipeline_info);
+
+      for (const auto& key : render_pass_keys) {
+        pipeline_info.render_pass = render_passes_[key];
+        pipeline_info.samples = key.samples;
+        color_line_pipelines_[key] =
+            vk::GraphicsPipeline(context_, pipeline_info);
+      }
     }
 
     // uniforms and descriptors
@@ -514,6 +533,7 @@ class Engine::Impl {
       VrdxSorterLayoutCreateInfo sorter_layout_info = {};
       sorter_layout_info.physicalDevice = context_.physical_device();
       sorter_layout_info.device = context_.device();
+      sorter_layout_info.pipelineCache = context_.pipeline_cache();
       vrdxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
 
       VrdxSorterCreateInfo sorter_info = {};
@@ -584,13 +604,13 @@ class Engine::Impl {
     init_info.Device = context_.device();
     init_info.QueueFamily = context_.graphics_queue_family_index();
     init_info.Queue = context_.graphics_queue();
-    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.PipelineCache = context_.pipeline_cache();
     init_info.DescriptorPool = context_.descriptor_pool();
-    init_info.RenderPass = render_pass_;
     init_info.Subpass = 0;
     init_info.MinImageCount = 3;
     init_info.ImageCount = 3;
-    init_info.MSAASamples = VK_SAMPLE_COUNT_4_BIT;
+    init_info.RenderPass = render_passes_[{samples_, depth_format_}];
+    init_info.MSAASamples = samples_;
     init_info.Allocator = VK_NULL_HANDLE;
     init_info.CheckVkResultFn = check_vk_result;
     ImGui_ImplVulkan_Init(&init_info);
@@ -602,21 +622,7 @@ class Engine::Impl {
     glfwCreateWindowSurface(context_.instance(), window_, NULL, &surface);
     swapchain_ = vk::Swapchain(context_, surface);
 
-    color_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-    depth_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                       VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-
-    vk::FramebufferCreateInfo framebuffer_info;
-    framebuffer_info.render_pass = render_pass_;
-    framebuffer_info.width = swapchain_.width();
-    framebuffer_info.height = swapchain_.height();
-    framebuffer_info.image_specs = {color_attachment_.image_spec(),
-                                    depth_attachment_.image_spec(),
-                                    swapchain_.image_spec()};
-    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+    RecreateFramebuffer();
 
     glfwShowWindow(window_);
     terminate_ = false;
@@ -624,42 +630,6 @@ class Engine::Impl {
     // main loop
     while (!glfwWindowShouldClose(window_) && !terminate_) {
       glfwPollEvents();
-
-      // handle events
-      if (!io.WantCaptureMouse) {
-        bool left = io.MouseDown[ImGuiMouseButton_Left];
-        bool right = io.MouseDown[ImGuiMouseButton_Right];
-        float dx = io.MouseDelta.x;
-        float dy = io.MouseDelta.y;
-
-        if (left && !right) {
-          camera_.Rotate(dx, dy);
-        } else if (!left && right) {
-          camera_.Translate(dx, dy);
-        } else if (left && right) {
-          camera_.Zoom(dy);
-        }
-      }
-
-      if (!io.WantCaptureKeyboard) {
-        constexpr float speed = 1000.f;
-        float dt = io.DeltaTime;
-        if (ImGui::IsKeyDown(ImGuiKey_W)) {
-          camera_.Translate(0.f, 0.f, speed * dt);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_S)) {
-          camera_.Translate(0.f, 0.f, -speed * dt);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_A)) {
-          camera_.Translate(speed * dt, 0.f);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_D)) {
-          camera_.Translate(-speed * dt, 0.f);
-        }
-        if (ImGui::IsKeyDown(ImGuiKey_Space)) {
-          camera_.Translate(0.f, speed * dt);
-        }
-      }
 
       // load pending file from async request
       {
@@ -842,22 +812,7 @@ class Engine::Impl {
       vkWaitForFences(context_.device(), render_finished_fences_.size(),
                       render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
       swapchain_.Recreate();
-
-      color_attachment_ = vk::Attachment(
-          context_, swapchain_.width(), swapchain_.height(),
-          VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-      depth_attachment_ =
-          vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
-                         VK_FORMAT_D16_UNORM, VK_SAMPLE_COUNT_4_BIT, false);
-
-      vk::FramebufferCreateInfo framebuffer_info;
-      framebuffer_info.render_pass = render_pass_;
-      framebuffer_info.width = swapchain_.width();
-      framebuffer_info.height = swapchain_.height();
-      framebuffer_info.image_specs = {color_attachment_.image_spec(),
-                                      depth_attachment_.image_spec(),
-                                      swapchain_.image_spec()};
-      framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+      RecreateFramebuffer();
     }
 
     int32_t acquire_index = frame_counter_ % 3;
@@ -882,6 +837,12 @@ class Engine::Impl {
       static float scale = 1.f;
       glm::mat4 model(1.f);
 
+      bool msaa_changed = false;
+      static int msaa = 0;
+
+      bool depth_format_changed = false;
+      static int depth_format = 1;
+
       // draw ui
       {
         ImGui_ImplVulkan_NewFrame();
@@ -889,6 +850,51 @@ class Engine::Impl {
         ImGui::NewFrame();
 
         const auto& io = ImGui::GetIO();
+
+        // handle events
+        if (!io.WantCaptureMouse) {
+          bool left = io.MouseDown[ImGuiMouseButton_Left];
+          bool right = io.MouseDown[ImGuiMouseButton_Right];
+          float dx = io.MouseDelta.x;
+          float dy = io.MouseDelta.y;
+
+          if (left && !right) {
+            camera_.Rotate(dx, dy);
+          } else if (!left && right) {
+            camera_.Translate(dx, dy);
+          } else if (left && right) {
+            camera_.Zoom(dy);
+          }
+
+          if (io.MouseWheel != 0.f) {
+            if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
+              camera_.DollyZoom(io.MouseWheel);
+            } else {
+              camera_.Zoom(io.MouseWheel * 10.f);
+            }
+          }
+        }
+
+        if (!io.WantCaptureKeyboard) {
+          constexpr float speed = 1000.f;
+          float dt = io.DeltaTime;
+          if (ImGui::IsKeyDown(ImGuiKey_W)) {
+            camera_.Translate(0.f, 0.f, speed * dt);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_S)) {
+            camera_.Translate(0.f, 0.f, -speed * dt);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_A)) {
+            camera_.Translate(speed * dt, 0.f);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_D)) {
+            camera_.Translate(-speed * dt, 0.f);
+          }
+          if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+            camera_.Translate(0.f, speed * dt);
+          }
+        }
+
         if (ImGui::Begin("pygs")) {
           ImGui::Text("%s", context_.device_name().c_str());
           ImGui::Text("%d total splats", frame_info.total_point_count);
@@ -969,9 +975,29 @@ class Engine::Impl {
           else
             swapchain_.SetVsync(false);
 
+          ImGui::Text("MSAA");
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("Off", &msaa, 0);
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("2x", &msaa, 1);
+          ImGui::SameLine();
+          msaa_changed |= ImGui::RadioButton("4x", &msaa, 2);
+
+          ImGui::Text("Depth");
+          ImGui::SameLine();
+          depth_format_changed |= ImGui::RadioButton("U16", &depth_format, 0);
+          ImGui::SameLine();
+          depth_format_changed |= ImGui::RadioButton("F32", &depth_format, 1);
+
           ImGui::Checkbox("Axis", &show_axis_);
           ImGui::SameLine();
           ImGui::Checkbox("Grid", &show_grid_);
+
+          float fov_degree = glm::degrees(camera_.fov());
+          ImGui::SliderFloat("Fov Y", &fov_degree,
+                             glm::degrees(camera_.min_fov()),
+                             glm::degrees(camera_.max_fov()));
+          camera_.SetFov(glm::radians(fov_degree));
 
           ImGui::Text("Translation");
           ImGui::PushID("Translation");
@@ -1071,7 +1097,7 @@ class Engine::Impl {
       frame_info.ply_buffer = progress.ply_buffer;
 
       if (!progress.buffer_barriers.empty()) {
-        loaded_point_count_ = progress.total_point_count;
+        loaded_point_count_ = progress.loaded_point_count;
       }
 
       // update descriptor
@@ -1550,6 +1576,51 @@ class Engine::Impl {
       frame_info.present_done_timestamp = Clock::timestamp();
 
       frame_counter_++;
+
+      if (msaa_changed || depth_format_changed) {
+        if (msaa == 0) {
+          samples_ = VK_SAMPLE_COUNT_1_BIT;
+        } else if (msaa == 1) {
+          samples_ = VK_SAMPLE_COUNT_2_BIT;
+        } else if (msaa == 2) {
+          samples_ = VK_SAMPLE_COUNT_4_BIT;
+        }
+
+        switch (depth_format) {
+          case 0:
+            depth_format_ = VK_FORMAT_D16_UNORM;
+            break;
+
+          case 1:
+            depth_format_ = VK_FORMAT_D32_SFLOAT;
+            break;
+        }
+
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance = context_.instance();
+        init_info.PhysicalDevice = context_.physical_device();
+        init_info.Device = context_.device();
+        init_info.QueueFamily = context_.graphics_queue_family_index();
+        init_info.Queue = context_.graphics_queue();
+        init_info.PipelineCache = context_.pipeline_cache();
+        init_info.DescriptorPool = context_.descriptor_pool();
+        init_info.Subpass = 0;
+        init_info.MinImageCount = 3;
+        init_info.ImageCount = 3;
+        init_info.Allocator = VK_NULL_HANDLE;
+        init_info.CheckVkResultFn = check_vk_result;
+        init_info.RenderPass = render_passes_[{samples_, depth_format_}];
+        init_info.MSAASamples = samples_;
+
+        // wait for all presentations submitted, before recreate imgui vulkan
+        vkWaitForFences(context_.device(), render_finished_fences_.size(),
+                        render_finished_fences_.data(), VK_TRUE, UINT64_MAX);
+
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplVulkan_Init(&init_info);
+
+        RecreateFramebuffer();
+      }
     }
   }
 
@@ -1562,26 +1633,37 @@ class Engine::Impl {
     clear_values[0].color.float32[3] = 1.f;
     clear_values[1].depthStencil.depth = 1.f;
 
-    std::vector<VkImageView> render_pass_attachments = {
-        color_attachment_,
-        depth_attachment_,
-        target_image_view,
-    };
+    std::vector<VkImageView> render_pass_attachments;
+
+    if (samples_ == VK_SAMPLE_COUNT_1_BIT) {
+      render_pass_attachments = {
+          target_image_view,
+          depth_attachment_,
+      };
+    } else {
+      render_pass_attachments = {
+          color_attachment_,
+          depth_attachment_,
+          target_image_view,
+      };
+    }
+
     VkRenderPassAttachmentBeginInfo render_pass_attachments_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    render_pass_attachments_info.attachmentCount =
-        render_pass_attachments.size();
-    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
-
     VkRenderPassBeginInfo render_pass_begin_info = {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     render_pass_begin_info.pNext = &render_pass_attachments_info;
-    render_pass_begin_info.renderPass = render_pass_;
     render_pass_begin_info.framebuffer = framebuffer_;
     render_pass_begin_info.renderArea.offset = {0, 0};
     render_pass_begin_info.renderArea.extent = {width, height};
     render_pass_begin_info.clearValueCount = clear_values.size();
     render_pass_begin_info.pClearValues = clear_values.data();
+    render_pass_begin_info.renderPass =
+        render_passes_[{samples_, depth_format_}];
+    render_pass_attachments_info.attachmentCount =
+        render_pass_attachments.size();
+    render_pass_attachments_info.pAttachments = render_pass_attachments.data();
+
     vkCmdBeginRenderPass(cb, &render_pass_begin_info,
                          VK_SUBPASS_CONTENTS_INLINE);
 
@@ -1610,7 +1692,7 @@ class Engine::Impl {
     // draw axis and grid
     {
       vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        color_line_pipeline_);
+                        color_line_pipelines_[{samples_, depth_format_}]);
 
       glm::mat4 model(1.f);
       model[0][0] = 10.f;
@@ -1644,7 +1726,8 @@ class Engine::Impl {
 
     // draw splat
     if (loaded_point_count_ != 0) {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splat_pipeline_);
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        splat_pipelines_[{samples_, depth_format_}]);
 
       vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
 
@@ -1658,6 +1741,35 @@ class Engine::Impl {
     vkCmdEndRenderPass(cb);
   }
 
+  void RecreateFramebuffer() {
+    color_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
+    depth_attachment_ =
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(),
+                       depth_format_, samples_, false);
+
+    vk::FramebufferCreateInfo framebuffer_info;
+    framebuffer_info.width = swapchain_.width();
+    framebuffer_info.height = swapchain_.height();
+    framebuffer_info.render_pass = render_passes_[{samples_, depth_format_}];
+
+    if (samples_ == VK_SAMPLE_COUNT_1_BIT) {
+      framebuffer_info.image_specs = {
+          swapchain_.image_spec(),
+          depth_attachment_.image_spec(),
+      };
+    } else {
+      framebuffer_info.image_specs = {
+          color_attachment_.image_spec(),
+          depth_attachment_.image_spec(),
+          swapchain_.image_spec(),
+      };
+    }
+
+    framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
+  }
+
   std::atomic_bool terminate_ = false;
 
   std::mutex mutex_;
@@ -1666,6 +1778,9 @@ class Engine::Impl {
   GLFWwindow* window_ = nullptr;
   int width_ = 0;
   int height_ = 0;
+
+  VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
+  VkFormat depth_format_ = VK_FORMAT_D32_SFLOAT;
 
   Camera camera_;
 
@@ -1696,9 +1811,9 @@ class Engine::Impl {
 
   // normal pass
   vk::Framebuffer framebuffer_;
-  vk::RenderPass render_pass_;
-  vk::GraphicsPipeline color_line_pipeline_;
-  vk::GraphicsPipeline splat_pipeline_;
+  std::map<RenderPassKey, vk::RenderPass> render_passes_;
+  std::map<RenderPassKey, vk::GraphicsPipeline> color_line_pipelines_;
+  std::map<RenderPassKey, vk::GraphicsPipeline> splat_pipelines_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;

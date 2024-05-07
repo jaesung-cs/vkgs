@@ -8,6 +8,7 @@
 
 #include "pygs/engine/vulkan/context.h"
 #include "pygs/engine/vulkan/pipeline_layout.h"
+#include "pygs/engine/vulkan/shader_module.h"
 
 namespace pygs {
 namespace vk {
@@ -16,8 +17,9 @@ struct GraphicsPipelineCreateInfo {
   VkPipelineLayout layout = VK_NULL_HANDLE;
   VkRenderPass render_pass = VK_NULL_HANDLE;
   uint32_t subpass = 0;
-  std::string vertex_shader;
-  std::string fragment_shader;
+  VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+  ShaderSource vertex_shader;
+  ShaderSource fragment_shader;
   VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   std::vector<VkVertexInputBindingDescription> input_bindings;
   std::vector<VkVertexInputAttributeDescription> input_attributes;
