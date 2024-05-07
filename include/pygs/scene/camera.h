@@ -15,6 +15,13 @@ class Camera {
 
   void SetWindowSize(uint32_t width, uint32_t height);
 
+  /**
+   * Set fov and dolly zoom
+   *
+   * fov: fov Y, in radians
+   */
+  void SetFov(float fov);
+
   glm::mat4 ProjectionMatrix() const;
   glm::mat4 ViewMatrix() const;
   glm::vec3 Eye() const;

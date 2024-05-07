@@ -15,6 +15,13 @@ void Camera::SetWindowSize(uint32_t width, uint32_t height) {
   height_ = height;
 }
 
+void Camera::SetFov(float fov) {
+  // dolly zoom
+  r_ *= std::tan(fovy_ / 2.f) / std::tan(fov / 2.f);
+
+  fovy_ = fov;
+}
+
 glm::mat4 Camera::ProjectionMatrix() const {
   float aspect = static_cast<float>(width_) / height_;
   glm::mat4 projection = glm::perspective(fovy_, aspect, near_, far_);

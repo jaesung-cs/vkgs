@@ -984,6 +984,12 @@ class Engine::Impl {
           ImGui::SameLine();
           ImGui::Checkbox("Grid", &show_grid_);
 
+          static float fov_degree = 60.f;
+          // ImGui::SliderFloat("Fov", &fov_degree, 5.f, 175.f);
+          // more reasonable fov range
+          ImGui::SliderFloat("Fov Y", &fov_degree, 40.f, 100.f);
+          camera_.SetFov(glm::radians(fov_degree));
+
           ImGui::Text("Translation");
           ImGui::PushID("Translation");
           ImGui::DragFloat3("local", glm::value_ptr(lt), 0.01f);
