@@ -89,6 +89,10 @@ Left+Right drag to zoom in/out.
 
 WASD, Space to move.
 
+Wheel to zoom in/out.
+
+Ctrl+wheel to change FOV.
+
 
 ### References
 - https://github.com/aras-p/UnityGaussianSplatting : Performance report, probably similar rendering pipeline
