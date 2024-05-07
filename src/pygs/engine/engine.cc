@@ -1077,7 +1077,7 @@ class Engine::Impl {
       frame_info.ply_buffer = progress.ply_buffer;
 
       if (!progress.buffer_barriers.empty()) {
-        loaded_point_count_ = progress.total_point_count;
+        loaded_point_count_ = progress.loaded_point_count;
       }
 
       // update descriptor
