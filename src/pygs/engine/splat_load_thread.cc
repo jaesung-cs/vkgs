@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <fstream>
 #include <sstream>
@@ -12,11 +13,6 @@
 
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"
-
-#include <glm/glm.hpp>
-
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
 
 namespace pygs {
 
@@ -123,12 +119,10 @@ class SplatLoadThread::Impl {
           staging_size_ = size;
         }
 
-        vk::Buffer ply_buffer;
-        {
-          ply_buffer = vk::Buffer(context_, size,
-                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        }
+        // TODO: make GPU buffer persist. Buffer creation is expensive.
+        auto ply_buffer = vk::Buffer(context_, size,
+                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
         // ply offsets
         std::vector<uint32_t> ply_offsets(60);
@@ -158,7 +152,7 @@ class SplatLoadThread::Impl {
         // read all binary data
         buffer_.resize(offset * point_count);
 
-        constexpr uint32_t chunk_size = 131072;
+        constexpr uint32_t chunk_size = 65536;
         for (uint32_t start = 0; start < point_count; start += chunk_size) {
           if (terminate_ || cancel_) break;
 
