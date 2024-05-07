@@ -25,8 +25,8 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
 
 ### Performance
 - NVidia GeForce RTX 4090, Windows
-  - garden.ply (30000 iters), 1600x900, 4xMSAA, ~230FPS with 3M visible splats. (2~3x faster than 3DGS.cpp)
-  - garden.ply (30000 iters), 1600x900, No MSAA, ~340FPS with 3M visible splats. (3~5x faster than 3DGS.cpp)
+  - garden.ply (30000 iters), 1600x900, 4xMSAA, ~230FPS with 3M visible splats. (2-3x faster than 3DGS.cpp)
+  - garden.ply (30000 iters), 1600x900, No MSAA, ~340FPS with 3M visible splats. (3-5x faster than 3DGS.cpp)
 - Apple M2 Pro
   - garden.ply (30000 iters), 3200x1800 (retina display), 4xMSAA, ~20FPS with 3M visible splats. 9.5ms (20%) sort, 42ms (80%) rendering.
   - garden.ply (30000 iters), 1600x900, 4xMSAA, ~29FPS with 3M visible splats. 9.5ms (27%) sort, 24.5ms (73%) rendering.
