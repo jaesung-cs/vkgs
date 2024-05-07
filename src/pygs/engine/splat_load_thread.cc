@@ -156,24 +156,23 @@ class SplatLoadThread::Impl {
         ply_offsets[59] = offset / 4;
 
         // read all binary data
-        {
-          buffer_.resize(offset * point_count);
+        buffer_.resize(offset * point_count);
 
-          constexpr uint32_t chunk_size = 131072;
-          for (uint32_t start = 0; start < point_count; start += chunk_size) {
-            if (terminate_ || cancel_) break;
+        constexpr uint32_t chunk_size = 131072;
+        for (uint32_t start = 0; start < point_count; start += chunk_size) {
+          if (terminate_ || cancel_) break;
 
-            auto chunk_point_count =
-                std::min<uint32_t>(chunk_size, point_count - start);
-            in.read(buffer_.data() + offset * start,
-                    offset * chunk_point_count);
+          auto chunk_point_count =
+              std::min<uint32_t>(chunk_size, point_count - start);
+          in.read(buffer_.data() + offset * start, offset * chunk_point_count);
 
-            {
-              std::unique_lock<std::mutex> guard{mutex_};
-              loaded_point_count_ = start + chunk_point_count;
-            }
+          {
+            std::unique_lock<std::mutex> guard{mutex_};
+            loaded_point_count_ = start + chunk_point_count;
           }
         }
+
+        if (terminate_) break;
 
         // copy to staging buffer
         {
