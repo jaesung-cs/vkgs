@@ -7,7 +7,8 @@ class RenderPass::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, VkSampleCountFlagBits samples) : context_(context) {
+  Impl(Context context, VkSampleCountFlagBits samples, VkFormat depth_format)
+      : context_(context) {
     std::vector<VkAttachmentDescription2> attachments;
     if (samples == VK_SAMPLE_COUNT_1_BIT) {
       attachments.resize(2);
@@ -22,7 +23,7 @@ class RenderPass::Impl {
       attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
       attachments[1] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
-      attachments[1].format = VK_FORMAT_D16_UNORM;
+      attachments[1].format = depth_format;
       attachments[1].samples = samples;
       attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -44,7 +45,7 @@ class RenderPass::Impl {
       attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
       attachments[1] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
-      attachments[1].format = VK_FORMAT_D16_UNORM;
+      attachments[1].format = depth_format;
       attachments[1].samples = samples;
       attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -141,8 +142,9 @@ class RenderPass::Impl {
 
 RenderPass::RenderPass() = default;
 
-RenderPass::RenderPass(Context context, VkSampleCountFlagBits samples)
-    : impl_(std::make_shared<Impl>(context, samples)) {}
+RenderPass::RenderPass(Context context, VkSampleCountFlagBits samples,
+                       VkFormat depth_format)
+    : impl_(std::make_shared<Impl>(context, samples, depth_format)) {}
 
 RenderPass::~RenderPass() = default;
 
