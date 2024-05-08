@@ -1,10 +1,10 @@
 # vkgs
 
-Gaussian splatting viewer.
+Gaussian splatting viewer written in Vulkan.
 
 Main goal of this project is maximizing rendering speed.
 
-Now that I achieved satisfactory performance with Vulkan-based viewer, I would like to catch my breath for the next steps, or stop further developments and start a new side project.
+Now that I achieved satisfactory performance with Vulkan-based viewer, I would like to catch my breath for the next steps, or stop further developments and start a new side project - compression, large scale, train, etc.
 
 
 ## Desktop Viewer
@@ -14,7 +14,7 @@ Now that I achieved satisfactory performance with Vulkan-based viewer, I would l
 Viewer works with pre-trained vanilla 3DGS models as input.
 
 
-### Highlights
+### Feature Highlights
 
 - Fast rendering speed
   - 300+ FPS on high-end GPU (NVidia GeForce RTX 4090)
@@ -178,6 +178,7 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
 
 - https://github.com/aras-p/UnityGaussianSplatting : Performance report, probably similar rendering pipeline
 - https://github.com/shg8/3DGS.cpp : Vulkan viewer, but tile-based rendering with compute shader.
+- https://github.com/dendenxu/fast-gaussian-rasterization : Very similar rendering approach. They used geometry shader, while I used storage buffer in fragment shader. Worth trying geometry shader.
 
 
 ### Notes
