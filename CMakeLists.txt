@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(pygs LANGUAGES C CXX)
+project(vkgs LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -42,25 +42,25 @@ function(add_shader)
   add_dependencies(${TARGET} ${OUTPUT})
 endfunction()
 
-# pygs
-add_library(pygs SHARED
-  src/pygs/scene/camera.cc
-  src/pygs/engine/engine.cc
-  src/pygs/engine/splat_load_thread.cc
-  src/pygs/engine/vulkan/attachment.cc
-  src/pygs/engine/vulkan/buffer.cc
-  src/pygs/engine/vulkan/compute_pipeline.cc
-  src/pygs/engine/vulkan/context.cc
-  src/pygs/engine/vulkan/cpu_buffer.cc
-  src/pygs/engine/vulkan/descriptor_layout.cc
-  src/pygs/engine/vulkan/descriptor.cc
-  src/pygs/engine/vulkan/framebuffer.cc
-  src/pygs/engine/vulkan/graphics_pipeline.cc
-  src/pygs/engine/vulkan/pipeline_layout.cc
-  src/pygs/engine/vulkan/render_pass.cc
-  src/pygs/engine/vulkan/swapchain.cc
-  src/pygs/engine/vulkan/uniform_buffer.cc
-  src/pygs/engine/vulkan/vma_impl.cc
+# vkgs
+add_library(vkgs SHARED
+  src/vkgs/scene/camera.cc
+  src/vkgs/engine/engine.cc
+  src/vkgs/engine/splat_load_thread.cc
+  src/vkgs/engine/vulkan/attachment.cc
+  src/vkgs/engine/vulkan/buffer.cc
+  src/vkgs/engine/vulkan/compute_pipeline.cc
+  src/vkgs/engine/vulkan/context.cc
+  src/vkgs/engine/vulkan/cpu_buffer.cc
+  src/vkgs/engine/vulkan/descriptor_layout.cc
+  src/vkgs/engine/vulkan/descriptor.cc
+  src/vkgs/engine/vulkan/framebuffer.cc
+  src/vkgs/engine/vulkan/graphics_pipeline.cc
+  src/vkgs/engine/vulkan/pipeline_layout.cc
+  src/vkgs/engine/vulkan/render_pass.cc
+  src/vkgs/engine/vulkan/swapchain.cc
+  src/vkgs/engine/vulkan/uniform_buffer.cc
+  src/vkgs/engine/vulkan/vma_impl.cc
   # imgui
   third_party/imgui/backends/imgui_impl_glfw.cpp
   third_party/imgui/backends/imgui_impl_vulkan.cpp
@@ -71,7 +71,7 @@ add_library(pygs SHARED
   third_party/imgui/imgui_widgets.cpp
 )
 
-target_include_directories(pygs
+target_include_directories(vkgs
   PUBLIC include
   PRIVATE
     src
@@ -79,23 +79,23 @@ target_include_directories(pygs
     third_party/imgui/backends
 )
 
-target_link_libraries(pygs
+target_link_libraries(vkgs
   PUBLIC glm
   PRIVATE Vulkan::Vulkan VulkanMemoryAllocator vk_radix_sort glfw
 )
 
-add_shader(pygs src/shader/color.vert color_vert)
-add_shader(pygs src/shader/color.frag color_frag)
-add_shader(pygs src/shader/inverse_index.comp inverse_index_comp)
-add_shader(pygs src/shader/parse_ply.comp parse_ply_comp)
-add_shader(pygs src/shader/projection.comp projection_comp)
-add_shader(pygs src/shader/rank.comp rank_comp)
-add_shader(pygs src/shader/splat.vert splat_vert)
-add_shader(pygs src/shader/splat.frag splat_frag)
+add_shader(vkgs src/shader/color.vert color_vert)
+add_shader(vkgs src/shader/color.frag color_frag)
+add_shader(vkgs src/shader/inverse_index.comp inverse_index_comp)
+add_shader(vkgs src/shader/parse_ply.comp parse_ply_comp)
+add_shader(vkgs src/shader/projection.comp projection_comp)
+add_shader(vkgs src/shader/rank.comp rank_comp)
+add_shader(vkgs src/shader/splat.vert splat_vert)
+add_shader(vkgs src/shader/splat.frag splat_frag)
 
 # executable
-add_executable(pygs_base examples/pygs_base.cc)
-target_link_libraries(pygs_base
-  PUBLIC pygs
+add_executable(vkgs_viewer examples/vkgs_viewer.cc)
+target_link_libraries(vkgs_viewer
+  PUBLIC vkgs
   PRIVATE argparse
 )

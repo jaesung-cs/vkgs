@@ -4,14 +4,14 @@
 #include <thread>
 #include <atomic>
 
-#include <pygs/engine/engine.h>
+#include <vkgs/engine/engine.h>
 
 namespace {
 
 std::thread thread;
 std::atomic_bool terminated = false;
 
-std::unique_ptr<pygs::Engine> engine;
+std::unique_ptr<vkgs::Engine> engine;
 
 void Show() {
   if (thread.joinable()) {
@@ -25,7 +25,7 @@ void Show() {
   }
 
   if (engine == nullptr) {
-    engine = std::make_unique<pygs::Engine>();
+    engine = std::make_unique<vkgs::Engine>();
   }
 
   thread = std::thread([] {

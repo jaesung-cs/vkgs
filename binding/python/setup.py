@@ -24,7 +24,7 @@ ext_modules = [
             os.path.join(root, "build", "Release"),
         ],
         libraries=[
-            "pygs",
+            "vkgs",
         ],
         runtime_library_dirs=runtime_library_dirs,
         cxx_std=17,

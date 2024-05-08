@@ -1,11 +1,8 @@
-# pygs
+# vkgs
 
 Gaussian splatting viewer.
 
 Main goal of this project is maximizing rendering speed.
-
-My original plan was to develop a python interface (that's why I named the project `pygs`),
-but it will require a lot of efforts.
 
 Now that I achieved satisfactory performance with Vulkan-based viewer, I would like to catch my breath for the next steps, or stop further developments and start a new side project.
 
@@ -60,8 +57,8 @@ $ cmake --build build --config Release -j
 
 ### Run
 ```bash
-$ ./build/pygs_base  # or ./build/Release/pygs_base
-$ ./build/pygs_base -i <ply_filepath>
+$ ./build/vkgs_viewer  # or ./build/Release/vkgs_viewer
+$ ./build/vkgs_viewer -i <ply_filepath>
 ```
 Drag and drop pretrained .ply file from [official gaussian splatting](https://github.com/graphdeco-inria/gaussian-splatting), Pre-trained Models (14 GB).
 
@@ -196,7 +193,7 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
 - Directly updating to vulkan-cuda mapped memory in kernel is slower than memcpy (3.2ms vs. 1ms for 1600x900 rgba32 image). Regardlessly, it is better to manipulate swapchain image only in Vulkan. 1ms of copy cost is too much.
 
 
-## Python and CUDA (WIP)
+## pygs: Python Binding (WIP)
 
 GUI is created in an off thread.
 According to GLFW documentation, the user should create window in main thread.
