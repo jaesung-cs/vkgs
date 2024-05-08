@@ -23,7 +23,7 @@ Viewer works with pre-trained vanilla 3DGS models as input.
 - Using graphics pipeline
   - Draw gaussian splats over other opaque objects, interacting with depth buffer
 - 100% GPU tasks
-  - No CPU-GPU synchronization: while GPU is working on frame i, CPU prepares a commands buffer and submits for frame i+1.
+  - No CPU-GPU synchronization for single frame: while GPU is working on frame i, CPU prepares a commands buffer and submits for frame i+1. No synchronization for frame i to get number of visible splats.
   - Indirect sort & draw: sorting and rendering only visible points
   - My vulkan radix sort implementation
 
