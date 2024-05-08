@@ -7,7 +7,7 @@ Main goal of this project is maximizing rendering speed.
 My original plan was to develop a python interface (that's why I named the project `pygs`),
 but it will require a lot of efforts.
 
-Now that I achieved satisfactory performance with Vulkan-based viewer, I would like to my breath for the next steps.
+Now that I achieved satisfactory performance with Vulkan-based viewer, I would like to catch my breath for the next steps, or stop further developments and start a new side project.
 
 
 ## Desktop Viewer
