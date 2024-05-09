@@ -36,13 +36,13 @@ layout(std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
   uint firstIndex;
   int vertexOffset;
   uint firstInstance;
-  /*
-  union for draw indirect
-  uint32_t    vertexCount;
-  uint32_t    instanceCount;
-  uint32_t    firstVertex;
-  uint32_t    firstInstance;
-  */
+  uint pad[3];
+
+  // draw indirect
+  uint vertexCount1;
+  uint instanceCount1;
+  uint firstVertex1;
+  uint firstInstance1;
 };
 
 layout(std430, set = 2, binding = 1) writeonly buffer Instances {
@@ -63,12 +63,16 @@ void main() {
   if (id >= point_count) return;
 
   if (id == 0) {
-    // indexCount = 6 * visible_point_count;
-    indexCount = visible_point_count;
+    indexCount = 6 * visible_point_count;
     instanceCount = 1;
     firstIndex = 0;
     vertexOffset = 0;
     firstInstance = 0;
+
+    vertexCount1 = visible_point_count;
+    instanceCount1 = 1;
+    firstVertex1 = 0;
+    firstInstance1 = 0;
   }
 
   int inverse_id = inverse_map[id];

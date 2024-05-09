@@ -103,6 +103,12 @@ class Engine::Impl {
     }
   }
 
+ private:
+  enum class SplatRenderMode {
+    Instance,
+    GeometryShader,
+  };
+
  public:
   Impl() {
     if (glfwInit() == GLFW_FALSE)
@@ -490,7 +496,7 @@ class Engine::Impl {
         context_, sizeof(uint32_t),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-    splat_draw_indirect_ = vk::Buffer(context_, 5 * sizeof(uint32_t),
+    splat_draw_indirect_ = vk::Buffer(context_, 12 * sizeof(uint32_t),
                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 
@@ -1050,6 +1056,26 @@ class Engine::Impl {
           depth_format_changed |= ImGui::RadioButton("U16", &depth_format, 0);
           ImGui::SameLine();
           depth_format_changed |= ImGui::RadioButton("F32", &depth_format, 1);
+
+          static int draw_method = 0;
+          ImGui::Text("Draw method");
+          ImGui::SameLine();
+          ImGui::RadioButton("Instance", &draw_method, 0);
+          ImGui::SameLine();
+          ImGui::RadioButton("Geom Shader", &draw_method, 1);
+
+          switch (draw_method) {
+            case 0:
+              splat_render_mode_ = SplatRenderMode::Instance;
+              break;
+
+            case 1:
+              splat_render_mode_ = SplatRenderMode::GeometryShader;
+              break;
+
+            default:
+              break;
+          }
 
           ImGui::Checkbox("Axis", &show_axis_);
           ImGui::SameLine();
@@ -1788,23 +1814,29 @@ class Engine::Impl {
 
     // draw splat
     if (loaded_point_count_ != 0) {
-      /*
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        splat_pipelines_[{samples_, depth_format_}]);
+      switch (splat_render_mode_) {
+        case SplatRenderMode::Instance: {
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipelines_[{samples_, depth_format_}]);
 
-      vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
+          vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0,
+                               VK_INDEX_TYPE_UINT32);
 
-      vkCmdDrawIndexedIndirect(cb, splat_draw_indirect_, 0, 1, 0);
-      */
+          vkCmdDrawIndexedIndirect(cb, splat_draw_indirect_, 0, 1, 0);
+        } break;
 
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        splat_geom_pipelines_[{samples_, depth_format_}]);
+        case SplatRenderMode::GeometryShader: {
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_geom_pipelines_[{samples_, depth_format_}]);
 
-      std::vector<VkBuffer> vbs = {splat_storage_.instance};
-      std::vector<VkDeviceSize> vb_offsets = {0};
-      vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(), vb_offsets.data());
+          std::vector<VkBuffer> vbs = {splat_storage_.instance};
+          std::vector<VkDeviceSize> vb_offsets = {0};
+          vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                                 vb_offsets.data());
 
-      vkCmdDrawIndirect(cb, splat_draw_indirect_, 0, 1, 0);
+          vkCmdDrawIndirect(cb, splat_draw_indirect_, sizeof(float) * 8, 1, 0);
+        } break;
+      }
     }
 
     // draw ui
@@ -1854,6 +1886,7 @@ class Engine::Impl {
 
   VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
   VkFormat depth_format_ = VK_FORMAT_D32_SFLOAT;
+  SplatRenderMode splat_render_mode_ = SplatRenderMode::Instance;
 
   Camera camera_;
 
