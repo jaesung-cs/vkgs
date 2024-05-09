@@ -17,9 +17,11 @@ Viewer works with pre-trained vanilla 3DGS models as input.
 ### Feature Highlights
 
 - Fast rendering speed
-  - 300+ FPS on high-end GPU (NVidia GeForce RTX 4090)
-  - 50+ FPS on high-end MacOS laptop (Apple M2 Pro)
-  - 1-1.5x speed compared to SIBR viewer, but difference becomes bigger when scene is zoomed out.
+  - 350+ FPS on 1600x900, high-end GPU (NVidia GeForce RTX 4090)
+  - 50+ FPS on 1600x900, high-end MacOS laptop (Apple M2 Pro)
+  - 1-1.5x speed compared to SIBR viewer, but difference becomes bigger when scene is zoomed out,
+    - because the number of tiles increases, and
+    - more splats overlap in a single tile, so sequential blending operation takes more time
 - Using graphics pipeline
   - Draw gaussian splats over other opaque objects, interacting with depth buffer
 - 100% GPU tasks
@@ -107,10 +109,10 @@ Ctrl+wheel to change FOV.
     |--|--|--|--|--|
     | view 1 | 1.5M | 1280x720 | NO | 530 |
     | view 1 | 1.5M | 1600x900 | NO | 500 |
-    | view 2 | 2M | 1280x720 | NO | 470 |
-    | view 2 | 2M | 1600x900 | NO | 430 |
-    | view 3 | 3M | 1280x720 | NO | 370 |
-    | view 3 | 3M | 1600x900 | NO | 340 |
+    | view 2 |   2M | 1280x720 | NO | 470 |
+    | view 2 |   2M | 1600x900 | NO | 430 |
+    | view 3 |   3M | 1280x720 | NO | 370 |
+    | view 3 |   3M | 1600x900 | NO | 340 |
 
   - No MSAA gives huge FPS boost, without any quality loss. MSAA only affects opaque objects other than splats, such axes and grid.
   - View number is different from camera index in model json. I just randomly posed camera.
@@ -166,7 +168,7 @@ One of benefits of using graphics pipeline rather than compute pipeline is that 
     - This is for sequential memory access pattern in the next step.
 1. (COMPUTE) projection
     - Calculate 3D-to-2D gaussian splat projection, and color using spherical harmonics.
-    - Memory access might be bottleneck. Using F16 Spherical Harmonics might increase rendering speed.
+    - Using F16 Spherical Harmonics increased rendering speed.
 1. (GRAPHICS) rendering
     - Simply draw 2D guassian quads.
     - Speed up with indirect rendering, issuing only visible splats to draw command, reducing the number of shader invocations.
@@ -184,7 +186,7 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
 
 - https://github.com/aras-p/UnityGaussianSplatting : Performance report, probably similar rendering pipeline
 - https://github.com/shg8/3DGS.cpp : Vulkan viewer, but tile-based rendering with compute shader.
-- https://github.com/dendenxu/fast-gaussian-rasterization : Very similar rendering approach. They used geometry shader, while I used storage buffer in fragment shader. Worth trying geometry shader.
+- https://github.com/dendenxu/fast-gaussian-rasterization : Very similar rendering approach. They used geometry shader, while I used storage buffer in vertex shader to save memory.
 
 
 ### Notes
