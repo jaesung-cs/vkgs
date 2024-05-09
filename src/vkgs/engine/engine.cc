@@ -352,7 +352,7 @@ class Engine::Impl {
     }
 
     // splat geom pipeline
-    {
+    if (context_.geometry_shader_available()) {
       std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
           1);
       color_blend_attachments[0] = {};
@@ -1062,7 +1062,11 @@ class Engine::Impl {
           ImGui::SameLine();
           ImGui::RadioButton("Instance", &draw_method, 0);
           ImGui::SameLine();
+
+          // clickable only when geometry shader is available
+          ImGui::BeginDisabled(!context_.geometry_shader_available());
           ImGui::RadioButton("Geom Shader", &draw_method, 1);
+          ImGui::EndDisabled();
 
           switch (draw_method) {
             case 0:

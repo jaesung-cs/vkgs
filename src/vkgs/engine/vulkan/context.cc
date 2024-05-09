@@ -264,6 +264,8 @@ class Context::Impl {
     vkGetDeviceQueue(device_, transfer_queue_family_index_, 0,
                      &transfer_queue_);
 
+    geometry_shader_available_ = features.features.geometryShader;
+
     // extensions
     GetMemoryFdKHR_ =
         (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryFdKHR");
@@ -367,6 +369,10 @@ class Context::Impl {
   VkDescriptorPool descriptor_pool() const noexcept { return descriptor_pool_; }
   VkPipelineCache pipeline_cache() const noexcept { return pipeline_cache_; }
 
+  bool geometry_shader_available() const noexcept {
+    return geometry_shader_available_;
+  }
+
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd) {
     if (GetMemoryFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
     return GetMemoryFdKHR_(device_, pGetFdInfo, pFd);
@@ -409,6 +415,8 @@ class Context::Impl {
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
   VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
+
+  bool geometry_shader_available_ = false;
 
   std::string device_name_;
 
@@ -458,6 +466,10 @@ VkDescriptorPool Context::descriptor_pool() const {
 
 VkPipelineCache Context::pipeline_cache() const {
   return impl_->pipeline_cache();
+}
+
+bool Context::geometry_shader_available() const {
+  return impl_->geometry_shader_available();
 }
 
 VkResult Context::GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo,
