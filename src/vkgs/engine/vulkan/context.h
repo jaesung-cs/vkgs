@@ -41,6 +41,8 @@ class Context {
   VkDescriptorPool descriptor_pool() const;
   VkPipelineCache pipeline_cache() const;
 
+  bool geometry_shader_available() const;
+
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
   VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
                              int* pFd);

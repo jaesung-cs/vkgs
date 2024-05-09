@@ -77,6 +77,10 @@ Ctrl+wheel to change FOV.
 
 ### Performance Test
 
+- Added SH F16 storage feature: ~20% speed boost on NVidia GeFroce RTX 4090, ~10% speed boost on macbook.
+
+- Tested geometry shader: 0-3% speed decrease with geometry shader.
+
 - FPS may vary depending on splat scale, splat distribution, etc.
 
 - NVidia GeForce RTX 4090, Windows
@@ -111,6 +115,7 @@ Ctrl+wheel to change FOV.
   - No MSAA gives huge FPS boost, without any quality loss. MSAA only affects opaque objects other than splats, such axes and grid.
   - View number is different from camera index in model json. I just randomly posed camera.
   - Small models such as `bonsai.ply`: 800~1000 FPS.
+  - Rendering quads are slightly (0-3%) faster than rendering with geometry shader.
 
 - Apple M2 Pro
   - MacOS is not my main target environment, but to just give some brief idea about rendering speed:
@@ -142,6 +147,7 @@ Ctrl+wheel to change FOV.
     | view 3 |   3M | 3200x1800 | NO | 34 |
 
   - `bonsai.ply`: 120FPS at 1600x900. 100FPS at 3200x1800.
+  - Geometry shader is not available. (`VkPhysicalDeviceFeatures::geometryShader = false`)
 
 
 ### Rendering Algorithm Details
@@ -192,6 +198,10 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
     ![](/media/depth_resolve.jpg)
 
 - Directly updating to vulkan-cuda mapped memory in kernel is slower than memcpy (3.2ms vs. 1ms for 1600x900 rgba32 image). Regardlessly, it is better to manipulate swapchain image only in Vulkan. 1ms of copy cost is too much.
+
+- Rendering triangle list is 0-3% faster than geometry shader. Also, geometry shader is not available in MacOS Metal/MoltenVK. Rendering triangle list is better choice.
+
+- Using SH F16 storage increases speed by 20% on NVidia Geforce RTX 4090, 10% on Apple M2 Pro.
 
 
 ## pygs: Python Binding (WIP)

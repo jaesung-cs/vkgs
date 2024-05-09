@@ -92,6 +92,8 @@ add_shader(vkgs src/shader/projection.comp projection_comp)
 add_shader(vkgs src/shader/rank.comp rank_comp)
 add_shader(vkgs src/shader/splat.vert splat_vert)
 add_shader(vkgs src/shader/splat.frag splat_frag)
+add_shader(vkgs src/shader/splat_geom.vert splat_geom_vert)
+add_shader(vkgs src/shader/splat_geom.geom splat_geom_geom)
 
 # executable
 add_executable(vkgs_viewer examples/vkgs_viewer.cc)

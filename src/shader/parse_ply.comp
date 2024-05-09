@@ -1,5 +1,7 @@
 #version 460 core
 
+#extension GL_EXT_shader_16bit_storage : require
+
 layout (local_size_x = 256) in;
 
 layout (set = 1, binding = 0) uniform Info {
@@ -19,7 +21,7 @@ layout (std430, set = 1, binding = 3) writeonly buffer GaussianOpacity {
 };
 
 layout (std430, set = 1, binding = 4) writeonly buffer GaussianSh {
-  float gaussian_sh[];  // (N, 3, 4, 4), 16 values packed with 4 vec4.
+  float16_t gaussian_sh[];  // (N, 3, 4, 4), 16 values packed with 4 vec4.
 };
 
 layout (std430, set = 3, binding = 0) readonly buffer GaussianPly {
@@ -90,7 +92,7 @@ void main() {
 
     #pragma unroll
     for (int i = 0; i < 48; ++i) {
-      gaussian_sh[48 * id + i] = ply[base * id + local_offsets[10 + i]];
+      gaussian_sh[48 * id + i] = float16_t(ply[base * id + local_offsets[10 + i]]);
     }
     
     gaussian_opacity[id] = sigmoid(ply[base * id + local_offsets[58]]);

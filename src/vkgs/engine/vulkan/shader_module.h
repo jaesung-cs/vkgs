@@ -23,6 +23,8 @@ class ShaderSource {
     return *this;
   }
 
+  operator bool() const noexcept { return size_ != 0; }
+
   // byte size
   VkDeviceSize size() const noexcept { return size_; }
   const uint32_t* data() const noexcept { return source_; }
