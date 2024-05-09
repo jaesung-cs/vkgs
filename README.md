@@ -77,6 +77,10 @@ Ctrl+wheel to change FOV.
 
 ### Performance Test
 
+- Added SH F16 storage feature: ~20% speed boost on NVidia GeFroce RTX 4090, ~10% speed boost on macbook.
+
+- Tested geometry shader: 0-3% speed decrease with geometry shader.
+
 - FPS may vary depending on splat scale, splat distribution, etc.
 
 - NVidia GeForce RTX 4090, Windows
@@ -196,6 +200,8 @@ So I've implemented reduce-then-scan radix sort. No big performance difference e
 - Directly updating to vulkan-cuda mapped memory in kernel is slower than memcpy (3.2ms vs. 1ms for 1600x900 rgba32 image). Regardlessly, it is better to manipulate swapchain image only in Vulkan. 1ms of copy cost is too much.
 
 - Rendering triangle list is 0-3% faster than geometry shader. Also, geometry shader is not available in MacOS Metal/MoltenVK. Rendering triangle list is better choice.
+
+- Using SH F16 storage increases speed by 20% on NVidia Geforce RTX 4090, 10% on Apple M2 Pro.
 
 
 ## pygs: Python Binding (WIP)
