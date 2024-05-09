@@ -15,6 +15,7 @@ class GraphicsPipeline::Impl {
 
     VkShaderModule vertex_module;
     VkShaderModule fragment_module;
+    VkShaderModule geometry_module = VK_NULL_HANDLE;
 
     VkShaderModuleCreateInfo shader_info = {
         VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
@@ -36,6 +37,18 @@ class GraphicsPipeline::Impl {
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     stages[1].module = fragment_module;
     stages[1].pName = "main";
+
+    if (create_info.geometry_shader) {
+      shader_info.codeSize = create_info.geometry_shader.size();
+      shader_info.pCode = create_info.geometry_shader.data();
+      vkCreateShaderModule(device, &shader_info, NULL, &geometry_module);
+
+      stages.resize(3);
+      stages[2] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+      stages[2].stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+      stages[2].module = geometry_module;
+      stages[2].pName = "main";
+    }
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -108,6 +121,7 @@ class GraphicsPipeline::Impl {
 
     vkDestroyShaderModule(device, vertex_module, NULL);
     vkDestroyShaderModule(device, fragment_module, NULL);
+    if (geometry_module) vkDestroyShaderModule(device, geometry_module, NULL);
   }
 
   ~Impl() { vkDestroyPipeline(context_.device(), pipeline_, NULL); }

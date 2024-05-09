@@ -19,6 +19,7 @@ struct GraphicsPipelineCreateInfo {
   uint32_t subpass = 0;
   VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
   ShaderSource vertex_shader;
+  ShaderSource geometry_shader;
   ShaderSource fragment_shader;
   VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   std::vector<VkVertexInputBindingDescription> input_bindings;

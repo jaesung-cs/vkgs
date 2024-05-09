@@ -47,6 +47,8 @@
 #include "generated/inverse_index_comp.h"
 #include "generated/splat_vert.h"
 #include "generated/splat_frag.h"
+#include "generated/splat_geom_vert.h"
+#include "generated/splat_geom_geom.h"
 #include "generated/color_vert.h"
 #include "generated/color_frag.h"
 
@@ -100,6 +102,12 @@ class Engine::Impl {
       }
     }
   }
+
+ private:
+  enum class SplatRenderMode {
+    TriangleList,
+    GeometryShader,
+  };
 
  public:
   Impl() {
@@ -343,6 +351,66 @@ class Engine::Impl {
       }
     }
 
+    // splat geom pipeline
+    if (context_.geometry_shader_available()) {
+      std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(
+          1);
+      color_blend_attachments[0] = {};
+      color_blend_attachments[0].blendEnable = VK_TRUE;
+      color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+      color_blend_attachments[0].colorWriteMask =
+          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+      std::vector<VkVertexInputBindingDescription> input_bindings(1);
+      input_bindings[0].binding = 0;
+      input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      input_bindings[0].stride = sizeof(float) * 10;
+
+      std::vector<VkVertexInputAttributeDescription> input_attributes(3);
+      input_attributes[0].location = 0;
+      input_attributes[0].binding = 0;
+      input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[0].offset = 0;
+
+      input_attributes[1].location = 1;
+      input_attributes[1].binding = 0;
+      input_attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[1].offset = sizeof(float) * 3;
+
+      input_attributes[2].location = 2;
+      input_attributes[2].binding = 0;
+      input_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[2].offset = sizeof(float) * 6;
+
+      vk::GraphicsPipelineCreateInfo pipeline_info = {};
+      pipeline_info.layout = graphics_pipeline_layout_;
+      pipeline_info.vertex_shader = splat_geom_vert;
+      pipeline_info.geometry_shader = splat_geom_geom;
+      pipeline_info.fragment_shader = splat_frag;
+      pipeline_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+      pipeline_info.depth_test = true;
+      pipeline_info.depth_write = false;
+      pipeline_info.input_bindings = std::move(input_bindings);
+      pipeline_info.input_attributes = std::move(input_attributes);
+      pipeline_info.color_blend_attachments =
+          std::move(color_blend_attachments);
+
+      for (const auto& key : render_pass_keys) {
+        pipeline_info.render_pass = render_passes_[key];
+        pipeline_info.samples = key.samples;
+        splat_geom_pipelines_[key] =
+            vk::GraphicsPipeline(context_, pipeline_info);
+      }
+    }
+
     // color pipeline
     {
       std::vector<VkVertexInputBindingDescription> input_bindings(2);
@@ -428,7 +496,7 @@ class Engine::Impl {
         context_, sizeof(uint32_t),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-    splat_draw_indirect_ = vk::Buffer(context_, 5 * sizeof(uint32_t),
+    splat_draw_indirect_ = vk::Buffer(context_, 12 * sizeof(uint32_t),
                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 
@@ -988,6 +1056,30 @@ class Engine::Impl {
           depth_format_changed |= ImGui::RadioButton("U16", &depth_format, 0);
           ImGui::SameLine();
           depth_format_changed |= ImGui::RadioButton("F32", &depth_format, 1);
+
+          static int draw_method = 0;
+          ImGui::Text("Draw method");
+          ImGui::SameLine();
+          ImGui::RadioButton("Triangles", &draw_method, 0);
+          ImGui::SameLine();
+
+          // clickable only when geometry shader is available
+          ImGui::BeginDisabled(!context_.geometry_shader_available());
+          ImGui::RadioButton("Geom Shader", &draw_method, 1);
+          ImGui::EndDisabled();
+
+          switch (draw_method) {
+            case 0:
+              splat_render_mode_ = SplatRenderMode::TriangleList;
+              break;
+
+            case 1:
+              splat_render_mode_ = SplatRenderMode::GeometryShader;
+              break;
+
+            default:
+              break;
+          }
 
           ImGui::Checkbox("Axis", &show_axis_);
           ImGui::SameLine();
@@ -1726,12 +1818,29 @@ class Engine::Impl {
 
     // draw splat
     if (loaded_point_count_ != 0) {
-      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        splat_pipelines_[{samples_, depth_format_}]);
+      switch (splat_render_mode_) {
+        case SplatRenderMode::TriangleList: {
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_pipelines_[{samples_, depth_format_}]);
 
-      vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0, VK_INDEX_TYPE_UINT32);
+          vkCmdBindIndexBuffer(cb, splat_index_buffer_, 0,
+                               VK_INDEX_TYPE_UINT32);
 
-      vkCmdDrawIndexedIndirect(cb, splat_draw_indirect_, 0, 1, 0);
+          vkCmdDrawIndexedIndirect(cb, splat_draw_indirect_, 0, 1, 0);
+        } break;
+
+        case SplatRenderMode::GeometryShader: {
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            splat_geom_pipelines_[{samples_, depth_format_}]);
+
+          std::vector<VkBuffer> vbs = {splat_storage_.instance};
+          std::vector<VkDeviceSize> vb_offsets = {0};
+          vkCmdBindVertexBuffers(cb, 0, vbs.size(), vbs.data(),
+                                 vb_offsets.data());
+
+          vkCmdDrawIndirect(cb, splat_draw_indirect_, sizeof(float) * 8, 1, 0);
+        } break;
+      }
     }
 
     // draw ui
@@ -1781,6 +1890,7 @@ class Engine::Impl {
 
   VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
   VkFormat depth_format_ = VK_FORMAT_D32_SFLOAT;
+  SplatRenderMode splat_render_mode_ = SplatRenderMode::TriangleList;
 
   Camera camera_;
 
@@ -1814,6 +1924,7 @@ class Engine::Impl {
   std::map<RenderPassKey, vk::RenderPass> render_passes_;
   std::map<RenderPassKey, vk::GraphicsPipeline> color_line_pipelines_;
   std::map<RenderPassKey, vk::GraphicsPipeline> splat_pipelines_;
+  std::map<RenderPassKey, vk::GraphicsPipeline> splat_geom_pipelines_;
 
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
