@@ -105,7 +105,7 @@ class Engine::Impl {
 
  private:
   enum class SplatRenderMode {
-    Instance,
+    TriangleList,
     GeometryShader,
   };
 
@@ -1060,7 +1060,7 @@ class Engine::Impl {
           static int draw_method = 0;
           ImGui::Text("Draw method");
           ImGui::SameLine();
-          ImGui::RadioButton("Instance", &draw_method, 0);
+          ImGui::RadioButton("Triangles", &draw_method, 0);
           ImGui::SameLine();
 
           // clickable only when geometry shader is available
@@ -1070,7 +1070,7 @@ class Engine::Impl {
 
           switch (draw_method) {
             case 0:
-              splat_render_mode_ = SplatRenderMode::Instance;
+              splat_render_mode_ = SplatRenderMode::TriangleList;
               break;
 
             case 1:
@@ -1819,7 +1819,7 @@ class Engine::Impl {
     // draw splat
     if (loaded_point_count_ != 0) {
       switch (splat_render_mode_) {
-        case SplatRenderMode::Instance: {
+        case SplatRenderMode::TriangleList: {
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             splat_pipelines_[{samples_, depth_format_}]);
 
@@ -1890,7 +1890,7 @@ class Engine::Impl {
 
   VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
   VkFormat depth_format_ = VK_FORMAT_D32_SFLOAT;
-  SplatRenderMode splat_render_mode_ = SplatRenderMode::Instance;
+  SplatRenderMode splat_render_mode_ = SplatRenderMode::TriangleList;
 
   Camera camera_;
 
