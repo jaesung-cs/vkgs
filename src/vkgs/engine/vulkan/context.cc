@@ -192,8 +192,12 @@ class Context::Impl {
     }
 
     // features
+    VkPhysicalDevice16BitStorageFeatures k16bit_storage_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+    timeline_semaphore_features.pNext = &k16bit_storage_features;
 
     VkPhysicalDeviceImagelessFramebufferFeatures imageless_framebuffer_feature =
         {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
