@@ -192,8 +192,12 @@ class Context::Impl {
     }
 
     // features
+    VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features =
+        {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+
     VkPhysicalDevice16BitStorageFeatures k16bit_storage_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+    k16bit_storage_features.pNext = &buffer_device_address_features;
 
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
@@ -286,6 +290,7 @@ class Context::Impl {
 #endif
 
     VmaAllocatorCreateInfo allocator_info = {};
+    allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
     allocator_info.physicalDevice = physical_device_;
     allocator_info.device = device_;
     allocator_info.instance = instance_;
