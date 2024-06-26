@@ -576,10 +576,12 @@ class Engine::Impl {
 
       splat_storage_.key =
           vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
       splat_storage_.index =
           vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
       splat_storage_.inverse_index =
           vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -608,7 +610,6 @@ class Engine::Impl {
       sorter_info.sorterLayout = sorter_layout_;
       sorter_info.allocator = context_.allocator();
       sorter_info.maxElementCount = MAX_SPLAT_COUNT;
-      sorter_info.maxCommandsInFlight = 2;
       vrdxCreateSorter(&sorter_info, &sorter_);
     }
 
@@ -1313,7 +1314,7 @@ class Engine::Impl {
                              VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
                              glm::value_ptr(model));
 
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
                               timestamp_query_pool, 1);
 
           constexpr int local_size = 256;
@@ -1324,7 +1325,7 @@ class Engine::Impl {
                               timestamp_query_pool, 2);
         }
 
-        // visible point count to CPU
+        // make visiblePointCount available for next transfer commands
         {
           barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
           barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1332,7 +1333,10 @@ class Engine::Impl {
           vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
                                0, NULL, 0, NULL);
+        }
 
+        // visible point count to CPU
+        {
           VkBufferCopy region = {};
           region.srcOffset = 0;
           region.dstOffset = sizeof(uint32_t) * frame_index;
@@ -1343,20 +1347,12 @@ class Engine::Impl {
 
         // radix sort
         {
-          barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-          barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-          barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-          vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                               &barrier, 0, NULL, 0, NULL);
-
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
                               timestamp_query_pool, 3);
 
-          vrdxCmdSortKeyValueIndirect(
-              cb, sorter_, VRDX_SORT_METHOD_REDUCE_THEN_SCAN,
-              splat_visible_point_count_, 0, splat_storage_.key, 0,
-              splat_storage_.index, 0, NULL, 0);
+          vrdxCmdSortKeyValueIndirect(cb, sorter_, splat_visible_point_count_,
+                                      0, splat_storage_.key, 0,
+                                      splat_storage_.index, 0, NULL, 0);
 
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                               timestamp_query_pool, 4);
@@ -1455,8 +1451,14 @@ class Engine::Impl {
         }
         frame_info.drew_splats = true;
       } else {
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                            timestamp_query_pool, 9);
+
         DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(),
                        swapchain_.image_view(image_index));
+
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+                            timestamp_query_pool, 10);
         frame_info.drew_splats = false;
       }
 
