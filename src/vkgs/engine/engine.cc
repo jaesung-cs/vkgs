@@ -600,17 +600,18 @@ class Engine::Impl {
 
     {
       // create sorter
-      VrdxSorterLayoutCreateInfo sorter_layout_info = {};
-      sorter_layout_info.physicalDevice = context_.physical_device();
-      sorter_layout_info.device = context_.device();
-      sorter_layout_info.pipelineCache = context_.pipeline_cache();
-      vrdxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
-
       VrdxSorterCreateInfo sorter_info = {};
-      sorter_info.sorterLayout = sorter_layout_;
-      sorter_info.allocator = context_.allocator();
-      sorter_info.maxElementCount = MAX_SPLAT_COUNT;
+      sorter_info.physicalDevice = context_.physical_device();
+      sorter_info.device = context_.device();
+      sorter_info.pipelineCache = context_.pipeline_cache();
       vrdxCreateSorter(&sorter_info, &sorter_);
+
+      // preallocate sorter storage
+      VrdxSorterStorageRequirements requirements;
+      vrdxGetSorterKeyValueStorageRequirements(sorter_, MAX_SPLAT_COUNT,
+                                               &requirements);
+      sort_storage_ =
+          vk::Buffer(context_, requirements.size, requirements.usage);
     }
 
     PreparePrimitives();
@@ -627,7 +628,6 @@ class Engine::Impl {
     vkDeviceWaitIdle(context_.device());
 
     vrdxDestroySorter(sorter_);
-    vrdxDestroySorterLayout(sorter_layout_);
 
     for (auto semaphore : image_acquired_semaphores_)
       vkDestroySemaphore(context_.device(), semaphore, NULL);
@@ -1350,9 +1350,10 @@ class Engine::Impl {
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
                               timestamp_query_pool, 3);
 
-          vrdxCmdSortKeyValueIndirect(cb, sorter_, splat_visible_point_count_,
-                                      0, splat_storage_.key, 0,
-                                      splat_storage_.index, 0, NULL, 0);
+          vrdxCmdSortKeyValueIndirect(
+              cb, sorter_, loaded_point_count_, splat_visible_point_count_, 0,
+              splat_storage_.key, 0, splat_storage_.index, 0, sort_storage_, 0,
+              NULL, 0);
 
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                               timestamp_query_pool, 4);
@@ -1752,7 +1753,6 @@ class Engine::Impl {
   vk::ComputePipeline projection_pipeline_;
 
   // sorter
-  VrdxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
   VrdxSorter sorter_ = VK_NULL_HANDLE;
 
   // normal pass
@@ -1816,6 +1816,7 @@ class Engine::Impl {
     vk::Buffer instance;  // (N, 10)
   };
   SplatStorage splat_storage_;
+  vk::Buffer sort_storage_;
   static constexpr uint32_t MAX_SPLAT_COUNT = 1 << 23;  // 2^23
   // 2^23 * 3 * 16 * sizeof(float) is already 1.6GB.
 
