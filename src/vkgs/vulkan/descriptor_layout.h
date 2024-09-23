@@ -1,11 +1,11 @@
-#ifndef VKGS_ENGINE_VULKAN_DESCRIPTOR_LAYOUT_H
-#define VKGS_ENGINE_VULKAN_DESCRIPTOR_LAYOUT_H
+#ifndef VKGS_VULKAN_DESCRIPTOR_LAYOUT_H
+#define VKGS_VULKAN_DESCRIPTOR_LAYOUT_H
 
 #include <memory>
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
+#include "vkgs/vulkan/context.h"
 
 namespace vkgs {
 namespace vk {
@@ -39,4 +39,4 @@ class DescriptorLayout {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_DESCRIPTOR_LAYOUT_H
+#endif  // VKGS_VULKAN_DESCRIPTOR_LAYOUT_H

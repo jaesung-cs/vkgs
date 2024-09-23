@@ -7,8 +7,8 @@
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
-#include "vkgs/engine/vulkan/buffer.h"
+#include "vkgs/vulkan/context.h"
+#include "vkgs/vulkan/buffer.h"
 
 namespace vkgs {
 

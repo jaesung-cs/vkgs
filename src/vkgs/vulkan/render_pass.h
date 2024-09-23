@@ -1,11 +1,11 @@
-#ifndef VKGS_ENGINE_VULKAN_RENDER_PASS_H
-#define VKGS_ENGINE_VULKAN_RENDER_PASS_H
+#ifndef VKGS_VULKAN_RENDER_PASS_H
+#define VKGS_VULKAN_RENDER_PASS_H
 
 #include <memory>
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
+#include "vkgs/vulkan/context.h"
 
 namespace vkgs {
 namespace vk {
@@ -34,4 +34,4 @@ class RenderPass {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_RENDER_PASS_H
+#endif  // VKGS_VULKAN_RENDER_PASS_H

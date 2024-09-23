@@ -1,4 +1,4 @@
-#include "vkgs/engine/vulkan/buffer.h"
+#include "vkgs/vulkan/buffer.h"
 
 #include <cstring>
 

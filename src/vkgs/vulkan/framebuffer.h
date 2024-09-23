@@ -1,12 +1,12 @@
-#ifndef VKGS_ENGINE_VULKAN_FRAMEBUFFER_H
-#define VKGS_ENGINE_VULKAN_FRAMEBUFFER_H
+#ifndef VKGS_VULKAN_FRAMEBUFFER_H
+#define VKGS_VULKAN_FRAMEBUFFER_H
 
 #include <memory>
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
-#include "vkgs/engine/vulkan/image_spec.h"
+#include "vkgs/vulkan/context.h"
+#include "vkgs/vulkan/image_spec.h"
 
 namespace vkgs {
 namespace vk {
@@ -36,4 +36,4 @@ class Framebuffer {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_FRAMEBUFFER_H
+#endif  // VKGS_VULKAN_FRAMEBUFFER_H

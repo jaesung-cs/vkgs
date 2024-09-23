@@ -1,5 +1,5 @@
-#ifndef VKGS_ENGINE_VULKAN_CONTEXT_H
-#define VKGS_ENGINE_VULKAN_CONTEXT_H
+#ifndef VKGS_VULKAN_CONTEXT_H
+#define VKGS_VULKAN_CONTEXT_H
 
 #include <memory>
 #include <vector>
@@ -62,4 +62,4 @@ class Context {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_CONTEXT_H
+#endif  // VKGS_VULKAN_CONTEXT_H

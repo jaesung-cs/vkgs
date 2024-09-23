@@ -1,5 +1,5 @@
-#ifndef VKGS_ENGINE_VULKAN_IMAGE_SPEC_H
-#define VKGS_ENGINE_VULKAN_IMAGE_SPEC_H
+#ifndef VKGS_VULKAN_IMAGE_SPEC_H
+#define VKGS_VULKAN_IMAGE_SPEC_H
 
 #include <vulkan/vulkan.h>
 
@@ -16,4 +16,4 @@ struct ImageSpec {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_IMAGE_SPEC_H
+#endif  // VKGS_VULKAN_IMAGE_SPEC_H
