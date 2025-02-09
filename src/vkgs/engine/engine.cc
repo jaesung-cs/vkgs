@@ -79,6 +79,23 @@ struct RenderPassKey {
   }
 };
 
+struct Resolution {
+  int width;
+  int height;
+  const char* tag;
+};
+
+std::vector<Resolution> preset_resolutions = {
+    // clang-format off
+    {640, 480, "640 x 480 (480p)"},
+    {800, 600, "800 x 600"},
+    {1280, 720, "1280 x 720 (720p, HD)"},
+    {1600, 900, "1600 x 900"},
+    {1920, 1080, "1920 x 1080 (1080p, FHD)"},
+    {2560, 1440, "2560 x 1440 (1440p, QHD)"},
+    // clang-format on
+};
+
 }  // namespace
 
 class Engine::Impl {
@@ -86,6 +103,11 @@ class Engine::Impl {
   enum class SplatRenderMode {
     TriangleList,
     GeometryShader,
+  };
+
+  enum class DisplayMode {
+    Windowed,
+    WindowedFullscreen,
   };
 
  public:
@@ -757,8 +779,7 @@ class Engine::Impl {
 
       // draw ui
       {
-        viewer_.NewUiFrame();
-        ImGui::NewFrame();
+        viewer_.BeginUi();
 
         const auto& io = ImGui::GetIO();
 
@@ -804,10 +825,68 @@ class Engine::Impl {
           if (ImGui::IsKeyDown(ImGuiKey_Space)) {
             camera_.Translate(0.f, speed * dt);
           }
+
+          if (ImGui::IsKeyDown(ImGuiKey::ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            ToggleDisplayMode();
+          }
         }
 
         if (ImGui::Begin("vkgs")) {
           ImGui::Text("%s", context_.device_name().c_str());
+
+          // Windowed or Windows Fullscreen
+          std::vector<const char*> display_modes = {"Windowed", "Windowed Fullscreen"};
+          int display_mode_index = static_cast<int>(display_mode_);
+          if (ImGui::Combo("Display Mode", &display_mode_index, display_modes.data(), display_modes.size())) {
+            switch (display_mode_index) {
+              case 0:
+                SetWindowed();
+                break;
+              case 1:
+                SetWindowedFullscreen();
+                break;
+            }
+          }
+
+          // Resolutions
+          const auto [width, height] = viewer_.window_size();
+          std::string current_resolution;
+          int resolution_index = 0;
+          std::vector<const char*> resolutions;
+          switch (display_mode_) {
+            case DisplayMode::Windowed: {
+              bool is_preset = false;
+              for (int i = 0; i < preset_resolutions.size(); ++i) {
+                const auto& resolution = preset_resolutions[i];
+                if (width == resolution.width && height == resolution.height) {
+                  is_preset = true;
+                  resolution_index = i;
+                }
+                resolutions.push_back(resolution.tag);
+              }
+
+              if (!is_preset) {
+                current_resolution = std::to_string(width) + " x " + std::to_string(height) + " (custom)";
+                resolution_index = resolutions.size();
+                resolutions.push_back(current_resolution.c_str());
+              }
+            } break;
+
+            case DisplayMode::WindowedFullscreen:
+              current_resolution = std::to_string(width) + " x " + std::to_string(height) + " (fullscreen)";
+              resolution_index = resolutions.size();
+              resolutions.push_back(current_resolution.c_str());
+              break;
+          }
+          ImGui::BeginDisabled(display_mode_index == 1);
+          if (ImGui::Combo("Resolution", &resolution_index, resolutions.data(), resolutions.size())) {
+            if (resolution_index < preset_resolutions.size()) {
+              const auto& resolution = preset_resolutions[resolution_index];
+              viewer_.SetWindowSize(resolution.width, resolution.height);
+            }
+          }
+          ImGui::EndDisabled();
+
           ImGui::Text("%d total splats", frame_info.total_point_count);
           ImGui::Text("%d loaded splats", frame_info.loaded_point_count);
 
@@ -953,7 +1032,8 @@ class Engine::Impl {
           ImGui::PopID();
         }
         ImGui::End();
-        ImGui::Render();
+
+        viewer_.EndUi();
       }
 
       model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) * ToTranslationMatrix4(translation_ + gt) *
@@ -1436,6 +1516,33 @@ class Engine::Impl {
 
     framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
   }
+
+  void ToggleDisplayMode() {
+    switch (display_mode_) {
+      case DisplayMode::Windowed:
+        SetWindowedFullscreen();
+        break;
+      case DisplayMode::WindowedFullscreen:
+        SetWindowed();
+        break;
+    }
+  }
+
+  void SetWindowed() {
+    if (display_mode_ == DisplayMode::WindowedFullscreen) {
+      display_mode_ = DisplayMode::Windowed;
+      viewer_.SetWindowed();
+    }
+  }
+
+  void SetWindowedFullscreen() {
+    if (display_mode_ == DisplayMode::Windowed) {
+      display_mode_ = DisplayMode::WindowedFullscreen;
+      viewer_.SetWindowedFullscreen();
+    }
+  }
+
+  DisplayMode display_mode_ = DisplayMode::Windowed;
 
   std::atomic_bool terminate_ = false;
 
