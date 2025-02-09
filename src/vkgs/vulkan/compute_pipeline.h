@@ -21,8 +21,7 @@ class ComputePipeline {
  public:
   ComputePipeline();
 
-  ComputePipeline(Context context,
-                  const ComputePipelineCreateInfo& create_info);
+  ComputePipeline(Context context, const ComputePipelineCreateInfo& create_info);
 
   ~ComputePipeline();
 

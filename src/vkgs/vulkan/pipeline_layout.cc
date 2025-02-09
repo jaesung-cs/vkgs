@@ -7,13 +7,11 @@ class PipelineLayout::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, const PipelineLayoutCreateInfo& create_info)
-      : context_(context) {
+  Impl(Context context, const PipelineLayoutCreateInfo& create_info) : context_(context) {
     std::vector<VkDescriptorSetLayout> layouts;
     for (auto layout : create_info.layouts) layouts.push_back(layout);
 
-    VkPipelineLayoutCreateInfo layout_info = {
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     layout_info.setLayoutCount = layouts.size();
     layout_info.pSetLayouts = layouts.data();
     layout_info.pushConstantRangeCount = create_info.push_constants.size();
@@ -32,8 +30,7 @@ class PipelineLayout::Impl {
 
 PipelineLayout::PipelineLayout() = default;
 
-PipelineLayout::PipelineLayout(Context context,
-                               const PipelineLayoutCreateInfo& create_info)
+PipelineLayout::PipelineLayout(Context context, const PipelineLayoutCreateInfo& create_info)
     : impl_(std::make_shared<Impl>(context, create_info)) {}
 
 PipelineLayout::~PipelineLayout() = default;

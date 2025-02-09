@@ -19,8 +19,7 @@ class RenderPass {
  public:
   RenderPass();
 
-  RenderPass(Context context, VkSampleCountFlagBits samples,
-             VkFormat depth_format);
+  RenderPass(Context context, VkSampleCountFlagBits samples, VkFormat depth_format);
 
   ~RenderPass();
 

@@ -23,8 +23,7 @@ struct DescriptorLayoutCreateInfo {
 class DescriptorLayout {
  public:
   DescriptorLayout();
-  DescriptorLayout(Context context,
-                   const DescriptorLayoutCreateInfo& create_info);
+  DescriptorLayout(Context context, const DescriptorLayoutCreateInfo& create_info);
   ~DescriptorLayout();
 
   operator VkDescriptorSetLayout() const;

@@ -13,23 +13,19 @@ namespace {
 
 const std::string pipeline_cache_filename = "pipeline_cache.bin";
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL
-DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-              VkDebugUtilsMessageTypeFlagsEXT messageType,
-              const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-              void* pUserData) {
-  std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl
-            << std::endl;
+static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                    VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+                                                    void* pUserData) {
+  std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl << std::endl;
 
   return VK_FALSE;
 }
 
-VkResult CreateDebugUtilsMessengerEXT(
-    VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
-    const VkAllocationCallbacks* pAllocator,
-    VkDebugUtilsMessengerEXT* pDebugMessenger) {
-  auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-      instance, "vkCreateDebugUtilsMessengerEXT");
+VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+                                      const VkAllocationCallbacks* pAllocator,
+                                      VkDebugUtilsMessengerEXT* pDebugMessenger) {
+  auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
   if (func != nullptr) {
     return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
   } else {
@@ -37,11 +33,9 @@ VkResult CreateDebugUtilsMessengerEXT(
   }
 }
 
-void DestroyDebugUtilsMessengerEXT(VkInstance instance,
-                                   VkDebugUtilsMessengerEXT debugMessenger,
+void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
                                    const VkAllocationCallbacks* pAllocator) {
-  auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-      instance, "vkDestroyDebugUtilsMessengerEXT");
+  auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
   if (func != nullptr) {
     func(instance, debugMessenger, pAllocator);
   }
@@ -60,31 +54,24 @@ class Context::Impl {
     application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
     application_info.apiVersion = VK_API_VERSION_1_2;
 
-    VkDebugUtilsMessengerCreateInfoEXT messenger_info = {
-        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-    messenger_info.messageSeverity =
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    VkDebugUtilsMessengerCreateInfoEXT messenger_info = {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+    messenger_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     messenger_info.messageType =
-        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     messenger_info.pfnUserCallback = DebugCallback;
 
     std::vector<const char*> layers = {"VK_LAYER_KHRONOS_validation"};
 
     uint32_t count;
     const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
-    std::vector<const char*> instance_extensions(glfw_extensions,
-                                                 glfw_extensions + count);
+    std::vector<const char*> instance_extensions(glfw_extensions, glfw_extensions + count);
     instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    instance_extensions.push_back(
-        VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-    instance_extensions.push_back(
-        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    instance_extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    instance_extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
-    VkInstanceCreateInfo instance_info = {
-        VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    VkInstanceCreateInfo instance_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pNext = &messenger_info;
     instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     instance_info.pApplicationInfo = &application_info;
@@ -102,8 +89,7 @@ class Context::Impl {
     if (physical_device_count == 0) throw std::runtime_error("No GPU found");
 
     std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
-    vkEnumeratePhysicalDevices(instance_, &physical_device_count,
-                               physical_devices.data());
+    vkEnumeratePhysicalDevices(instance_, &physical_device_count, physical_devices.data());
 
     uint32_t physical_device_id = 0;
     uint32_t physical_device_score = 0;
@@ -113,30 +99,23 @@ class Context::Impl {
 
       // +1 for discrete GPU
       VkPhysicalDeviceProperties physical_device_properties;
-      vkGetPhysicalDeviceProperties(physical_device,
-                                    &physical_device_properties);
-      if (physical_device_properties.deviceType ==
-          VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+      vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
+      if (physical_device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
         score += 1;
       }
 
       // +10 for having graphics queue with presention support
       uint32_t queue_family_count = 0;
-      vkGetPhysicalDeviceQueueFamilyProperties(physical_device,
-                                               &queue_family_count, NULL);
+      vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, NULL);
       std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-      vkGetPhysicalDeviceQueueFamilyProperties(
-          physical_device, &queue_family_count, queue_families.data());
+      vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families.data());
 
       constexpr VkQueueFlags graphics_queue_flags = VK_QUEUE_GRAPHICS_BIT;
       for (int i = 0; i < queue_families.size(); ++i) {
         const auto& queue_family = queue_families[i];
 
-        bool is_graphics_queue_type =
-            (queue_family.queueFlags & graphics_queue_flags) ==
-            graphics_queue_flags;
-        bool presentation_support = glfwGetPhysicalDevicePresentationSupport(
-            instance_, physical_device, i);
+        bool is_graphics_queue_type = (queue_family.queueFlags & graphics_queue_flags) == graphics_queue_flags;
+        bool presentation_support = glfwGetPhysicalDevicePresentationSupport(instance_, physical_device, i);
 
         if (is_graphics_queue_type && presentation_support) {
           score += 10;
@@ -154,34 +133,26 @@ class Context::Impl {
 
     // physical device properties
     VkPhysicalDeviceProperties physical_device_properties;
-    vkGetPhysicalDeviceProperties(physical_device_,
-                                  &physical_device_properties);
+    vkGetPhysicalDeviceProperties(physical_device_, &physical_device_properties);
     device_name_ = physical_device_properties.deviceName;
 
     std::cout << device_name_ << std::endl;
 
     // find graphics queue
     uint32_t queue_family_count = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(physical_device_,
-                                             &queue_family_count, NULL);
+    vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_family_count, NULL);
     std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-    vkGetPhysicalDeviceQueueFamilyProperties(
-        physical_device_, &queue_family_count, queue_families.data());
+    vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_family_count, queue_families.data());
 
     constexpr VkQueueFlags graphics_queue_flags = VK_QUEUE_GRAPHICS_BIT;
-    constexpr VkQueueFlags transfer_queue_flags =
-        VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT;
+    constexpr VkQueueFlags transfer_queue_flags = VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT;
     for (int i = 0; i < queue_families.size(); ++i) {
       const auto& queue_family = queue_families[i];
 
-      bool is_graphics_queue_type =
-          (queue_family.queueFlags & graphics_queue_flags) ==
-          graphics_queue_flags;
-      bool presentation_support = glfwGetPhysicalDevicePresentationSupport(
-          instance_, physical_device_, i);
+      bool is_graphics_queue_type = (queue_family.queueFlags & graphics_queue_flags) == graphics_queue_flags;
+      bool presentation_support = glfwGetPhysicalDevicePresentationSupport(instance_, physical_device_, i);
 
-      bool is_transfer_queue_type =
-          queue_family.queueFlags == transfer_queue_flags;
+      bool is_transfer_queue_type = queue_family.queueFlags == transfer_queue_flags;
 
       if (is_graphics_queue_type && presentation_support) {
         graphics_queue_family_index_ = i;
@@ -192,8 +163,8 @@ class Context::Impl {
     }
 
     // features
-    VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features =
-        {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+    VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
 
     VkPhysicalDevice16BitStorageFeatures k16bit_storage_features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
@@ -203,12 +174,11 @@ class Context::Impl {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
     timeline_semaphore_features.pNext = &k16bit_storage_features;
 
-    VkPhysicalDeviceImagelessFramebufferFeatures imageless_framebuffer_feature =
-        {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
+    VkPhysicalDeviceImagelessFramebufferFeatures imageless_framebuffer_feature = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
     imageless_framebuffer_feature.pNext = &timeline_semaphore_features;
 
-    VkPhysicalDeviceFeatures2 features = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    VkPhysicalDeviceFeatures2 features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features.pNext = &imageless_framebuffer_feature;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
@@ -256,37 +226,27 @@ class Context::Impl {
     device_info.ppEnabledExtensionNames = device_extensions.data();
     vkCreateDevice(physical_device_, &device_info, NULL, &device_);
 
-    vkGetDeviceQueue(device_, graphics_queue_family_index_, 0,
-                     &graphics_queue_);
+    vkGetDeviceQueue(device_, graphics_queue_family_index_, 0, &graphics_queue_);
 
     if (transfer_queue_family_index_ == graphics_queue_family_index_) {
-      vkGetDeviceQueue(device_, transfer_queue_family_index_, 1,
-                       &transfer_queue_);
+      vkGetDeviceQueue(device_, transfer_queue_family_index_, 1, &transfer_queue_);
     } else {
-      vkGetDeviceQueue(device_, transfer_queue_family_index_, 0,
-                       &transfer_queue_);
+      vkGetDeviceQueue(device_, transfer_queue_family_index_, 0, &transfer_queue_);
     }
 
-    vkGetDeviceQueue(device_, graphics_queue_family_index_, 0,
-                     &graphics_queue_);
-    vkGetDeviceQueue(device_, transfer_queue_family_index_, 0,
-                     &transfer_queue_);
+    vkGetDeviceQueue(device_, graphics_queue_family_index_, 0, &graphics_queue_);
+    vkGetDeviceQueue(device_, transfer_queue_family_index_, 0, &transfer_queue_);
 
     geometry_shader_available_ = features.features.geometryShader;
 
     // extensions
-    GetMemoryFdKHR_ =
-        (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryFdKHR");
-    GetSemaphoreFdKHR_ = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(
-        device_, "vkGetSemaphoreFdKHR");
+    GetMemoryFdKHR_ = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryFdKHR");
+    GetSemaphoreFdKHR_ = (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(device_, "vkGetSemaphoreFdKHR");
 
 #ifdef _WIN32
-    GetMemoryWin32HandleKHR_ =
-        (PFN_vkGetMemoryWin32HandleKHR)vkGetDeviceProcAddr(
-            device_, "vkGetMemoryWin32HandleKHR");
+    GetMemoryWin32HandleKHR_ = (PFN_vkGetMemoryWin32HandleKHR)vkGetDeviceProcAddr(device_, "vkGetMemoryWin32HandleKHR");
     GetSemaphoreWin32HandleKHR_ =
-        (PFN_vkGetSemaphoreWin32HandleKHR)vkGetDeviceProcAddr(
-            device_, "vkGetSemaphoreWin32HandleKHR");
+        (PFN_vkGetSemaphoreWin32HandleKHR)vkGetDeviceProcAddr(device_, "vkGetSemaphoreWin32HandleKHR");
 #endif
 
     VmaAllocatorCreateInfo allocator_info = {};
@@ -297,45 +257,35 @@ class Context::Impl {
     allocator_info.vulkanApiVersion = application_info.apiVersion;
     vmaCreateAllocator(&allocator_info, &allocator_);
 
-    VkCommandPoolCreateInfo command_pool_info = {
-        VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-    command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
-                              VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    VkCommandPoolCreateInfo command_pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     command_pool_info.queueFamilyIndex = graphics_queue_family_index_;
     vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
 
     std::vector<VkDescriptorPoolSize> pool_sizes = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2048},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 64},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2048},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 64},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2048},       {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 64},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2048},       {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 64},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
     };
-    VkDescriptorPoolCreateInfo descriptor_pool_info = {
-        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    descriptor_pool_info.flags =
-        VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    VkDescriptorPoolCreateInfo descriptor_pool_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    descriptor_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     descriptor_pool_info.maxSets = 2048;
     descriptor_pool_info.poolSizeCount = pool_sizes.size();
     descriptor_pool_info.pPoolSizes = pool_sizes.data();
-    vkCreateDescriptorPool(device_, &descriptor_pool_info, NULL,
-                           &descriptor_pool_);
+    vkCreateDescriptorPool(device_, &descriptor_pool_info, NULL, &descriptor_pool_);
 
     std::vector<char> pipeline_cache_data;
     {
       std::ifstream in(pipeline_cache_filename, std::ios::binary);
       if (in.is_open()) {
-        pipeline_cache_data =
-            std::vector<char>(std::istreambuf_iterator<char>(in), {});
+        pipeline_cache_data = std::vector<char>(std::istreambuf_iterator<char>(in), {});
       }
     }
 
-    VkPipelineCacheCreateInfo pipeline_cache_info = {
-        VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    VkPipelineCacheCreateInfo pipeline_cache_info = {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     pipeline_cache_info.initialDataSize = pipeline_cache_data.size();
     pipeline_cache_info.pInitialData = pipeline_cache_data.data();
-    vkCreatePipelineCache(device_, &pipeline_cache_info, NULL,
-                          &pipeline_cache_);
+    vkCreatePipelineCache(device_, &pipeline_cache_info, NULL, &pipeline_cache_);
   }
 
   ~Impl() {
@@ -365,12 +315,8 @@ class Context::Impl {
   VkInstance instance() const noexcept { return instance_; }
   VkPhysicalDevice physical_device() const noexcept { return physical_device_; }
   VkDevice device() const noexcept { return device_; }
-  uint32_t graphics_queue_family_index() const noexcept {
-    return graphics_queue_family_index_;
-  }
-  uint32_t transfer_queue_family_index() const noexcept {
-    return transfer_queue_family_index_;
-  }
+  uint32_t graphics_queue_family_index() const noexcept { return graphics_queue_family_index_; }
+  uint32_t transfer_queue_family_index() const noexcept { return transfer_queue_family_index_; }
   VkQueue graphics_queue() const noexcept { return graphics_queue_; }
   VkQueue transfer_queue() const noexcept { return transfer_queue_; }
   VmaAllocator allocator() const noexcept { return allocator_; }
@@ -378,35 +324,26 @@ class Context::Impl {
   VkDescriptorPool descriptor_pool() const noexcept { return descriptor_pool_; }
   VkPipelineCache pipeline_cache() const noexcept { return pipeline_cache_; }
 
-  bool geometry_shader_available() const noexcept {
-    return geometry_shader_available_;
-  }
+  bool geometry_shader_available() const noexcept { return geometry_shader_available_; }
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd) {
     if (GetMemoryFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
     return GetMemoryFdKHR_(device_, pGetFdInfo, pFd);
   }
 
-  VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
-                             int* pFd) {
+  VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo, int* pFd) {
     if (GetSemaphoreFdKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
     return GetSemaphoreFdKHR_(device_, pGetFdInfo, pFd);
   }
 
 #ifdef _WIN32
-  VkResult GetMemoryWin32HandleKHR(
-      const VkMemoryGetWin32HandleInfoKHR* pGetWin32HandleInfo,
-      HANDLE* handle) {
-    if (GetMemoryWin32HandleKHR_ == nullptr)
-      return VK_ERROR_EXTENSION_NOT_PRESENT;
+  VkResult GetMemoryWin32HandleKHR(const VkMemoryGetWin32HandleInfoKHR* pGetWin32HandleInfo, HANDLE* handle) {
+    if (GetMemoryWin32HandleKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
     return GetMemoryWin32HandleKHR_(device_, pGetWin32HandleInfo, handle);
   }
 
-  VkResult GetSemaphoreWin32HandleKHR(
-      const VkSemaphoreGetWin32HandleInfoKHR* pGetWin32HandleInfo,
-      HANDLE* pFd) {
-    if (GetSemaphoreWin32HandleKHR_ == nullptr)
-      return VK_ERROR_EXTENSION_NOT_PRESENT;
+  VkResult GetSemaphoreWin32HandleKHR(const VkSemaphoreGetWin32HandleInfoKHR* pGetWin32HandleInfo, HANDLE* pFd) {
+    if (GetSemaphoreWin32HandleKHR_ == nullptr) return VK_ERROR_EXTENSION_NOT_PRESENT;
     return GetSemaphoreWin32HandleKHR_(device_, pGetWin32HandleInfo, pFd);
   }
 #endif
@@ -447,19 +384,13 @@ Context::~Context() = default;
 const std::string& Context::device_name() const { return impl_->device_name(); }
 VkInstance Context::instance() const { return impl_->instance(); }
 
-VkPhysicalDevice Context::physical_device() const {
-  return impl_->physical_device();
-}
+VkPhysicalDevice Context::physical_device() const { return impl_->physical_device(); }
 
 VkDevice Context::device() const { return impl_->device(); }
 
-uint32_t Context::graphics_queue_family_index() const {
-  return impl_->graphics_queue_family_index();
-}
+uint32_t Context::graphics_queue_family_index() const { return impl_->graphics_queue_family_index(); }
 
-uint32_t Context::transfer_queue_family_index() const {
-  return impl_->transfer_queue_family_index();
-}
+uint32_t Context::transfer_queue_family_index() const { return impl_->transfer_queue_family_index(); }
 
 VkQueue Context::graphics_queue() const { return impl_->graphics_queue(); }
 
@@ -469,36 +400,26 @@ VmaAllocator Context::allocator() const { return impl_->allocator(); }
 
 VkCommandPool Context::command_pool() const { return impl_->command_pool(); }
 
-VkDescriptorPool Context::descriptor_pool() const {
-  return impl_->descriptor_pool();
-}
+VkDescriptorPool Context::descriptor_pool() const { return impl_->descriptor_pool(); }
 
-VkPipelineCache Context::pipeline_cache() const {
-  return impl_->pipeline_cache();
-}
+VkPipelineCache Context::pipeline_cache() const { return impl_->pipeline_cache(); }
 
-bool Context::geometry_shader_available() const {
-  return impl_->geometry_shader_available();
-}
+bool Context::geometry_shader_available() const { return impl_->geometry_shader_available(); }
 
-VkResult Context::GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo,
-                                 int* pFd) {
+VkResult Context::GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd) {
   return impl_->GetMemoryFdKHR(pGetFdInfo, pFd);
 }
 
-VkResult Context::GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
-                                    int* pFd) {
+VkResult Context::GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo, int* pFd) {
   return impl_->GetSemaphoreFdKHR(pGetFdInfo, pFd);
 }
 
 #ifdef _WIN32
-VkResult Context::GetMemoryWin32HandleKHR(
-    const VkMemoryGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* pHandle) {
+VkResult Context::GetMemoryWin32HandleKHR(const VkMemoryGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* pHandle) {
   return impl_->GetMemoryWin32HandleKHR(pGetFdInfo, pHandle);
 }
 
-VkResult Context::GetSemaphoreWin32HandleKHR(
-    const VkSemaphoreGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* pHandle) {
+VkResult Context::GetSemaphoreWin32HandleKHR(const VkSemaphoreGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* pHandle) {
   return impl_->GetSemaphoreWin32HandleKHR(pGetFdInfo, pHandle);
 }
 #endif

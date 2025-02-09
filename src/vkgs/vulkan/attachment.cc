@@ -9,8 +9,8 @@ namespace vk {
 
 class Attachment::Impl {
  public:
-  Impl(Context context, uint32_t width, uint32_t height, VkFormat format,
-       VkSampleCountFlagBits samples, bool input_attachment)
+  Impl(Context context, uint32_t width, uint32_t height, VkFormat format, VkSampleCountFlagBits samples,
+       bool input_attachment)
       : context_(context), width_(width), height_(height), format_(format) {
     usage_ = 0;
     VkImageAspectFlags aspect = 0;
@@ -20,14 +20,12 @@ class Attachment::Impl {
       case VK_FORMAT_D16_UNORM_S8_UINT:
       case VK_FORMAT_D24_UNORM_S8_UINT:
       case VK_FORMAT_D32_SFLOAT_S8_UINT:
-        usage_ = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+        usage_ = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
         aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
         break;
 
       default:
-        usage_ = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                 VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+        usage_ = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         break;
     }
@@ -50,11 +48,9 @@ class Attachment::Impl {
     VmaAllocationCreateInfo alloc_info = {};
     alloc_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
     alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-    vmaCreateImage(context.allocator(), &image_info, &alloc_info, &image_,
-                   &allocation_, NULL);
+    vmaCreateImage(context.allocator(), &image_info, &alloc_info, &image_, &allocation_, NULL);
 
-    VkImageViewCreateInfo image_view_info = {
-        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    VkImageViewCreateInfo image_view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     image_view_info.image = image_;
     image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
     image_view_info.format = format;
@@ -72,9 +68,7 @@ class Attachment::Impl {
   VkImage image() const noexcept { return image_; }
   VkImageUsageFlags usage() const noexcept { return usage_; }
   VkFormat format() const noexcept { return format_; }
-  ImageSpec image_spec() const noexcept {
-    return ImageSpec{width_, height_, usage_, format_};
-  }
+  ImageSpec image_spec() const noexcept { return ImageSpec{width_, height_, usage_, format_}; }
 
  private:
   Context context_;
@@ -89,11 +83,9 @@ class Attachment::Impl {
 
 Attachment::Attachment() = default;
 
-Attachment::Attachment(Context context, uint32_t width, uint32_t height,
-                       VkFormat format, VkSampleCountFlagBits samples,
+Attachment::Attachment(Context context, uint32_t width, uint32_t height, VkFormat format, VkSampleCountFlagBits samples,
                        bool input_attachment)
-    : impl_(std::make_shared<Impl>(context, width, height, format, samples,
-                                   input_attachment)) {}
+    : impl_(std::make_shared<Impl>(context, width, height, format, samples, input_attachment)) {}
 
 Attachment::~Attachment() = default;
 

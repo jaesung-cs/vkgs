@@ -21,8 +21,7 @@ class Descriptor {
 
   operator VkDescriptorSet() const;
 
-  void Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset,
-              VkDeviceSize size = 0);
+  void Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size = 0);
   void UpdateInputAttachment(uint32_t binding, VkImageView image_view);
 
  private:

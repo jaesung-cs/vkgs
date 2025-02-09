@@ -11,23 +11,20 @@ class Buffer::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, VkDeviceSize size, VkBufferUsageFlags usage)
-      : context_(context), size_(size) {
+  Impl(Context context, VkDeviceSize size, VkBufferUsageFlags usage) : context_(context), size_(size) {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = size;
     buffer_info.usage = usage;
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-    vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info,
-                    &buffer_, &allocation_, NULL);
+    vmaCreateBuffer(context.allocator(), &buffer_info, &allocation_create_info, &buffer_, &allocation_, NULL);
   }
 
   ~Impl() {
     vmaDestroyBuffer(context_.allocator(), buffer_, allocation_);
 
     if (staging_buffer_) {
-      vmaDestroyBuffer(context_.allocator(), staging_buffer_,
-                       staging_allocation_);
+      vmaDestroyBuffer(context_.allocator(), staging_buffer_, staging_allocation_);
     }
   }
 
@@ -35,8 +32,7 @@ class Buffer::Impl {
 
   VkDeviceSize size() const { return size_; }
 
-  void FromCpu(VkCommandBuffer command_buffer, const void* src,
-               VkDeviceSize size) {
+  void FromCpu(VkCommandBuffer command_buffer, const void* src, VkDeviceSize size) {
     if (!staging_buffer_) {
       VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
       buffer_info.size = size_;
@@ -44,11 +40,9 @@ class Buffer::Impl {
       VmaAllocationCreateInfo allocation_create_info = {};
       allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
       allocation_create_info.flags =
-          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-          VMA_ALLOCATION_CREATE_MAPPED_BIT;
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
       VmaAllocationInfo allocation_info;
-      vmaCreateBuffer(context_.allocator(), &buffer_info,
-                      &allocation_create_info, &staging_buffer_,
+      vmaCreateBuffer(context_.allocator(), &buffer_info, &allocation_create_info, &staging_buffer_,
                       &staging_allocation_, &allocation_info);
       map_ = allocation_info.pMappedData;
     }
@@ -84,8 +78,7 @@ Buffer::operator VkBuffer() const { return *impl_; }
 
 VkDeviceSize Buffer::size() const { return impl_->size(); }
 
-void Buffer::FromCpu(VkCommandBuffer command_buffer, const void* src,
-                     VkDeviceSize size) {
+void Buffer::FromCpu(VkCommandBuffer command_buffer, const void* src, VkDeviceSize size) {
   impl_->FromCpu(command_buffer, src, size);
 }
 
