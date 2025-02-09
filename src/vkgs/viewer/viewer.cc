@@ -23,6 +23,12 @@ namespace vkgs {
 namespace viewer {
 
 class Viewer::Impl {
+ private:
+  enum class DisplayMode {
+    Windowed,
+    WindowedFullscreen,
+  };
+
  public:
   static void DropCallback(GLFWwindow* window, int count, const char** paths) {
     std::vector<std::string> filepaths(paths, paths + count);
@@ -56,11 +62,9 @@ class Viewer::Impl {
 
   void CreateWindow(const WindowCreateInfo& create_info) {
     // create window
-    width_ = 1600;
-    height_ = 900;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    window_ = glfwCreateWindow(width_, height_, "vkgs", NULL, NULL);
+    window_ = glfwCreateWindow(1600, 900, "vkgs", NULL, NULL);
 
     // Vulkan surface
     glfwCreateWindowSurface(create_info.instance, window_, NULL, &surface_);
@@ -89,14 +93,45 @@ class Viewer::Impl {
 
   void Show() { glfwShowWindow(window_); }
 
+  void SetWindowed() {
+    if (display_mode == DisplayMode::WindowedFullscreen) {
+      glfwSetWindowMonitor(window_, NULL, xpos_, ypos_, width_, height_, 0);
+      display_mode = DisplayMode::Windowed;
+    }
+  }
+
+  void SetWindowedFullscreen() {
+    if (display_mode == DisplayMode::Windowed) {
+      glfwGetWindowPos(window_, &xpos_, &ypos_);
+      glfwGetWindowSize(window_, &width_, &height_);
+
+      // TODO: multi monitor
+      GLFWmonitor* primary = glfwGetPrimaryMonitor();
+      const GLFWvidmode* mode = glfwGetVideoMode(primary);
+      glfwSetWindowMonitor(window_, primary, 0, 0, mode->width, mode->height, mode->refreshRate);
+      display_mode = DisplayMode::WindowedFullscreen;
+    }
+  }
+
+  void SetWindowSize(int width, int height) {
+    if (glfwGetWindowAttrib(window_, GLFW_MAXIMIZED)) {
+      glfwRestoreWindow(window_);
+    }
+
+    glfwSetWindowSize(window_, width, height);
+  }
+
   void PollEvents() { glfwPollEvents(); }
 
   bool ShouldClose() const { return glfwWindowShouldClose(window_); }
 
-  void NewUiFrame() {
+  void BeginUi() {
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
   }
+
+  void EndUi() { ImGui::Render(); }
 
   void DrawUi(VkCommandBuffer command_buffer) {
     ImDrawData* draw_data = ImGui::GetDrawData();
@@ -130,8 +165,11 @@ class Viewer::Impl {
   std::vector<std::string> dropped_filepaths_;
 
   GLFWwindow* window_ = nullptr;
+  int xpos_ = 0;
+  int ypos_ = 0;
   int width_ = 0;
   int height_ = 0;
+  DisplayMode display_mode = DisplayMode::Windowed;
 
   VkSurfaceKHR surface_ = VK_NULL_HANDLE;
 };
@@ -148,13 +186,21 @@ void Viewer::RecreateUi(const WindowCreateInfo& create_info) { impl_->RecreateUi
 
 void Viewer::Show() { impl_->Show(); }
 
+void Viewer::SetWindowed() { impl_->SetWindowed(); }
+
+void Viewer::SetWindowedFullscreen() { impl_->SetWindowedFullscreen(); }
+
+void Viewer::SetWindowSize(int width, int height) { impl_->SetWindowSize(width, height); }
+
 void Viewer::PollEvents() { impl_->PollEvents(); }
 
 std::vector<std::string> Viewer::ConsumeDroppedFilepaths() { return impl_->ConsumeDroppedFilepaths(); }
 
 bool Viewer::ShouldClose() const { return impl_->ShouldClose(); }
 
-void Viewer::NewUiFrame() { impl_->NewUiFrame(); }
+void Viewer::BeginUi() { impl_->BeginUi(); }
+
+void Viewer::EndUi() { impl_->EndUi(); }
 
 void Viewer::DrawUi(VkCommandBuffer command_buffer) { impl_->DrawUi(command_buffer); }
 

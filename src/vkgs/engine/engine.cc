@@ -79,6 +79,23 @@ struct RenderPassKey {
   }
 };
 
+struct Resolution {
+  int width;
+  int height;
+  const char* tag;
+};
+
+std::vector<Resolution> preset_resolutions = {
+    // clang-format off
+    {640, 480, "640 x 480 (480p)"},
+    {800, 600, "800 x 600"},
+    {1280, 720, "1280 x 720 (720p, HD)"},
+    {1600, 900, "1600 x 900"},
+    {1920, 1080, "1920 x 1080 (1080p, FHD)"},
+    {2560, 1440, "2560 x 1440 (1440p, QHD)"},
+    // clang-format on
+};
+
 }  // namespace
 
 class Engine::Impl {
@@ -86,6 +103,11 @@ class Engine::Impl {
   enum class SplatRenderMode {
     TriangleList,
     GeometryShader,
+  };
+
+  enum class DisplayMode {
+    Windowed,
+    WindowedFullscreen,
   };
 
  public:
@@ -725,7 +747,8 @@ class Engine::Impl {
     if (swapchain_.ShouldRecreate()) {
       vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
                       UINT64_MAX);
-      swapchain_.Recreate();
+
+      if (!swapchain_.Recreate()) return;
       RecreateFramebuffer();
     }
 
@@ -756,205 +779,259 @@ class Engine::Impl {
       static int depth_format = 1;
 
       // draw ui
-      {
-        viewer_.NewUiFrame();
-        ImGui::NewFrame();
+      viewer_.BeginUi();
+      const auto& io = ImGui::GetIO();
 
-        const auto& io = ImGui::GetIO();
+      // handle events
+      if (!io.WantCaptureMouse) {
+        bool left = io.MouseDown[ImGuiMouseButton_Left];
+        bool right = io.MouseDown[ImGuiMouseButton_Right];
+        float dx = io.MouseDelta.x;
+        float dy = io.MouseDelta.y;
 
-        // handle events
-        if (!io.WantCaptureMouse) {
-          bool left = io.MouseDown[ImGuiMouseButton_Left];
-          bool right = io.MouseDown[ImGuiMouseButton_Right];
-          float dx = io.MouseDelta.x;
-          float dy = io.MouseDelta.y;
-
-          if (left && !right) {
-            camera_.Rotate(dx, dy);
-          } else if (!left && right) {
-            camera_.Translate(dx, dy);
-          } else if (left && right) {
-            camera_.Zoom(dy);
-          }
-
-          if (io.MouseWheel != 0.f) {
-            if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
-              camera_.DollyZoom(io.MouseWheel);
-            } else {
-              camera_.Zoom(io.MouseWheel * 10.f);
-            }
-          }
+        if (left && !right) {
+          camera_.Rotate(dx, dy);
+        } else if (!left && right) {
+          camera_.Translate(dx, dy);
+        } else if (left && right) {
+          camera_.Zoom(dy);
         }
 
-        if (!io.WantCaptureKeyboard) {
-          constexpr float speed = 1000.f;
-          float dt = io.DeltaTime;
-          if (ImGui::IsKeyDown(ImGuiKey_W)) {
-            camera_.Translate(0.f, 0.f, speed * dt);
-          }
-          if (ImGui::IsKeyDown(ImGuiKey_S)) {
-            camera_.Translate(0.f, 0.f, -speed * dt);
-          }
-          if (ImGui::IsKeyDown(ImGuiKey_A)) {
-            camera_.Translate(speed * dt, 0.f);
-          }
-          if (ImGui::IsKeyDown(ImGuiKey_D)) {
-            camera_.Translate(-speed * dt, 0.f);
-          }
-          if (ImGui::IsKeyDown(ImGuiKey_Space)) {
-            camera_.Translate(0.f, speed * dt);
+        if (io.MouseWheel != 0.f) {
+          if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) {
+            camera_.DollyZoom(io.MouseWheel);
+          } else {
+            camera_.Zoom(io.MouseWheel * 10.f);
           }
         }
-
-        if (ImGui::Begin("vkgs")) {
-          ImGui::Text("%s", context_.device_name().c_str());
-          ImGui::Text("%d total splats", frame_info.total_point_count);
-          ImGui::Text("%d loaded splats", frame_info.loaded_point_count);
-
-          auto loading_progress = frame_info.total_point_count > 0
-                                      ? static_cast<float>(frame_info.loaded_point_count) / frame_info.total_point_count
-                                      : 1.f;
-          ImGui::Text("loading:");
-          ImGui::SameLine();
-          ImGui::ProgressBar(loading_progress, ImVec2(-1.f, 16.f));
-          if (ImGui::Button("cancel")) {
-            splat_load_thread_.Cancel();
-          }
-
-          const auto* visible_point_count_buffer =
-              reinterpret_cast<const uint32_t*>(visible_point_count_cpu_buffer_.data());
-          uint32_t visible_point_count = visible_point_count_buffer[frame_index];
-          float visible_points_ratio = frame_info.loaded_point_count > 0 ? static_cast<float>(visible_point_count) /
-                                                                               frame_info.loaded_point_count * 100.f
-                                                                         : 0.f;
-          ImGui::Text("%d (%.2f%%) visible splats", visible_point_count, visible_points_ratio);
-
-          ImGui::Text("size      : %dx%d", swapchain_.width(), swapchain_.height());
-          ImGui::Text("fps       : %7.3f", io.Framerate);
-          ImGui::Text("            %7.3fms", 1e3 / io.Framerate);
-          ImGui::Text("frame e2e : %7.3fms", static_cast<double>(frame_info.end_to_end_time) / 1e6);
-
-          uint64_t total_time = frame_info.rank_time + frame_info.sort_time + frame_info.inverse_time +
-                                frame_info.projection_time + frame_info.rendering_time;
-          ImGui::Text("total     : %7.3fms", static_cast<double>(total_time) / 1e6);
-          ImGui::Text("rank      : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.rank_time) / 1e6,
-                      static_cast<double>(frame_info.rank_time) / total_time * 100.);
-          ImGui::Text("sort      : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.sort_time) / 1e6,
-                      static_cast<double>(frame_info.sort_time) / total_time * 100.);
-          ImGui::Text("inverse   : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.inverse_time) / 1e6,
-                      static_cast<double>(frame_info.inverse_time) / total_time * 100.);
-          ImGui::Text("projection: %7.3fms (%5.2f%%)", static_cast<double>(frame_info.projection_time) / 1e6,
-                      static_cast<double>(frame_info.projection_time) / total_time * 100.);
-          ImGui::Text("rendering : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.rendering_time) / 1e6,
-                      static_cast<double>(frame_info.rendering_time) / total_time * 100.);
-          ImGui::Text("present   : %7.3fms",
-                      static_cast<double>(frame_info.present_done_timestamp - frame_info.present_timestamp) / 1e6);
-
-          static int vsync = 1;
-          ImGui::Text("Vsync");
-          ImGui::SameLine();
-          ImGui::RadioButton("on", &vsync, 1);
-          ImGui::SameLine();
-          ImGui::RadioButton("off", &vsync, 0);
-
-          if (vsync)
-            swapchain_.SetVsync(true);
-          else
-            swapchain_.SetVsync(false);
-
-          ImGui::Text("MSAA");
-          ImGui::SameLine();
-          msaa_changed |= ImGui::RadioButton("Off", &msaa, 0);
-          ImGui::SameLine();
-          msaa_changed |= ImGui::RadioButton("2x", &msaa, 1);
-          ImGui::SameLine();
-          msaa_changed |= ImGui::RadioButton("4x", &msaa, 2);
-
-          ImGui::Text("Depth");
-          ImGui::SameLine();
-          depth_format_changed |= ImGui::RadioButton("U16", &depth_format, 0);
-          ImGui::SameLine();
-          depth_format_changed |= ImGui::RadioButton("F32", &depth_format, 1);
-
-          static int draw_method = 0;
-          ImGui::Text("Draw method");
-          ImGui::SameLine();
-          ImGui::RadioButton("Triangles", &draw_method, 0);
-          ImGui::SameLine();
-
-          // clickable only when geometry shader is available
-          ImGui::BeginDisabled(!context_.geometry_shader_available());
-          ImGui::RadioButton("Geom Shader", &draw_method, 1);
-          ImGui::EndDisabled();
-
-          switch (draw_method) {
-            case 0:
-              splat_render_mode_ = SplatRenderMode::TriangleList;
-              break;
-
-            case 1:
-              splat_render_mode_ = SplatRenderMode::GeometryShader;
-              break;
-
-            default:
-              break;
-          }
-
-          ImGui::Checkbox("Axis", &show_axis_);
-          ImGui::SameLine();
-          ImGui::Checkbox("Grid", &show_grid_);
-
-          float fov_degree = glm::degrees(camera_.fov());
-          ImGui::SliderFloat("Fov Y", &fov_degree, glm::degrees(camera_.min_fov()), glm::degrees(camera_.max_fov()));
-          camera_.SetFov(glm::radians(fov_degree));
-
-          ImGui::Text("Translation");
-          ImGui::PushID("Translation");
-          ImGui::DragFloat3("local", glm::value_ptr(lt), 0.01f);
-          if (ImGui::IsItemDeactivated()) {
-            translation_ += glm::toMat3(rotation_) * scale_ * lt;
-            lt = glm::vec3(0.f);
-          }
-
-          ImGui::DragFloat3("global", glm::value_ptr(gt), 0.01f);
-          if (ImGui::IsItemDeactivated()) {
-            translation_ += gt;
-            gt = glm::vec3(0.f);
-          }
-          ImGui::PopID();
-
-          ImGui::Text("Rotation");
-          ImGui::PushID("Rotation");
-          ImGui::DragFloat3("local", glm::value_ptr(lr), 0.1f);
-          lq = glm::quat(glm::radians(lr));
-          if (ImGui::IsItemDeactivated()) {
-            rotation_ = rotation_ * lq;
-            lr = glm::vec3(0.f);
-            lq = glm::quat(1.f, 0.f, 0.f, 0.f);
-          }
-
-          ImGui::DragFloat3("global", glm::value_ptr(gr), 0.1f);
-          gq = glm::quat(glm::radians(gr));
-          if (ImGui::IsItemDeactivated()) {
-            translation_ = gq * translation_;
-            rotation_ = gq * rotation_;
-            gr = glm::vec3(0.f);
-            gq = glm::quat(1.f, 0.f, 0.f, 0.f);
-          }
-          ImGui::PopID();
-
-          ImGui::Text("Scale");
-          ImGui::PushID("Scale");
-          ImGui::DragFloat("local", &scale, 0.01f, 0.1f, 10.f, "%.3f", ImGuiSliderFlags_Logarithmic);
-          if (ImGui::IsItemDeactivated()) {
-            scale_ *= scale;
-            scale = 1.f;
-          }
-          ImGui::PopID();
-        }
-        ImGui::End();
-        ImGui::Render();
       }
+
+      if (!io.WantCaptureKeyboard) {
+        constexpr float speed = 1000.f;
+        float dt = io.DeltaTime;
+        if (ImGui::IsKeyDown(ImGuiKey_W)) {
+          camera_.Translate(0.f, 0.f, speed * dt);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_S)) {
+          camera_.Translate(0.f, 0.f, -speed * dt);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_A)) {
+          camera_.Translate(speed * dt, 0.f);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_D)) {
+          camera_.Translate(-speed * dt, 0.f);
+        }
+        if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+          camera_.Translate(0.f, speed * dt);
+        }
+
+        if (ImGui::IsKeyDown(ImGuiKey::ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+          ToggleDisplayMode();
+        }
+      }
+
+      if (ImGui::Begin("vkgs")) {
+        ImGui::Text("%s", context_.device_name().c_str());
+
+        // Windowed or Windows Fullscreen
+        std::vector<const char*> display_modes = {"Windowed", "Windowed Fullscreen"};
+        int display_mode_index = static_cast<int>(display_mode_);
+        if (ImGui::Combo("Display Mode", &display_mode_index, display_modes.data(), display_modes.size())) {
+          switch (display_mode_index) {
+            case 0:
+              SetWindowed();
+              break;
+            case 1:
+              SetWindowedFullscreen();
+              break;
+          }
+        }
+
+        // Resolutions
+        const auto [width, height] = viewer_.window_size();
+        std::string current_resolution;
+        int resolution_index = 0;
+        std::vector<const char*> resolutions;
+        switch (display_mode_) {
+          case DisplayMode::Windowed: {
+            bool is_preset = false;
+            for (int i = 0; i < preset_resolutions.size(); ++i) {
+              const auto& resolution = preset_resolutions[i];
+              if (width == resolution.width && height == resolution.height) {
+                is_preset = true;
+                resolution_index = i;
+              }
+              resolutions.push_back(resolution.tag);
+            }
+
+            if (!is_preset) {
+              current_resolution = std::to_string(width) + " x " + std::to_string(height) + " (custom)";
+              resolution_index = resolutions.size();
+              resolutions.push_back(current_resolution.c_str());
+            }
+          } break;
+
+          case DisplayMode::WindowedFullscreen:
+            current_resolution = std::to_string(width) + " x " + std::to_string(height) + " (fullscreen)";
+            resolution_index = resolutions.size();
+            resolutions.push_back(current_resolution.c_str());
+            break;
+        }
+        ImGui::BeginDisabled(display_mode_index == 1);
+        if (ImGui::Combo("Resolution", &resolution_index, resolutions.data(), resolutions.size())) {
+          if (resolution_index < preset_resolutions.size()) {
+            const auto& resolution = preset_resolutions[resolution_index];
+            viewer_.SetWindowSize(resolution.width, resolution.height);
+          }
+        }
+        ImGui::EndDisabled();
+
+        ImGui::Text("%d total splats", frame_info.total_point_count);
+        ImGui::Text("%d loaded splats", frame_info.loaded_point_count);
+
+        auto loading_progress = frame_info.total_point_count > 0
+                                    ? static_cast<float>(frame_info.loaded_point_count) / frame_info.total_point_count
+                                    : 1.f;
+        ImGui::Text("loading:");
+        ImGui::SameLine();
+        ImGui::ProgressBar(loading_progress, ImVec2(-1.f, 16.f));
+        if (ImGui::Button("cancel")) {
+          splat_load_thread_.Cancel();
+        }
+
+        const auto* visible_point_count_buffer =
+            reinterpret_cast<const uint32_t*>(visible_point_count_cpu_buffer_.data());
+        uint32_t visible_point_count = visible_point_count_buffer[frame_index];
+        float visible_points_ratio = frame_info.loaded_point_count > 0 ? static_cast<float>(visible_point_count) /
+                                                                             frame_info.loaded_point_count * 100.f
+                                                                       : 0.f;
+        ImGui::Text("%d (%.2f%%) visible splats", visible_point_count, visible_points_ratio);
+
+        ImGui::Text("size      : %dx%d", swapchain_.width(), swapchain_.height());
+        ImGui::Text("fps       : %7.3f", io.Framerate);
+        ImGui::Text("            %7.3fms", 1e3 / io.Framerate);
+        ImGui::Text("frame e2e : %7.3fms", static_cast<double>(frame_info.end_to_end_time) / 1e6);
+
+        uint64_t total_time = frame_info.rank_time + frame_info.sort_time + frame_info.inverse_time +
+                              frame_info.projection_time + frame_info.rendering_time;
+        ImGui::Text("total     : %7.3fms", static_cast<double>(total_time) / 1e6);
+        ImGui::Text("rank      : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.rank_time) / 1e6,
+                    static_cast<double>(frame_info.rank_time) / total_time * 100.);
+        ImGui::Text("sort      : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.sort_time) / 1e6,
+                    static_cast<double>(frame_info.sort_time) / total_time * 100.);
+        ImGui::Text("inverse   : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.inverse_time) / 1e6,
+                    static_cast<double>(frame_info.inverse_time) / total_time * 100.);
+        ImGui::Text("projection: %7.3fms (%5.2f%%)", static_cast<double>(frame_info.projection_time) / 1e6,
+                    static_cast<double>(frame_info.projection_time) / total_time * 100.);
+        ImGui::Text("rendering : %7.3fms (%5.2f%%)", static_cast<double>(frame_info.rendering_time) / 1e6,
+                    static_cast<double>(frame_info.rendering_time) / total_time * 100.);
+        ImGui::Text("present   : %7.3fms",
+                    static_cast<double>(frame_info.present_done_timestamp - frame_info.present_timestamp) / 1e6);
+
+        static int vsync = 1;
+        ImGui::Text("Vsync");
+        ImGui::SameLine();
+        ImGui::RadioButton("on", &vsync, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("off", &vsync, 0);
+
+        if (vsync)
+          swapchain_.SetVsync(true);
+        else
+          swapchain_.SetVsync(false);
+
+        ImGui::Text("MSAA");
+        ImGui::SameLine();
+        msaa_changed |= ImGui::RadioButton("Off", &msaa, 0);
+        ImGui::SameLine();
+        msaa_changed |= ImGui::RadioButton("2x", &msaa, 1);
+        ImGui::SameLine();
+        msaa_changed |= ImGui::RadioButton("4x", &msaa, 2);
+
+        ImGui::Text("Depth");
+        ImGui::SameLine();
+        depth_format_changed |= ImGui::RadioButton("U16", &depth_format, 0);
+        ImGui::SameLine();
+        depth_format_changed |= ImGui::RadioButton("F32", &depth_format, 1);
+
+        static int draw_method = 0;
+        ImGui::Text("Draw method");
+        ImGui::SameLine();
+        ImGui::RadioButton("Triangles", &draw_method, 0);
+        ImGui::SameLine();
+
+        // clickable only when geometry shader is available
+        ImGui::BeginDisabled(!context_.geometry_shader_available());
+        ImGui::RadioButton("Geom Shader", &draw_method, 1);
+        ImGui::EndDisabled();
+
+        switch (draw_method) {
+          case 0:
+            splat_render_mode_ = SplatRenderMode::TriangleList;
+            break;
+
+          case 1:
+            splat_render_mode_ = SplatRenderMode::GeometryShader;
+            break;
+
+          default:
+            break;
+        }
+
+        ImGui::Checkbox("Axis", &show_axis_);
+        ImGui::SameLine();
+        ImGui::Checkbox("Grid", &show_grid_);
+
+        float fov_degree = glm::degrees(camera_.fov());
+        ImGui::SliderFloat("Fov Y", &fov_degree, glm::degrees(camera_.min_fov()), glm::degrees(camera_.max_fov()));
+        camera_.SetFov(glm::radians(fov_degree));
+
+        ImGui::Text("Translation");
+        ImGui::PushID("Translation");
+        ImGui::DragFloat3("local", glm::value_ptr(lt), 0.01f);
+        if (ImGui::IsItemDeactivated()) {
+          translation_ += glm::toMat3(rotation_) * scale_ * lt;
+          lt = glm::vec3(0.f);
+        }
+
+        ImGui::DragFloat3("global", glm::value_ptr(gt), 0.01f);
+        if (ImGui::IsItemDeactivated()) {
+          translation_ += gt;
+          gt = glm::vec3(0.f);
+        }
+        ImGui::PopID();
+
+        ImGui::Text("Rotation");
+        ImGui::PushID("Rotation");
+        ImGui::DragFloat3("local", glm::value_ptr(lr), 0.1f);
+        lq = glm::quat(glm::radians(lr));
+        if (ImGui::IsItemDeactivated()) {
+          rotation_ = rotation_ * lq;
+          lr = glm::vec3(0.f);
+          lq = glm::quat(1.f, 0.f, 0.f, 0.f);
+        }
+
+        ImGui::DragFloat3("global", glm::value_ptr(gr), 0.1f);
+        gq = glm::quat(glm::radians(gr));
+        if (ImGui::IsItemDeactivated()) {
+          translation_ = gq * translation_;
+          rotation_ = gq * rotation_;
+          gr = glm::vec3(0.f);
+          gq = glm::quat(1.f, 0.f, 0.f, 0.f);
+        }
+        ImGui::PopID();
+
+        ImGui::Text("Scale");
+        ImGui::PushID("Scale");
+        ImGui::DragFloat("local", &scale, 0.01f, 0.1f, 10.f, "%.3f", ImGuiSliderFlags_Logarithmic);
+        if (ImGui::IsItemDeactivated()) {
+          scale_ *= scale;
+          scale = 1.f;
+        }
+        ImGui::PopID();
+      }
+      ImGui::End();
+      viewer_.EndUi();
 
       model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) * ToTranslationMatrix4(translation_ + gt) *
               glm::toMat4(rotation_ * lq) * ToTranslationMatrix4(lt);
@@ -1436,6 +1513,33 @@ class Engine::Impl {
 
     framebuffer_ = vk::Framebuffer(context_, framebuffer_info);
   }
+
+  void ToggleDisplayMode() {
+    switch (display_mode_) {
+      case DisplayMode::Windowed:
+        SetWindowedFullscreen();
+        break;
+      case DisplayMode::WindowedFullscreen:
+        SetWindowed();
+        break;
+    }
+  }
+
+  void SetWindowed() {
+    if (display_mode_ == DisplayMode::WindowedFullscreen) {
+      display_mode_ = DisplayMode::Windowed;
+      viewer_.SetWindowed();
+    }
+  }
+
+  void SetWindowedFullscreen() {
+    if (display_mode_ == DisplayMode::Windowed) {
+      display_mode_ = DisplayMode::WindowedFullscreen;
+      viewer_.SetWindowedFullscreen();
+    }
+  }
+
+  DisplayMode display_mode_ = DisplayMode::Windowed;
 
   std::atomic_bool terminate_ = false;
 
