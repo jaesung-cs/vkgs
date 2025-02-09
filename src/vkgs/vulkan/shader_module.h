@@ -1,5 +1,5 @@
-#ifndef VKGS_ENGINE_VULKAN_SHADER_MODULE_H
-#define VKGS_ENGINE_VULKAN_SHADER_MODULE_H
+#ifndef VKGS_VULKAN_SHADER_MODULE_H
+#define VKGS_VULKAN_SHADER_MODULE_H
 
 #include <string>
 
@@ -37,4 +37,4 @@ class ShaderSource {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_SHADER_MODULE_H
+#endif  // VKGS_VULKAN_SHADER_MODULE_H

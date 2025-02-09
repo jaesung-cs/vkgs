@@ -47,20 +47,20 @@ add_library(vkgs SHARED
   src/vkgs/scene/camera.cc
   src/vkgs/engine/engine.cc
   src/vkgs/engine/splat_load_thread.cc
-  src/vkgs/engine/vulkan/attachment.cc
-  src/vkgs/engine/vulkan/buffer.cc
-  src/vkgs/engine/vulkan/compute_pipeline.cc
-  src/vkgs/engine/vulkan/context.cc
-  src/vkgs/engine/vulkan/cpu_buffer.cc
-  src/vkgs/engine/vulkan/descriptor_layout.cc
-  src/vkgs/engine/vulkan/descriptor.cc
-  src/vkgs/engine/vulkan/framebuffer.cc
-  src/vkgs/engine/vulkan/graphics_pipeline.cc
-  src/vkgs/engine/vulkan/pipeline_layout.cc
-  src/vkgs/engine/vulkan/render_pass.cc
-  src/vkgs/engine/vulkan/swapchain.cc
-  src/vkgs/engine/vulkan/uniform_buffer.cc
-  src/vkgs/engine/vulkan/vma_impl.cc
+  src/vkgs/vulkan/attachment.cc
+  src/vkgs/vulkan/buffer.cc
+  src/vkgs/vulkan/compute_pipeline.cc
+  src/vkgs/vulkan/context.cc
+  src/vkgs/vulkan/cpu_buffer.cc
+  src/vkgs/vulkan/descriptor_layout.cc
+  src/vkgs/vulkan/descriptor.cc
+  src/vkgs/vulkan/framebuffer.cc
+  src/vkgs/vulkan/graphics_pipeline.cc
+  src/vkgs/vulkan/pipeline_layout.cc
+  src/vkgs/vulkan/render_pass.cc
+  src/vkgs/vulkan/swapchain.cc
+  src/vkgs/vulkan/uniform_buffer.cc
+  src/vkgs/vulkan/vma_impl.cc
   # imgui
   third_party/imgui/backends/imgui_impl_glfw.cpp
   third_party/imgui/backends/imgui_impl_vulkan.cpp

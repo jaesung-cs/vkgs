@@ -1,4 +1,4 @@
-#include "vkgs/engine/vulkan/descriptor.h"
+#include "vkgs/vulkan/descriptor.h"
 
 namespace vkgs {
 namespace vk {

@@ -1,6 +1,6 @@
-#include "vkgs/engine/vulkan/graphics_pipeline.h"
+#include "vkgs/vulkan/graphics_pipeline.h"
 
-#include "vkgs/engine/vulkan/shader_module.h"
+#include "vkgs/vulkan/shader_module.h"
 
 namespace vkgs {
 namespace vk {

@@ -1,13 +1,13 @@
-#ifndef VKGS_ENGINE_VULKAN_PIPELINE_LAYOUT_H
-#define VKGS_ENGINE_VULKAN_PIPELINE_LAYOUT_H
+#ifndef VKGS_VULKAN_PIPELINE_LAYOUT_H
+#define VKGS_VULKAN_PIPELINE_LAYOUT_H
 
 #include <memory>
 #include <vector>
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
-#include "vkgs/engine/vulkan/descriptor_layout.h"
+#include "vkgs/vulkan/context.h"
+#include "vkgs/vulkan/descriptor_layout.h"
 
 namespace vkgs {
 namespace vk {
@@ -35,4 +35,4 @@ class PipelineLayout {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_PIPELINE_LAYOUT_H
+#endif  // VKGS_VULKAN_PIPELINE_LAYOUT_H

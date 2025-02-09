@@ -1,4 +1,4 @@
-#include "vkgs/engine/vulkan/uniform_buffer.h"
+#include "vkgs/vulkan/uniform_buffer.h"
 
 #include "vk_mem_alloc.h"
 

@@ -1,8 +1,8 @@
-#include "vkgs/engine/vulkan/attachment.h"
+#include "vkgs/vulkan/attachment.h"
 
 #include "vk_mem_alloc.h"
 
-#include "vkgs/engine/vulkan/context.h"
+#include "vkgs/vulkan/context.h"
 
 namespace vkgs {
 namespace vk {

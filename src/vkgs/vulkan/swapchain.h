@@ -1,12 +1,12 @@
-#ifndef VKGS_ENGINE_VULKAN_SWAPCHAIN_H
-#define VKGS_ENGINE_VULKAN_SWAPCHAIN_H
+#ifndef VKGS_VULKAN_SWAPCHAIN_H
+#define VKGS_VULKAN_SWAPCHAIN_H
 
 #include <memory>
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
-#include "vkgs/engine/vulkan/image_spec.h"
+#include "vkgs/vulkan/context.h"
+#include "vkgs/vulkan/image_spec.h"
 
 namespace vkgs {
 namespace vk {
@@ -43,4 +43,4 @@ class Swapchain {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_SWAPCHAIN_H
+#endif  // VKGS_VULKAN_SWAPCHAIN_H

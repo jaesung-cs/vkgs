@@ -1,13 +1,13 @@
-#ifndef VKGS_ENGINE_VULKAN_COMPUTE_PIPELINE_H
-#define VKGS_ENGINE_VULKAN_COMPUTE_PIPELINE_H
+#ifndef VKGS_VULKAN_COMPUTE_PIPELINE_H
+#define VKGS_VULKAN_COMPUTE_PIPELINE_H
 
 #include <memory>
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
-#include "vkgs/engine/vulkan/pipeline_layout.h"
-#include "vkgs/engine/vulkan/shader_module.h"
+#include "vkgs/vulkan/context.h"
+#include "vkgs/vulkan/pipeline_layout.h"
+#include "vkgs/vulkan/shader_module.h"
 
 namespace vkgs {
 namespace vk {
@@ -36,4 +36,4 @@ class ComputePipeline {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_COMPUTE_PIPELINE_H
+#endif  // VKGS_VULKAN_COMPUTE_PIPELINE_H

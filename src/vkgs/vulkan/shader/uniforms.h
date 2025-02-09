@@ -1,5 +1,5 @@
-#ifndef VKGS_ENGINE_VULKAN_SHADER_UNIFORMS_H
-#define VKGS_ENGINE_VULKAN_SHADER_UNIFORMS_H
+#ifndef VKGS_VULKAN_SHADER_UNIFORMS_H
+#define VKGS_VULKAN_SHADER_UNIFORMS_H
 
 #include <glm/glm.hpp>
 
@@ -22,4 +22,4 @@ struct alignas(64) SplatInfo {
 }  // namespace vk
 }  // namespace vkgs
 
-#endif  // VKGS_ENGINE_VULKAN_SHADER_UNIFORMS_H
+#endif  // VKGS_VULKAN_SHADER_UNIFORMS_H
