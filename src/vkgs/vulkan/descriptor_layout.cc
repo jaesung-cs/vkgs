@@ -9,8 +9,7 @@ class DescriptorLayout::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, const DescriptorLayoutCreateInfo& create_info)
-      : context_(context) {
+  Impl(Context context, const DescriptorLayoutCreateInfo& create_info) : context_(context) {
     std::vector<VkDescriptorSetLayoutBinding> bindings;
     for (const auto& binding : create_info.bindings) {
       VkDescriptorSetLayoutBinding raw_binding;
@@ -23,8 +22,7 @@ class DescriptorLayout::Impl {
       types_[binding.binding] = binding.descriptor_type;
     }
 
-    VkDescriptorSetLayoutCreateInfo layout_info = {
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    VkDescriptorSetLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     layout_info.bindingCount = bindings.size();
     layout_info.pBindings = bindings.data();
     vkCreateDescriptorSetLayout(context.device(), &layout_info, NULL, &layout_);
@@ -44,17 +42,14 @@ class DescriptorLayout::Impl {
 
 DescriptorLayout::DescriptorLayout() = default;
 
-DescriptorLayout::DescriptorLayout(
-    Context context, const DescriptorLayoutCreateInfo& create_info)
+DescriptorLayout::DescriptorLayout(Context context, const DescriptorLayoutCreateInfo& create_info)
     : impl_(std::make_shared<Impl>(context, create_info)) {}
 
 DescriptorLayout::~DescriptorLayout() = default;
 
 DescriptorLayout::operator VkDescriptorSetLayout() const { return *impl_; }
 
-VkDescriptorType DescriptorLayout::type(uint32_t binding) const {
-  return impl_->type(binding);
-}
+VkDescriptorType DescriptorLayout::type(uint32_t binding) const { return impl_->type(binding); }
 
 }  // namespace vk
 }  // namespace vkgs

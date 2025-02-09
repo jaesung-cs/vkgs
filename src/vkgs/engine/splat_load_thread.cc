@@ -26,18 +26,13 @@ class SplatLoadThread::Impl {
 
     thread_ = std::thread([this] {
       // thread-local command buffer
-      VkCommandPoolCreateInfo command_pool_info = {
-          VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-      command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
-                                VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-      command_pool_info.queueFamilyIndex =
-          context_.transfer_queue_family_index();
+      VkCommandPoolCreateInfo command_pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+      command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+      command_pool_info.queueFamilyIndex = context_.transfer_queue_family_index();
       VkCommandPool command_pool = VK_NULL_HANDLE;
-      vkCreateCommandPool(context_.device(), &command_pool_info, NULL,
-                          &command_pool);
+      vkCreateCommandPool(context_.device(), &command_pool_info, NULL, &command_pool);
 
-      VkCommandBufferAllocateInfo command_buffer_info = {
-          VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+      VkCommandBufferAllocateInfo command_buffer_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
       command_buffer_info.commandPool = command_pool;
       command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
       command_buffer_info.commandBufferCount = 1;
@@ -48,8 +43,7 @@ class SplatLoadThread::Impl {
         std::string ply_filepath;
         {
           std::unique_lock<std::mutex> guard{mutex_};
-          cv_.wait(guard,
-                   [this] { return terminate_ || !ply_filepath_.empty(); });
+          cv_.wait(guard, [this] { return terminate_ || !ply_filepath_.empty(); });
           if (terminate_) break;
           ply_filepath = std::move(ply_filepath_);
         }
@@ -95,34 +89,27 @@ class SplatLoadThread::Impl {
         }
 
         // assuming all properties are float
-        VkDeviceSize size = 60 * sizeof(uint32_t) +
-                            static_cast<VkDeviceSize>(offset) * point_count;
+        VkDeviceSize size = 60 * sizeof(uint32_t) + static_cast<VkDeviceSize>(offset) * point_count;
         if (staging_size_ < size) {
-          if (staging_)
-            vmaDestroyBuffer(context_.allocator(), staging_, allocation_);
+          if (staging_) vmaDestroyBuffer(context_.allocator(), staging_, allocation_);
 
-          VkBufferCreateInfo buffer_info = {
-              VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+          VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
           buffer_info.size = size;
           buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
           VmaAllocationCreateInfo allocation_create_info = {};
           allocation_create_info.flags =
-              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-              VMA_ALLOCATION_CREATE_MAPPED_BIT;
+              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
           allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
           VmaAllocationInfo allocation_info;
-          vmaCreateBuffer(context_.allocator(), &buffer_info,
-                          &allocation_create_info, &staging_, &allocation_,
+          vmaCreateBuffer(context_.allocator(), &buffer_info, &allocation_create_info, &staging_, &allocation_,
                           &allocation_info);
-          staging_map_ =
-              reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
+          staging_map_ = reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
           staging_size_ = size;
         }
 
         // TODO: make GPU buffer persist. Buffer creation is expensive.
-        auto ply_buffer = vk::Buffer(context_, size,
-                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        auto ply_buffer =
+            vk::Buffer(context_, size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
         // ply offsets
         std::vector<uint32_t> ply_offsets(60);
@@ -141,10 +128,8 @@ class SplatLoadThread::Impl {
         ply_offsets[10 + 32] = offsets["f_dc_2"] / 4;
         for (int i = 0; i < 15; ++i) {
           ply_offsets[10 + 1 + i] = offsets["f_rest_" + std::to_string(i)] / 4;
-          ply_offsets[10 + 17 + i] =
-              offsets["f_rest_" + std::to_string(15 + i)] / 4;
-          ply_offsets[10 + 33 + i] =
-              offsets["f_rest_" + std::to_string(30 + i)] / 4;
+          ply_offsets[10 + 17 + i] = offsets["f_rest_" + std::to_string(15 + i)] / 4;
+          ply_offsets[10 + 33 + i] = offsets["f_rest_" + std::to_string(30 + i)] / 4;
         }
         ply_offsets[58] = offsets["opacity"] / 4;
         ply_offsets[59] = offset / 4;
@@ -156,8 +141,7 @@ class SplatLoadThread::Impl {
         for (uint32_t start = 0; start < point_count; start += chunk_size) {
           if (terminate_ || cancel_) break;
 
-          auto chunk_point_count =
-              std::min<uint32_t>(chunk_size, point_count - start);
+          auto chunk_point_count = std::min<uint32_t>(chunk_size, point_count - start);
           in.read(buffer_.data() + offset * start, offset * chunk_point_count);
 
           {
@@ -170,15 +154,12 @@ class SplatLoadThread::Impl {
 
         // copy to staging buffer
         {
-          std::memcpy(staging_map_, ply_offsets.data(),
-                      ply_offsets.size() * sizeof(uint32_t));
-          std::memcpy(staging_map_ + 60 * sizeof(uint32_t), buffer_.data(),
-                      buffer_.size() * sizeof(char));
+          std::memcpy(staging_map_, ply_offsets.data(), ply_offsets.size() * sizeof(uint32_t));
+          std::memcpy(staging_map_ + 60 * sizeof(uint32_t), buffer_.data(), buffer_.size() * sizeof(char));
         }
 
         // transfer command
-        VkCommandBufferBeginInfo begin_info = {
-            VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cb, &begin_info);
 
@@ -192,17 +173,13 @@ class SplatLoadThread::Impl {
         std::vector<VkBufferMemoryBarrier> buffer_barriers(1);
         buffer_barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
         buffer_barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        buffer_barriers[0].srcQueueFamilyIndex =
-            context_.transfer_queue_family_index();
-        buffer_barriers[0].dstQueueFamilyIndex =
-            context_.graphics_queue_family_index();
+        buffer_barriers[0].srcQueueFamilyIndex = context_.transfer_queue_family_index();
+        buffer_barriers[0].dstQueueFamilyIndex = context_.graphics_queue_family_index();
         buffer_barriers[0].buffer = ply_buffer;
         buffer_barriers[0].offset = 0;
         buffer_barriers[0].size = size;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL,
-                             buffer_barriers.size(), buffer_barriers.data(), 0,
-                             NULL);
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL,
+                             buffer_barriers.size(), buffer_barriers.data(), 0, NULL);
 
         vkEndCommandBuffer(cb);
 
@@ -220,9 +197,7 @@ class SplatLoadThread::Impl {
         // update loaded point count
         {
           std::unique_lock<std::mutex> guard{mutex_};
-          buffer_barriers_.insert(buffer_barriers_.end(),
-                                  buffer_barriers.begin(),
-                                  buffer_barriers.end());
+          buffer_barriers_.insert(buffer_barriers_.end(), buffer_barriers.begin(), buffer_barriers.end());
           buffer_barriers.clear();
           ply_buffer_ = ply_buffer;
         }
@@ -299,18 +274,13 @@ class SplatLoadThread::Impl {
 
 SplatLoadThread::SplatLoadThread() = default;
 
-SplatLoadThread::SplatLoadThread(vk::Context context)
-    : impl_(std::make_shared<Impl>(context)) {}
+SplatLoadThread::SplatLoadThread(vk::Context context) : impl_(std::make_shared<Impl>(context)) {}
 
 SplatLoadThread::~SplatLoadThread() = default;
 
-void SplatLoadThread::Start(const std::string& ply_filepath) {
-  impl_->Start(ply_filepath);
-}
+void SplatLoadThread::Start(const std::string& ply_filepath) { impl_->Start(ply_filepath); }
 
-SplatLoadThread::Progress SplatLoadThread::GetProgress() {
-  return impl_->GetProgress();
-}
+SplatLoadThread::Progress SplatLoadThread::GetProgress() { return impl_->GetProgress(); }
 
 void SplatLoadThread::Cancel() { impl_->Cancel(); }
 

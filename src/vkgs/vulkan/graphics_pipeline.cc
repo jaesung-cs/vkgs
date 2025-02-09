@@ -9,16 +9,14 @@ class GraphicsPipeline::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, const GraphicsPipelineCreateInfo& create_info)
-      : context_(context) {
+  Impl(Context context, const GraphicsPipelineCreateInfo& create_info) : context_(context) {
     VkDevice device = context.device();
 
     VkShaderModule vertex_module;
     VkShaderModule fragment_module;
     VkShaderModule geometry_module = VK_NULL_HANDLE;
 
-    VkShaderModuleCreateInfo shader_info = {
-        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    VkShaderModuleCreateInfo shader_info = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     shader_info.codeSize = create_info.vertex_shader.size();
     shader_info.pCode = create_info.vertex_shader.data();
     vkCreateShaderModule(device, &shader_info, NULL, &vertex_module);
@@ -52,22 +50,17 @@ class GraphicsPipeline::Impl {
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertex_input_state.vertexBindingDescriptionCount =
-        create_info.input_bindings.size();
-    vertex_input_state.pVertexBindingDescriptions =
-        create_info.input_bindings.data();
-    vertex_input_state.vertexAttributeDescriptionCount =
-        create_info.input_attributes.size();
-    vertex_input_state.pVertexAttributeDescriptions =
-        create_info.input_attributes.data();
+    vertex_input_state.vertexBindingDescriptionCount = create_info.input_bindings.size();
+    vertex_input_state.pVertexBindingDescriptions = create_info.input_bindings.data();
+    vertex_input_state.vertexAttributeDescriptionCount = create_info.input_attributes.size();
+    vertex_input_state.pVertexAttributeDescriptions = create_info.input_attributes.data();
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_state = {
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     input_assembly_state.topology = create_info.topology;
     input_assembly_state.primitiveRestartEnable = VK_FALSE;
 
-    VkPipelineViewportStateCreateInfo viewport_state = {
-        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    VkPipelineViewportStateCreateInfo viewport_state = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     viewport_state.viewportCount = 1;
     viewport_state.scissorCount = 1;
 
@@ -78,8 +71,7 @@ class GraphicsPipeline::Impl {
     rasterization_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterization_state.lineWidth = 1.f;
 
-    VkPipelineMultisampleStateCreateInfo multisample_state = {
-        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    VkPipelineMultisampleStateCreateInfo multisample_state = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     multisample_state.rasterizationSamples = create_info.samples;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state = {
@@ -88,21 +80,16 @@ class GraphicsPipeline::Impl {
     depth_stencil_state.depthWriteEnable = create_info.depth_write;
     depth_stencil_state.depthCompareOp = VK_COMPARE_OP_LESS;
 
-    VkPipelineColorBlendStateCreateInfo color_blend_state = {
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    color_blend_state.attachmentCount =
-        create_info.color_blend_attachments.size();
+    VkPipelineColorBlendStateCreateInfo color_blend_state = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    color_blend_state.attachmentCount = create_info.color_blend_attachments.size();
     color_blend_state.pAttachments = create_info.color_blend_attachments.data();
 
-    std::vector<VkDynamicState> dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT,
-                                                  VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state = {
-        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    std::vector<VkDynamicState> dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic_state = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dynamic_state.dynamicStateCount = dynamic_states.size();
     dynamic_state.pDynamicStates = dynamic_states.data();
 
-    VkGraphicsPipelineCreateInfo pipeline_info = {
-        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    VkGraphicsPipelineCreateInfo pipeline_info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pipeline_info.stageCount = stages.size();
     pipeline_info.pStages = stages.data();
     pipeline_info.pVertexInputState = &vertex_input_state;
@@ -116,8 +103,7 @@ class GraphicsPipeline::Impl {
     pipeline_info.layout = create_info.layout;
     pipeline_info.renderPass = create_info.render_pass;
     pipeline_info.subpass = create_info.subpass;
-    vkCreateGraphicsPipelines(device, context_.pipeline_cache(), 1,
-                              &pipeline_info, NULL, &pipeline_);
+    vkCreateGraphicsPipelines(device, context_.pipeline_cache(), 1, &pipeline_info, NULL, &pipeline_);
 
     vkDestroyShaderModule(device, vertex_module, NULL);
     vkDestroyShaderModule(device, fragment_module, NULL);
@@ -135,8 +121,7 @@ class GraphicsPipeline::Impl {
 
 GraphicsPipeline::GraphicsPipeline() = default;
 
-GraphicsPipeline::GraphicsPipeline(
-    Context context, const GraphicsPipelineCreateInfo& create_info)
+GraphicsPipeline::GraphicsPipeline(Context context, const GraphicsPipelineCreateInfo& create_info)
     : impl_(std::make_shared<Impl>(context, create_info)) {}
 
 GraphicsPipeline::~GraphicsPipeline() = default;

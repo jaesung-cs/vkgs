@@ -25,8 +25,7 @@ class Buffer {
 
   VkDeviceSize size() const;
 
-  void FromCpu(VkCommandBuffer command_buffer, const void* src,
-               VkDeviceSize size);
+  void FromCpu(VkCommandBuffer command_buffer, const void* src, VkDeviceSize size);
 
   template <typename T>
   void FromCpu(VkCommandBuffer command_buffer, const std::vector<T>& v) {

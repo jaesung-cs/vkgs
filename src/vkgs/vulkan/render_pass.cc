@@ -7,8 +7,7 @@ class RenderPass::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, VkSampleCountFlagBits samples, VkFormat depth_format)
-      : context_(context) {
+  Impl(Context context, VkSampleCountFlagBits samples, VkFormat depth_format) : context_(context) {
     std::vector<VkAttachmentDescription2> attachments;
     if (samples == VK_SAMPLE_COUNT_1_BIT) {
       attachments.resize(2);
@@ -30,8 +29,7 @@ class RenderPass::Impl {
       attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
       attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
       attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      attachments[1].finalLayout =
-          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+      attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     } else {
       attachments.resize(3);
       attachments[0] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
@@ -52,8 +50,7 @@ class RenderPass::Impl {
       attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
       attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
       attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      attachments[1].finalLayout =
-          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+      attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
       attachments[2] = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
       attachments[2].format = VK_FORMAT_B8G8R8A8_UNORM;
@@ -72,15 +69,12 @@ class RenderPass::Impl {
     pass0_colors[0].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     pass0_colors[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
-    VkAttachmentReference2 pass0_depth = {
-        VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
+    VkAttachmentReference2 pass0_depth = {VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
     pass0_depth.attachment = 1;
     pass0_depth.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    pass0_depth.aspectMask =
-        VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    pass0_depth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
-    VkAttachmentReference2 pass0_resolve = {
-        VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
+    VkAttachmentReference2 pass0_resolve = {VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
     pass0_resolve.attachment = 2;
     pass0_resolve.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     pass0_resolve.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -100,31 +94,23 @@ class RenderPass::Impl {
     dependencies[0] = {VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
-    dependencies[0].srcStageMask =
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependencies[0].dstStageMask =
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependencies[0].srcAccessMask =
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dependencies[0].dstAccessMask =
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+                                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+                                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[0].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-    VkRenderPassCreateInfo2 render_pass_info = {
-        VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
+    VkRenderPassCreateInfo2 render_pass_info = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
     render_pass_info.attachmentCount = attachments.size();
     render_pass_info.pAttachments = attachments.data();
     render_pass_info.subpassCount = subpasses.size();
     render_pass_info.pSubpasses = subpasses.data();
     render_pass_info.dependencyCount = dependencies.size();
     render_pass_info.pDependencies = dependencies.data();
-    vkCreateRenderPass2(context_.device(), &render_pass_info, NULL,
-                        &render_pass_);
+    vkCreateRenderPass2(context_.device(), &render_pass_info, NULL, &render_pass_);
   }
 
   ~Impl() { vkDestroyRenderPass(context_.device(), render_pass_, NULL); }
@@ -138,8 +124,7 @@ class RenderPass::Impl {
 
 RenderPass::RenderPass() = default;
 
-RenderPass::RenderPass(Context context, VkSampleCountFlagBits samples,
-                       VkFormat depth_format)
+RenderPass::RenderPass(Context context, VkSampleCountFlagBits samples, VkFormat depth_format)
     : impl_(std::make_shared<Impl>(context, samples, depth_format)) {}
 
 RenderPass::~RenderPass() = default;

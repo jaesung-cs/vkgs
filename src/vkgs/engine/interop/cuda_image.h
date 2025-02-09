@@ -5,7 +5,7 @@
 
 #include <vulkan/vulkan.h>
 
-#include "vkgs/engine/vulkan/context.h"
+#include "vkgs/vulkan/context.h"
 
 namespace vkgs {
 namespace vk {

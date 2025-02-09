@@ -34,15 +34,12 @@ class UniformBuffer : public UniformBufferBase {
  public:
   UniformBuffer() {}
 
-  UniformBuffer(Context context, size_t size)
-      : UniformBufferBase(context, size * sizeof(T)) {}
+  UniformBuffer(Context context, size_t size) : UniformBufferBase(context, size * sizeof(T)) {}
 
   ~UniformBuffer() override {}
 
   T& operator[](size_t index) { return reinterpret_cast<T*>(ptr())[index]; }
-  const T& operator[](size_t index) const {
-    return reinterpret_cast<T*>(ptr())[index];
-  }
+  const T& operator[](size_t index) const { return reinterpret_cast<T*>(ptr())[index]; }
 
   VkDeviceSize offset(size_t index) { return sizeof(T) * index; }
 

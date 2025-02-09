@@ -13,8 +13,7 @@ class ShaderSource {
   ShaderSource() = default;
 
   template <size_t N>
-  ShaderSource(const uint32_t (&source)[N])
-      : source_(source), size_(sizeof(uint32_t) * N) {}
+  ShaderSource(const uint32_t (&source)[N]) : source_(source), size_(sizeof(uint32_t) * N) {}
 
   template <size_t N>
   ShaderSource& operator=(const uint32_t (&source)[N]) {

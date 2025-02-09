@@ -33,8 +33,7 @@ class GraphicsPipeline {
  public:
   GraphicsPipeline();
 
-  GraphicsPipeline(Context context,
-                   const GraphicsPipelineCreateInfo& create_info);
+  GraphicsPipeline(Context context, const GraphicsPipelineCreateInfo& create_info);
 
   ~GraphicsPipeline();
 
