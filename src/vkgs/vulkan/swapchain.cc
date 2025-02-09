@@ -107,9 +107,11 @@ class Swapchain::Impl {
 
   bool ShouldRecreate() { return should_recreate_; }
 
-  void Recreate() {
+  bool Recreate() {
     VkSurfaceCapabilitiesKHR surface_capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context_.physical_device(), surface_, &surface_capabilities);
+
+    if (surface_capabilities.currentExtent.width == 0 || surface_capabilities.currentExtent.height == 0) return false;
 
     VkSwapchainCreateInfoKHR swapchain_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swapchain_info.surface = surface_;
@@ -151,6 +153,7 @@ class Swapchain::Impl {
     }
 
     should_recreate_ = false;
+    return true;
   }
 
  private:
@@ -196,7 +199,7 @@ void Swapchain::SetVsync(bool flag) { impl_->SetVsync(flag); }
 
 bool Swapchain::ShouldRecreate() const { return impl_->ShouldRecreate(); }
 
-void Swapchain::Recreate() { impl_->Recreate(); }
+bool Swapchain::Recreate() { return impl_->Recreate(); }
 
 bool Swapchain::AcquireNextImage(VkSemaphore semaphore, uint32_t* image_index) {
   return impl_->AcquireNextImage(semaphore, image_index);
