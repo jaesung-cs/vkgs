@@ -9,22 +9,18 @@
 
 #include <vulkan/vulkan.h>
 
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
-
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_vulkan.h"
-
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#include "imgui.h"
 
 #include <vk_radix_sort.h>
 
 #include <vkgs/scene/camera.h>
 #include <vkgs/util/clock.h>
 
+#include "vkgs/viewer/viewer.h"
 #include "vkgs/engine/splat_load_thread.h"
 #include "vkgs/vulkan/context.h"
 #include "vkgs/vulkan/swapchain.h"
@@ -52,14 +48,11 @@
 #include "generated/color_vert.h"
 #include "generated/color_frag.h"
 
+// workaround for Windows OS.
+#undef CreateWindow
+
 namespace vkgs {
 namespace {
-
-void check_vk_result(VkResult err) {
-  if (err == 0) return;
-  std::cerr << "[imgui vulkan] Error: VkResult = " << err << std::endl;
-  if (err < 0) abort();
-}
 
 glm::mat4 ToScaleMatrix4(float s) {
   glm::mat4 m(1.f);
@@ -89,19 +82,6 @@ struct RenderPassKey {
 }  // namespace
 
 class Engine::Impl {
- public:
-  static void DropCallback(GLFWwindow* window, int count, const char** paths) {
-    // use first file with .ply extension
-    for (int i = 0; i < count; ++i) {
-      std::string path = paths[i];
-      if (path.length() > 4 && path.substr(path.length() - 4) == ".ply") {
-        std::cout << "loading " << path << std::endl;
-        auto* impl = reinterpret_cast<Impl*>(glfwGetWindowUserPointer(window));
-        impl->LoadSplats(path);
-      }
-    }
-  }
-
  private:
   enum class SplatRenderMode {
     TriangleList,
@@ -110,8 +90,6 @@ class Engine::Impl {
 
  public:
   Impl() {
-    if (glfwInit() == GLFW_FALSE) throw std::runtime_error("Failed to initialize glfw.");
-
     context_ = vk::Context(0);
 
     std::vector<RenderPassKey> render_pass_keys = {
@@ -522,11 +500,6 @@ class Engine::Impl {
     }
 
     PreparePrimitives();
-
-    // Setup Dear ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
   }
 
   ~Impl() {
@@ -542,9 +515,6 @@ class Engine::Impl {
     vkDestroySemaphore(context_.device(), transfer_semaphore_, NULL);
 
     for (auto query_pool : timestamp_query_pools_) vkDestroyQueryPool(context_.device(), query_pool, NULL);
-    ImGui::DestroyContext();
-
-    glfwTerminate();
   }
 
   void LoadSplats(const std::string& ply_filepath) {
@@ -558,50 +528,37 @@ class Engine::Impl {
   }
 
   void Run() {
-    // create window
-    width_ = 1600;
-    height_ = 900;
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    window_ = glfwCreateWindow(width_, height_, "vkgs", NULL, NULL);
-
-    // file drop callback
-    glfwSetWindowUserPointer(window_, this);
-    glfwSetDropCallback(window_, DropCallback);
-
-    ImGui_ImplGlfw_InitForVulkan(window_, true);
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = context_.instance();
-    init_info.PhysicalDevice = context_.physical_device();
-    init_info.Device = context_.device();
-    init_info.QueueFamily = context_.graphics_queue_family_index();
-    init_info.Queue = context_.graphics_queue();
-    init_info.PipelineCache = context_.pipeline_cache();
-    init_info.DescriptorPool = context_.descriptor_pool();
-    init_info.Subpass = 0;
-    init_info.MinImageCount = 3;
-    init_info.ImageCount = 3;
-    init_info.RenderPass = render_passes_[{samples_, depth_format_}];
-    init_info.MSAASamples = samples_;
-    init_info.Allocator = VK_NULL_HANDLE;
-    init_info.CheckVkResultFn = check_vk_result;
-    ImGui_ImplVulkan_Init(&init_info);
-
-    ImGuiIO& io = ImGui::GetIO();
+    viewer::WindowCreateInfo window_info = {};
+    window_info.instance = context_.instance();
+    window_info.physical_device = context_.physical_device();
+    window_info.device = context_.device();
+    window_info.queue_family = context_.graphics_queue_family_index();
+    window_info.queue = context_.graphics_queue();
+    window_info.pipeline_cache = context_.pipeline_cache();
+    window_info.descriptor_pool = context_.descriptor_pool();
+    window_info.render_pass = render_passes_[{samples_, depth_format_}];
+    window_info.samples = samples_;
+    viewer_.CreateWindow(window_info);
 
     // create swapchain
-    VkSurfaceKHR surface;
-    glfwCreateWindowSurface(context_.instance(), window_, NULL, &surface);
-    swapchain_ = vk::Swapchain(context_, surface);
+    swapchain_ = vk::Swapchain(context_, viewer_.surface());
 
     RecreateFramebuffer();
 
-    glfwShowWindow(window_);
+    viewer_.Show();
     terminate_ = false;
 
     // main loop
-    while (!glfwWindowShouldClose(window_) && !terminate_) {
-      glfwPollEvents();
+    while (!viewer_.ShouldClose() && !terminate_) {
+      viewer_.PollEvents();
+
+      // handle dropped files
+      for (const auto& filepath : viewer_.ConsumeDroppedFilepaths()) {
+        if (filepath.length() > 4 && filepath.substr(filepath.length() - 4) == ".ply") {
+          LoadSplatsAsync(filepath);
+          break;
+        }
+      }
 
       // load pending file from async request
       {
@@ -612,8 +569,7 @@ class Engine::Impl {
         }
       }
 
-      int width, height;
-      glfwGetFramebufferSize(window_, &width, &height);
+      auto [width, height] = viewer_.window_size();
       camera_.SetWindowSize(width, height);
 
       Draw();
@@ -621,11 +577,7 @@ class Engine::Impl {
 
     vkDeviceWaitIdle(context_.device());
 
-    glfwDestroyWindow(window_);
-
-    ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-
+    viewer_.DestroyWindow();
     terminate_ = false;
   }
 
@@ -805,8 +757,7 @@ class Engine::Impl {
 
       // draw ui
       {
-        ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
+        viewer_.NewUiFrame();
         ImGui::NewFrame();
 
         const auto& io = ImGui::GetIO();
@@ -1318,28 +1269,21 @@ class Engine::Impl {
             break;
         }
 
-        ImGui_ImplVulkan_InitInfo init_info = {};
-        init_info.Instance = context_.instance();
-        init_info.PhysicalDevice = context_.physical_device();
-        init_info.Device = context_.device();
-        init_info.QueueFamily = context_.graphics_queue_family_index();
-        init_info.Queue = context_.graphics_queue();
-        init_info.PipelineCache = context_.pipeline_cache();
-        init_info.DescriptorPool = context_.descriptor_pool();
-        init_info.Subpass = 0;
-        init_info.MinImageCount = 3;
-        init_info.ImageCount = 3;
-        init_info.Allocator = VK_NULL_HANDLE;
-        init_info.CheckVkResultFn = check_vk_result;
-        init_info.RenderPass = render_passes_[{samples_, depth_format_}];
-        init_info.MSAASamples = samples_;
-
         // wait for all presentations submitted, before recreate imgui vulkan
         vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
                         UINT64_MAX);
 
-        ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplVulkan_Init(&init_info);
+        viewer::WindowCreateInfo window_info;
+        window_info.instance = context_.instance();
+        window_info.physical_device = context_.physical_device();
+        window_info.device = context_.device();
+        window_info.queue_family = context_.graphics_queue_family_index();
+        window_info.queue = context_.graphics_queue();
+        window_info.pipeline_cache = context_.pipeline_cache();
+        window_info.descriptor_pool = context_.descriptor_pool();
+        window_info.render_pass = render_passes_[{samples_, depth_format_}];
+        window_info.samples = samples_;
+        viewer_.RecreateUi(window_info);
 
         RecreateFramebuffer();
       }
@@ -1461,8 +1405,7 @@ class Engine::Impl {
     }
 
     // draw ui
-    ImDrawData* draw_data = ImGui::GetDrawData();
-    ImGui_ImplVulkan_RenderDrawData(draw_data, cb);
+    viewer_.DrawUi(cb);
 
     vkCmdEndRenderPass(cb);
   }
@@ -1499,9 +1442,7 @@ class Engine::Impl {
   std::mutex mutex_;
   std::string pending_ply_filepath_;
 
-  GLFWwindow* window_ = nullptr;
-  int width_ = 0;
-  int height_ = 0;
+  viewer::Viewer viewer_;
 
   VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
   VkFormat depth_format_ = VK_FORMAT_D32_SFLOAT;
