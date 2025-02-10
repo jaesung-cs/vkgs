@@ -1367,6 +1367,8 @@ class Engine::Impl {
       window_info.render_pass = render_passes_[{samples_, depth_format_}];
       window_info.samples = samples_;
       viewer_.RecreateUi(window_info);
+
+      RecreateFramebuffer();
     }
   }
 
