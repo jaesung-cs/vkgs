@@ -48,7 +48,7 @@ layout(std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
 };
 
 layout(std430, set = 2, binding = 1) writeonly buffer Instances {
-  vec4 instances[];  // (N, 12). 3 for ndc position, 1 padding, 4 for scale rot, 4 for color.
+  vec4 instances[];  // (N, 12). 3 for ndc position, 1 padding, 4 for rot scale, 4 for color.
 };
 
 layout(std430, set = 2, binding = 2) buffer VisiblePointCount {
@@ -130,10 +130,14 @@ void main() {
   float D = sqrt((a - b) * (a - b) + 4.f * c * c);
   float s0 = sqrt(0.5f * (a + b + D));
   float s1 = sqrt(0.5f * (a + b - D));
-  // decompose to R^T S^2 R
+  // decompose to R S^2 R^T
   float sin2t = 2.f * c / D;
   float cos2t = (a - b) / D;
   float theta = atan(sin2t, cos2t) / 2.f;
+  float cos_theta = cos(theta);
+  float sin_theta = sin(theta);
+  // R*S
+  mat2 rot_scale = mat2(s0 * cos_theta, s0 * sin_theta, -s1 * sin_theta, s1 * cos_theta);
 
   pos = projection * pos;
   pos = pos / pos.w;
@@ -184,6 +188,6 @@ void main() {
   float opacity = gaussian_opacity[id];
 
   instances[inverse_id * 3 + 0].xyz = pos.xyz;
-  instances[inverse_id * 3 + 1] = vec4(s0, s1, cos(theta), sin(theta));
+  instances[inverse_id * 3 + 1] = vec4(rot_scale[0], rot_scale[1]);
   instances[inverse_id * 3 + 2] = vec4(color, opacity);
 }
