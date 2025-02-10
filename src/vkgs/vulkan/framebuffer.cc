@@ -33,15 +33,22 @@ class Framebuffer::Impl {
     framebuffer_info.height = create_info.height;
     framebuffer_info.layers = 1;
     vkCreateFramebuffer(context_.device(), &framebuffer_info, NULL, &framebuffer_);
+
+    width_ = create_info.width;
+    height_ = create_info.height;
   }
 
   ~Impl() { vkDestroyFramebuffer(context_.device(), framebuffer_, NULL); }
 
   operator VkFramebuffer() const noexcept { return framebuffer_; }
+  auto width() const noexcept { return width_; }
+  auto height() const noexcept { return height_; }
 
  private:
   Context context_;
   VkFramebuffer framebuffer_ = VK_NULL_HANDLE;
+  uint32_t width_ = 0;
+  uint32_t height_ = 0;
 };
 
 Framebuffer::Framebuffer() = default;
@@ -51,7 +58,10 @@ Framebuffer::Framebuffer(Context context, const FramebufferCreateInfo& create_in
 
 Framebuffer::~Framebuffer() = default;
 
+Framebuffer::operator bool() const { return impl_ != nullptr; }
 Framebuffer::operator VkFramebuffer() const { return *impl_; }
+uint32_t Framebuffer::width() const { return impl_->width(); }
+uint32_t Framebuffer::height() const { return impl_->height(); }
 
 }  // namespace vk
 }  // namespace vkgs

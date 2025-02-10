@@ -26,7 +26,10 @@ class Framebuffer {
 
   ~Framebuffer();
 
+  operator bool() const;
   operator VkFramebuffer() const;
+  uint32_t width() const;
+  uint32_t height() const;
 
  private:
   class Impl;

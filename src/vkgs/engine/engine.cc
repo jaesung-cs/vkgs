@@ -565,8 +565,6 @@ class Engine::Impl {
     // create swapchain
     swapchain_ = vk::Swapchain(context_, viewer_.surface());
 
-    RecreateFramebuffer();
-
     viewer_.Show();
     terminate_ = false;
 
@@ -743,42 +741,26 @@ class Engine::Impl {
   }
 
   void Draw() {
-    // recreate swapchain if need resize
-    if (swapchain_.ShouldRecreate()) {
-      vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
-                      UINT64_MAX);
-
-      if (!swapchain_.Recreate()) return;
-      RecreateFramebuffer();
-    }
-
-    int32_t acquire_index = frame_counter_ % 3;
     int32_t frame_index = frame_counter_ % 2;
-    VkSemaphore image_acquired_semaphore = image_acquired_semaphores_[acquire_index];
-    VkSemaphore render_finished_semaphore = render_finished_semaphores_[frame_index];
-    VkFence render_finished_fence = render_finished_fences_[frame_index];
-    VkCommandBuffer cb = draw_command_buffers_[frame_index];
-    VkQueryPool timestamp_query_pool = timestamp_query_pools_[frame_index];
     auto& frame_info = frame_infos_[frame_index];
 
-    uint32_t image_index;
-    if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
-      static glm::vec3 lt(0.f);
-      static glm::vec3 gt(0.f);
-      static glm::vec3 lr(0.f);
-      static glm::quat lq;
-      static glm::vec3 gr(0.f);
-      static glm::quat gq;
-      static float scale = 1.f;
-      glm::mat4 model(1.f);
+    static glm::vec3 lt(0.f);
+    static glm::vec3 gt(0.f);
+    static glm::vec3 lr(0.f);
+    static glm::quat lq;
+    static glm::vec3 gr(0.f);
+    static glm::quat gq;
+    static float scale = 1.f;
+    glm::mat4 model(1.f);
 
-      bool msaa_changed = false;
-      static int msaa = 0;
+    bool msaa_changed = false;
+    static int msaa = 0;
 
-      bool depth_format_changed = false;
-      static int depth_format = 1;
+    bool depth_format_changed = false;
+    static int depth_format = 1;
 
-      // draw ui
+    // draw ui
+    {
       viewer_.BeginUi();
       const auto& io = ImGui::GetIO();
 
@@ -1032,42 +1014,63 @@ class Engine::Impl {
       }
       ImGui::End();
       viewer_.EndUi();
+    }
 
-      model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) * ToTranslationMatrix4(translation_ + gt) *
-              glm::toMat4(rotation_ * lq) * ToTranslationMatrix4(lt);
+    model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) * ToTranslationMatrix4(translation_ + gt) *
+            glm::toMat4(rotation_ * lq) * ToTranslationMatrix4(lt);
 
-      // record command buffer
-      vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE, UINT64_MAX);
-      vkResetFences(context_.device(), 1, &render_finished_fence);
+    // record command buffer
+    VkFence render_finished_fence = render_finished_fences_[frame_index];
+    vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE, UINT64_MAX);
 
-      // get timestamps
-      if (frame_info.drew_splats) {
-        std::vector<uint64_t> timestamps(timestamp_count_);
-        vkGetQueryPoolResults(context_.device(), timestamp_query_pool, 0, timestamps.size(),
-                              timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
-                              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    // get timestamps
+    VkQueryPool timestamp_query_pool = timestamp_query_pools_[frame_index];
+    if (frame_info.drew_splats) {
+      std::vector<uint64_t> timestamps(timestamp_count_);
+      vkGetQueryPoolResults(context_.device(), timestamp_query_pool, 0, timestamps.size(),
+                            timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
+                            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 
-        frame_info.rank_time = timestamps[2] - timestamps[1];
-        frame_info.sort_time = timestamps[4] - timestamps[3];
-        frame_info.inverse_time = timestamps[6] - timestamps[5];
-        frame_info.projection_time = timestamps[8] - timestamps[7];
-        frame_info.rendering_time = timestamps[10] - timestamps[9];
-        frame_info.end_to_end_time = timestamps[11] - timestamps[0];
+      frame_info.rank_time = timestamps[2] - timestamps[1];
+      frame_info.sort_time = timestamps[4] - timestamps[3];
+      frame_info.inverse_time = timestamps[6] - timestamps[5];
+      frame_info.projection_time = timestamps[8] - timestamps[7];
+      frame_info.rendering_time = timestamps[10] - timestamps[9];
+      frame_info.end_to_end_time = timestamps[11] - timestamps[0];
+    }
+
+    camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
+    camera_buffer_[frame_index].view = camera_.ViewMatrix();
+    camera_buffer_[frame_index].camera_position = camera_.Eye();
+    camera_buffer_[frame_index].screen_size = {camera_.width(), camera_.height()};
+
+    // recreate swapchain if need resize
+    if (swapchain_.ShouldRecreate()) {
+      vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
+                      UINT64_MAX);
+
+      swapchain_.Recreate();
+    }
+
+    int32_t acquire_index = frame_counter_ % 3;
+    VkSemaphore image_acquired_semaphore = image_acquired_semaphores_[acquire_index];
+    uint32_t image_index;
+    if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
+      if (!framebuffer_ || swapchain_.width() != framebuffer_.width() || swapchain_.height() != framebuffer_.height()) {
+        vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
+                        UINT64_MAX);
+        RecreateFramebuffer();
       }
 
-      camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
-      camera_buffer_[frame_index].view = camera_.ViewMatrix();
-      camera_buffer_[frame_index].camera_position = camera_.Eye();
-      camera_buffer_[frame_index].screen_size = {camera_.width(), camera_.height()};
+      VkCommandBuffer cb = draw_command_buffers_[frame_index];
 
       VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
       command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       vkBeginCommandBuffer(cb, &command_begin_info);
-
       vkCmdResetQueryPool(cb, timestamp_query_pool, 0, timestamp_count_);
-
       vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_query_pool, 0);
 
+      // TODO: get the loading part out of presentation part.
       // check loading status
       auto progress = splat_load_thread_.GetProgress();
       frame_info.total_point_count = progress.total_point_count;
@@ -1291,7 +1294,6 @@ class Engine::Impl {
       }
 
       vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, timestamp_query_pool, 11);
-
       vkEndCommandBuffer(cb);
 
       std::vector<VkSemaphore> wait_semaphores = {image_acquired_semaphore, transfer_semaphore_};
@@ -1302,6 +1304,9 @@ class Engine::Impl {
       VkTimelineSemaphoreSubmitInfo timeline_semaphore_submit_info = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
       timeline_semaphore_submit_info.waitSemaphoreValueCount = wait_values.size();
       timeline_semaphore_submit_info.pWaitSemaphoreValues = wait_values.data();
+
+      VkSemaphore render_finished_semaphore = render_finished_semaphores_[frame_index];
+      vkResetFences(context_.device(), 1, &render_finished_fence);
 
       VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
       submit_info.pNext = &timeline_semaphore_submit_info;
@@ -1326,44 +1331,42 @@ class Engine::Impl {
       frame_info.present_done_timestamp = Clock::timestamp();
 
       frame_counter_++;
+    }
 
-      if (msaa_changed || depth_format_changed) {
-        if (msaa == 0) {
-          samples_ = VK_SAMPLE_COUNT_1_BIT;
-        } else if (msaa == 1) {
-          samples_ = VK_SAMPLE_COUNT_2_BIT;
-        } else if (msaa == 2) {
-          samples_ = VK_SAMPLE_COUNT_4_BIT;
-        }
-
-        switch (depth_format) {
-          case 0:
-            depth_format_ = VK_FORMAT_D16_UNORM;
-            break;
-
-          case 1:
-            depth_format_ = VK_FORMAT_D32_SFLOAT;
-            break;
-        }
-
-        // wait for all presentations submitted, before recreate imgui vulkan
-        vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
-                        UINT64_MAX);
-
-        viewer::WindowCreateInfo window_info;
-        window_info.instance = context_.instance();
-        window_info.physical_device = context_.physical_device();
-        window_info.device = context_.device();
-        window_info.queue_family = context_.graphics_queue_family_index();
-        window_info.queue = context_.graphics_queue();
-        window_info.pipeline_cache = context_.pipeline_cache();
-        window_info.descriptor_pool = context_.descriptor_pool();
-        window_info.render_pass = render_passes_[{samples_, depth_format_}];
-        window_info.samples = samples_;
-        viewer_.RecreateUi(window_info);
-
-        RecreateFramebuffer();
+    if (msaa_changed || depth_format_changed) {
+      if (msaa == 0) {
+        samples_ = VK_SAMPLE_COUNT_1_BIT;
+      } else if (msaa == 1) {
+        samples_ = VK_SAMPLE_COUNT_2_BIT;
+      } else if (msaa == 2) {
+        samples_ = VK_SAMPLE_COUNT_4_BIT;
       }
+
+      switch (depth_format) {
+        case 0:
+          depth_format_ = VK_FORMAT_D16_UNORM;
+          break;
+
+        case 1:
+          depth_format_ = VK_FORMAT_D32_SFLOAT;
+          break;
+      }
+
+      // wait for all presentations submitted, before recreate imgui vulkan
+      vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
+                      UINT64_MAX);
+
+      viewer::WindowCreateInfo window_info;
+      window_info.instance = context_.instance();
+      window_info.physical_device = context_.physical_device();
+      window_info.device = context_.device();
+      window_info.queue_family = context_.graphics_queue_family_index();
+      window_info.queue = context_.graphics_queue();
+      window_info.pipeline_cache = context_.pipeline_cache();
+      window_info.descriptor_pool = context_.descriptor_pool();
+      window_info.render_pass = render_passes_[{samples_, depth_format_}];
+      window_info.samples = samples_;
+      viewer_.RecreateUi(window_info);
     }
   }
 
