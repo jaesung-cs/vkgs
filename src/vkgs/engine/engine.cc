@@ -498,7 +498,7 @@ class Engine::Impl {
       splat_storage_.inverse_index = vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
                                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-      splat_storage_.instance = vk::Buffer(context_, MAX_SPLAT_COUNT * 10 * sizeof(float),
+      splat_storage_.instance = vk::Buffer(context_, MAX_SPLAT_COUNT * 12 * sizeof(float),
                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     }
 
@@ -1096,7 +1096,7 @@ class Engine::Impl {
         descriptors_[frame_index].gaussian.Update(4, splat_storage_.sh, 0, loaded_point_count_ * 48 * sizeof(float));
 
         descriptors_[frame_index].splat_instance.Update(1, splat_storage_.instance, 0,
-                                                        loaded_point_count_ * 10 * sizeof(float));
+                                                        loaded_point_count_ * 12 * sizeof(float));
         descriptors_[frame_index].splat_instance.Update(2, splat_visible_point_count_, 0,
                                                         splat_visible_point_count_.size());
         descriptors_[frame_index].splat_instance.Update(3, splat_storage_.key, 0,
@@ -1641,7 +1641,7 @@ class Engine::Impl {
     vk::Buffer index;          // (N)
     vk::Buffer inverse_index;  // (N)
 
-    vk::Buffer instance;  // (N, 10)
+    vk::Buffer instance;  // (N, 12)
   };
   SplatStorage splat_storage_;
   vk::Buffer sort_storage_;

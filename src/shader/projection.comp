@@ -48,7 +48,7 @@ layout(std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
 };
 
 layout(std430, set = 2, binding = 1) writeonly buffer Instances {
-  float instances[];  // (N, 10). 3 for ndc position, 3 for scale rot, 4 for color
+  vec4 instances[];  // (N, 12). 3 for ndc position, 1 padding, 4 for scale rot, 4 for color.
 };
 
 layout(std430, set = 2, binding = 2) buffer VisiblePointCount {
@@ -183,14 +183,7 @@ void main() {
   color = max(color + 0.5f, 0.f);
   float opacity = gaussian_opacity[id];
 
-  instances[inverse_id * 10 + 0] = pos.x;
-  instances[inverse_id * 10 + 1] = pos.y;
-  instances[inverse_id * 10 + 2] = pos.z;
-  instances[inverse_id * 10 + 3] = s0;
-  instances[inverse_id * 10 + 4] = s1;
-  instances[inverse_id * 10 + 5] = theta;
-  instances[inverse_id * 10 + 6] = color.r;
-  instances[inverse_id * 10 + 7] = color.g;
-  instances[inverse_id * 10 + 8] = color.b;
-  instances[inverse_id * 10 + 9] = opacity;
+  instances[inverse_id * 3 + 0].xyz = pos.xyz;
+  instances[inverse_id * 3 + 1] = vec4(s0, s1, cos(theta), sin(theta));
+  instances[inverse_id * 3 + 2] = vec4(color, opacity);
 }
