@@ -488,7 +488,7 @@ class Engine::Impl {
                                         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
       splat_storage_.opacity = vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(float),
                                           VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-      splat_storage_.sh = vk::Buffer(context_, MAX_SPLAT_COUNT * 48 * sizeof(float),
+      splat_storage_.sh = vk::Buffer(context_, MAX_SPLAT_COUNT * 48 * sizeof(uint16_t),
                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
       splat_storage_.key = vk::Buffer(context_, MAX_SPLAT_COUNT * sizeof(uint32_t),
@@ -1093,7 +1093,7 @@ class Engine::Impl {
         descriptors_[frame_index].gaussian.Update(2, splat_storage_.cov3d, 0, loaded_point_count_ * 6 * sizeof(float));
         descriptors_[frame_index].gaussian.Update(3, splat_storage_.opacity, 0,
                                                   loaded_point_count_ * 1 * sizeof(float));
-        descriptors_[frame_index].gaussian.Update(4, splat_storage_.sh, 0, loaded_point_count_ * 48 * sizeof(float));
+        descriptors_[frame_index].gaussian.Update(4, splat_storage_.sh, 0, loaded_point_count_ * 48 * sizeof(uint16_t));
 
         descriptors_[frame_index].splat_instance.Update(1, splat_storage_.instance, 0,
                                                         loaded_point_count_ * 12 * sizeof(float));
