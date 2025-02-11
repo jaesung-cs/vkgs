@@ -1,13 +1,13 @@
 #version 460
 
-layout (points) in;
-layout (triangle_strip, max_vertices = 4) out;
+layout(points) in;
+layout(triangle_strip, max_vertices = 4) out;
 
-layout (location = 0) in vec3 in_scale_rot[];
-layout (location = 1) in vec4 in_color[];
+layout(location = 0) in vec3 in_scale_rot[];
+layout(location = 1) in vec4 in_color[];
 
-layout (location = 0) out vec4 out_color;
-layout (location = 1) out vec2 out_position;
+layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec2 out_position;
 
 void main() {
   vec2 scale = in_scale_rot[0].xy;
@@ -15,7 +15,7 @@ void main() {
 
   // quad positions (-1, -1), (-1, 1), (1, -1), (1, 1), ccw in screen space.
   mat4x2 positions = mat4x2(vec2(-1.f, -1.f), vec2(-1.f, 1.f), vec2(1.f, -1.f), vec2(1.f, 1.f));
-  
+
   mat2 rot = mat2(cos(theta), sin(theta), -sin(theta), cos(theta));
   mat2 scale_mat = mat2(scale.x, 0.f, 0.f, scale.y);
   float confidence_radius = 3.f;
