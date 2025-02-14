@@ -10,15 +10,16 @@
 namespace vkgs {
 namespace viewer {
 
-struct WindowCreateInfo {
+struct UiCreateInfo {
   VkInstance instance;
-  VkPhysicalDevice physical_device;
+  VkPhysicalDevice physicalDevice;
   VkDevice device;
-  uint32_t queue_family;
+  uint32_t queueFamily;
   VkQueue queue;
-  VkPipelineCache pipeline_cache;
-  VkDescriptorPool descriptor_pool;
-  VkRenderPass render_pass;
+  VkPipelineCache pipelineCache;
+  VkDescriptorPool descriptorPool;
+  VkRenderPass renderPass;
+  uint32_t subpass;
   VkSampleCountFlagBits samples;
 };
 
@@ -32,9 +33,9 @@ class Viewer {
   Viewer();
   ~Viewer();
 
-  void PrepareWindow(const WindowCreateInfo& create_info);
+  void PrepareWindow(VkInstance instance);
   void DestroyWindow();
-  void RecreateUi(const WindowCreateInfo& create_info);
+  void PrepareUi(const UiCreateInfo& createInfo);
   void SetWindowed();
   void SetWindowedFullscreen();
   void SetWindowSize(int width, int height);
@@ -43,10 +44,10 @@ class Viewer {
   bool ShouldClose() const;
   void BeginUi();
   void EndUi();
-  void DrawUi(VkCommandBuffer command_buffer);
+  void DrawUi(VkCommandBuffer commandBuffer);
 
   VkSurfaceKHR surface() const;
-  WindowSize window_size() const;
+  WindowSize windowSize() const;
 
  private:
   class Impl;

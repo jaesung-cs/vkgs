@@ -54,53 +54,57 @@ class Viewer::Impl {
 
   VkSurfaceKHR surface() const noexcept { return surface_; }
 
-  WindowSize window_size() const {
+  WindowSize windowSize() const {
     WindowSize result;
     glfwGetFramebufferSize(window_, &result.width, &result.height);
     return result;
   }
 
-  void PrepareWindow(const WindowCreateInfo& create_info) {
+  void PrepareWindow(VkInstance instance) {
+    instance_ = instance;
+
     // create window
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     window_ = glfwCreateWindow(1600, 900, "vkgs", NULL, NULL);
-    glfwHideWindow(window_);
 
     // Vulkan surface
-    glfwCreateWindowSurface(create_info.instance, window_, NULL, &surface_);
+    glfwCreateWindowSurface(instance, window_, NULL, &surface_);
 
     // file drop callback
     glfwSetWindowUserPointer(window_, this);
     glfwSetDropCallback(window_, DropCallback);
 
     ImGui_ImplGlfw_InitForVulkan(window_, true);
-    auto init_info = GetImguiInitInfo(create_info);
-    ImGui_ImplVulkan_Init(&init_info);
   }
 
   void DestroyWindow() {
+    vkDestroySurfaceKHR(instance_, surface_, NULL);
+
     glfwDestroyWindow(window_);
 
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
   }
 
-  void RecreateUi(const WindowCreateInfo& create_info) {
-    ImGui_ImplVulkan_Shutdown();
-    auto init_info = GetImguiInitInfo(create_info);
-    ImGui_ImplVulkan_Init(&init_info);
+  void PrepareUi(const UiCreateInfo& createInfo) {
+    if (hasUi_) {
+      ImGui_ImplVulkan_Shutdown();
+    }
+
+    auto initInfo = GetImguiInitInfo(createInfo);
+    ImGui_ImplVulkan_Init(&initInfo);
+    hasUi_ = true;
   }
 
   void SetWindowed() {
-    if (display_mode == DisplayMode::WindowedFullscreen) {
+    if (displayMode_ == DisplayMode::WindowedFullscreen) {
       glfwSetWindowMonitor(window_, NULL, xpos_, ypos_, width_, height_, 0);
-      display_mode = DisplayMode::Windowed;
+      displayMode_ = DisplayMode::Windowed;
     }
   }
 
   void SetWindowedFullscreen() {
-    if (display_mode == DisplayMode::Windowed) {
+    if (displayMode_ == DisplayMode::Windowed) {
       glfwGetWindowPos(window_, &xpos_, &ypos_);
       glfwGetWindowSize(window_, &width_, &height_);
 
@@ -108,7 +112,7 @@ class Viewer::Impl {
       GLFWmonitor* primary = glfwGetPrimaryMonitor();
       const GLFWvidmode* mode = glfwGetVideoMode(primary);
       glfwSetWindowMonitor(window_, primary, 0, 0, mode->width, mode->height, mode->refreshRate);
-      display_mode = DisplayMode::WindowedFullscreen;
+      displayMode_ = DisplayMode::WindowedFullscreen;
     }
   }
 
@@ -132,44 +136,47 @@ class Viewer::Impl {
 
   void EndUi() { ImGui::Render(); }
 
-  void DrawUi(VkCommandBuffer command_buffer) {
-    ImDrawData* draw_data = ImGui::GetDrawData();
-    ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer);
+  void DrawUi(VkCommandBuffer commandBuffer) {
+    ImDrawData* drawData = ImGui::GetDrawData();
+    ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
   }
 
   std::vector<std::string> ConsumeDroppedFilepaths() { return std::move(dropped_filepaths_); }
 
  private:
-  ImGui_ImplVulkan_InitInfo GetImguiInitInfo(const WindowCreateInfo& window_info) {
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = window_info.instance;
-    init_info.PhysicalDevice = window_info.physical_device;
-    init_info.Device = window_info.device;
-    init_info.QueueFamily = window_info.queue_family;
-    init_info.Queue = window_info.queue;
-    init_info.PipelineCache = window_info.pipeline_cache;
-    init_info.DescriptorPool = window_info.descriptor_pool;
-    init_info.Subpass = 0;
-    init_info.MinImageCount = 3;
-    init_info.ImageCount = 3;
-    init_info.RenderPass = window_info.render_pass;
-    init_info.MSAASamples = window_info.samples;
-    init_info.Allocator = VK_NULL_HANDLE;
-    init_info.CheckVkResultFn = check_vk_result;
-    return init_info;
+  ImGui_ImplVulkan_InitInfo GetImguiInitInfo(const UiCreateInfo& createInfo) {
+    ImGui_ImplVulkan_InitInfo initInfo = {};
+    initInfo.Instance = createInfo.instance;
+    initInfo.PhysicalDevice = createInfo.physicalDevice;
+    initInfo.Device = createInfo.device;
+    initInfo.QueueFamily = createInfo.queueFamily;
+    initInfo.Queue = createInfo.queue;
+    initInfo.PipelineCache = createInfo.pipelineCache;
+    initInfo.DescriptorPool = createInfo.descriptorPool;
+    initInfo.Subpass = createInfo.subpass;
+    initInfo.MinImageCount = 3;
+    initInfo.ImageCount = 3;
+    initInfo.RenderPass = createInfo.renderPass;
+    initInfo.MSAASamples = createInfo.samples;
+    initInfo.Allocator = VK_NULL_HANDLE;
+    initInfo.CheckVkResultFn = check_vk_result;
+    return initInfo;
   }
 
   void SetDroppedFilepaths(const std::vector<std::string>& filepaths) { dropped_filepaths_ = filepaths; }
 
   std::vector<std::string> dropped_filepaths_;
 
+  bool hasUi_ = false;
+
   GLFWwindow* window_ = nullptr;
   int xpos_ = 0;
   int ypos_ = 0;
   int width_ = 0;
   int height_ = 0;
-  DisplayMode display_mode = DisplayMode::Windowed;
+  DisplayMode displayMode_ = DisplayMode::Windowed;
 
+  VkInstance instance_ = VK_NULL_HANDLE;
   VkSurfaceKHR surface_ = VK_NULL_HANDLE;
 };
 
@@ -177,11 +184,11 @@ Viewer::Viewer() : impl_(std::make_shared<Impl>()) {}
 
 Viewer::~Viewer() = default;
 
-void Viewer::PrepareWindow(const WindowCreateInfo& create_info) { impl_->PrepareWindow(create_info); }
+void Viewer::PrepareWindow(VkInstance instance) { impl_->PrepareWindow(instance); }
 
 void Viewer::DestroyWindow() { impl_->DestroyWindow(); }
 
-void Viewer::RecreateUi(const WindowCreateInfo& create_info) { impl_->RecreateUi(create_info); }
+void Viewer::PrepareUi(const UiCreateInfo& createInfo) { impl_->PrepareUi(createInfo); }
 
 void Viewer::SetWindowed() { impl_->SetWindowed(); }
 
@@ -199,11 +206,11 @@ void Viewer::BeginUi() { impl_->BeginUi(); }
 
 void Viewer::EndUi() { impl_->EndUi(); }
 
-void Viewer::DrawUi(VkCommandBuffer command_buffer) { impl_->DrawUi(command_buffer); }
+void Viewer::DrawUi(VkCommandBuffer commandBuffer) { impl_->DrawUi(commandBuffer); }
 
 VkSurfaceKHR Viewer::surface() const { return impl_->surface(); }
 
-WindowSize Viewer::window_size() const { return impl_->window_size(); }
+WindowSize Viewer::windowSize() const { return impl_->windowSize(); }
 
 }  // namespace viewer
 }  // namespace vkgs
