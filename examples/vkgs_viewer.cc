@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
 
     if (parser.is_used("input")) {
       auto ply_filepath = parser.get<std::string>("input");
-      engine.LoadSplats(ply_filepath);
+      // TODO
     }
 
     engine.Run();

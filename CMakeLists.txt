@@ -45,22 +45,8 @@ endfunction()
 # vkgs
 add_library(vkgs SHARED
   src/vkgs/engine/engine.cc
-  src/vkgs/engine/splat_load_thread.cc
   src/vkgs/scene/camera.cc
   src/vkgs/viewer/viewer.cc
-  src/vkgs/vulkan/attachment.cc
-  src/vkgs/vulkan/buffer.cc
-  src/vkgs/vulkan/compute_pipeline.cc
-  src/vkgs/vulkan/context.cc
-  src/vkgs/vulkan/cpu_buffer.cc
-  src/vkgs/vulkan/descriptor_layout.cc
-  src/vkgs/vulkan/descriptor.cc
-  src/vkgs/vulkan/framebuffer.cc
-  src/vkgs/vulkan/graphics_pipeline.cc
-  src/vkgs/vulkan/pipeline_layout.cc
-  src/vkgs/vulkan/render_pass.cc
-  src/vkgs/vulkan/swapchain.cc
-  src/vkgs/vulkan/uniform_buffer.cc
   src/vkgs/vulkan/vma_impl.cc
   # imgui
   third_party/imgui/backends/imgui_impl_glfw.cpp

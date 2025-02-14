@@ -32,10 +32,9 @@ class Viewer {
   Viewer();
   ~Viewer();
 
-  void CreateWindow(const WindowCreateInfo& create_info);
+  void PrepareWindow(const WindowCreateInfo& create_info);
   void DestroyWindow();
   void RecreateUi(const WindowCreateInfo& create_info);
-  void Show();
   void SetWindowed();
   void SetWindowedFullscreen();
   void SetWindowSize(int width, int height);

@@ -60,11 +60,12 @@ class Viewer::Impl {
     return result;
   }
 
-  void CreateWindow(const WindowCreateInfo& create_info) {
+  void PrepareWindow(const WindowCreateInfo& create_info) {
     // create window
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     window_ = glfwCreateWindow(1600, 900, "vkgs", NULL, NULL);
+    glfwHideWindow(window_);
 
     // Vulkan surface
     glfwCreateWindowSurface(create_info.instance, window_, NULL, &surface_);
@@ -90,8 +91,6 @@ class Viewer::Impl {
     auto init_info = GetImguiInitInfo(create_info);
     ImGui_ImplVulkan_Init(&init_info);
   }
-
-  void Show() { glfwShowWindow(window_); }
 
   void SetWindowed() {
     if (display_mode == DisplayMode::WindowedFullscreen) {
@@ -178,13 +177,11 @@ Viewer::Viewer() : impl_(std::make_shared<Impl>()) {}
 
 Viewer::~Viewer() = default;
 
-void Viewer::CreateWindow(const WindowCreateInfo& create_info) { impl_->CreateWindow(create_info); }
+void Viewer::PrepareWindow(const WindowCreateInfo& create_info) { impl_->PrepareWindow(create_info); }
 
 void Viewer::DestroyWindow() { impl_->DestroyWindow(); }
 
 void Viewer::RecreateUi(const WindowCreateInfo& create_info) { impl_->RecreateUi(create_info); }
-
-void Viewer::Show() { impl_->Show(); }
 
 void Viewer::SetWindowed() { impl_->SetWindowed(); }
 
