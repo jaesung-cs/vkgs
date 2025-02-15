@@ -23,12 +23,6 @@ namespace vkgs {
 namespace viewer {
 
 class Viewer::Impl {
- private:
-  enum class DisplayMode {
-    Windowed,
-    WindowedFullscreen,
-  };
-
  public:
   static void DropCallback(GLFWwindow* window, int count, const char** paths) {
     std::vector<std::string> filepaths(paths, paths + count);
@@ -59,6 +53,8 @@ class Viewer::Impl {
     glfwGetFramebufferSize(window_, &result.width, &result.height);
     return result;
   }
+
+  DisplayMode displayMode() const noexcept { return displayMode_; }
 
   void PrepareWindow(VkInstance instance) {
     instance_ = instance;
@@ -211,6 +207,8 @@ void Viewer::DrawUi(VkCommandBuffer commandBuffer) { impl_->DrawUi(commandBuffer
 VkSurfaceKHR Viewer::surface() const { return impl_->surface(); }
 
 WindowSize Viewer::windowSize() const { return impl_->windowSize(); }
+
+DisplayMode Viewer::displayMode() const { return impl_->displayMode(); }
 
 }  // namespace viewer
 }  // namespace vkgs

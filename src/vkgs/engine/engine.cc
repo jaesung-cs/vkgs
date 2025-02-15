@@ -31,7 +31,7 @@ struct Resolution {
   const char* tag;
 };
 
-std::vector<Resolution> preset_resolutions = {
+std::vector<Resolution> presetResolutions = {
     // clang-format off
     {640, 480, "640 x 480 (480p)"},
     {800, 600, "800 x 600"},
@@ -75,12 +75,6 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 }  // namespace
 
 class Engine::Impl {
- private:
-  enum class DisplayMode {
-    Windowed,
-    WindowedFullscreen,
-  };
-
  public:
   Impl() {
     // instance
@@ -512,8 +506,45 @@ class Engine::Impl {
   void DrawUi() {
     auto& io = ImGui::GetIO();
     if (ImGui::Begin("vkgs")) {
-      ImGui::Text("device: %s", deviceName_.c_str());
-      ImGui::Text("fps   : %.2f", io.Framerate);
+      ImGui::Text("Device: %s", deviceName_.c_str());
+      ImGui::Text("FPS   : %.2f", io.Framerate);
+
+      // display mode
+      std::vector<const char*> displayModeLabels = {
+          "Windowed",
+          "Windowed Fullscreen",
+      };
+      const char* currentDisplayMode = displayModeLabels[static_cast<int>(viewer_.displayMode())];
+      if (ImGui::BeginCombo("Display mode", currentDisplayMode)) {
+        if (ImGui::Selectable("Windowed")) viewer_.SetWindowed();
+        if (ImGui::Selectable("Windowed Fullscreen")) viewer_.SetWindowedFullscreen();
+        ImGui::EndCombo();
+      }
+
+      // resolution
+      auto [width, height] = viewer_.windowSize();
+      std::string currentResolution = std::to_string(width) + " x " + std::to_string(height);
+      ImGui::BeginDisabled(viewer_.displayMode() == viewer::DisplayMode::WindowedFullscreen);
+      if (ImGui::BeginCombo("Resolution", currentResolution.c_str())) {
+        for (int i = 0; i < presetResolutions.size(); ++i) {
+          const auto& resolution = presetResolutions[i];
+          if (ImGui::Selectable(resolution.tag)) {
+            viewer_.SetWindowSize(resolution.width, resolution.height);
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::EndDisabled();
+
+      // vsync
+      int presentMode = swapchainPresentMode_;
+      ImGui::Text("VSync");
+      ImGui::SameLine();
+      ImGui::RadioButton("On", &presentMode, VK_PRESENT_MODE_FIFO_KHR);
+      ImGui::SameLine();
+      ImGui::RadioButton("Off", &presentMode, VK_PRESENT_MODE_MAILBOX_KHR);
+      if (swapchainPresentMode_ != static_cast<VkPresentModeKHR>(presentMode)) shouldRecreateSwapchain_ = true;
+      swapchainPresentMode_ = static_cast<VkPresentModeKHR>(presentMode);
     }
     ImGui::End();
   }
@@ -535,7 +566,7 @@ class Engine::Impl {
     swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     swapchainInfo.preTransform = surfaceCapabilities.currentTransform;
     swapchainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchainInfo.presentMode = swapchainPresentMode_;
     swapchainInfo.clipped = VK_TRUE;
     swapchainInfo.oldSwapchain = oldSwapchain;
     vkCreateSwapchainKHR(device_, &swapchainInfo, NULL, &swapchain_);
@@ -645,31 +676,15 @@ class Engine::Impl {
   }
 
   void ToggleDisplayMode() {
-    switch (displayMode_) {
-      case DisplayMode::Windowed:
-        SetWindowedFullscreen();
+    switch (viewer_.displayMode()) {
+      case viewer::DisplayMode::Windowed:
+        viewer_.SetWindowedFullscreen();
         break;
-      case DisplayMode::WindowedFullscreen:
-        SetWindowed();
+      case viewer::DisplayMode::WindowedFullscreen:
+        viewer_.SetWindowed();
         break;
     }
   }
-
-  void SetWindowed() {
-    if (displayMode_ == DisplayMode::WindowedFullscreen) {
-      displayMode_ = DisplayMode::Windowed;
-      viewer_.SetWindowed();
-    }
-  }
-
-  void SetWindowedFullscreen() {
-    if (displayMode_ == DisplayMode::Windowed) {
-      displayMode_ = DisplayMode::WindowedFullscreen;
-      viewer_.SetWindowedFullscreen();
-    }
-  }
-
-  DisplayMode displayMode_ = DisplayMode::Windowed;
 
   viewer::Viewer viewer_;
 
@@ -697,6 +712,7 @@ class Engine::Impl {
   VkRenderPass renderPass_ = VK_NULL_HANDLE;
 
   VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
+  VkPresentModeKHR swapchainPresentMode_ = VK_PRESENT_MODE_FIFO_KHR;
   uint32_t swapchainWidth_ = 0;
   uint32_t swapchainHeight_ = 0;
   std::vector<VkImageView> swapchainImageViews_;
