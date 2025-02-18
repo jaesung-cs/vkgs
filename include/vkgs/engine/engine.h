@@ -6,14 +6,12 @@
 
 namespace vkgs {
 
-class Splats;
-
 class Engine {
  public:
   Engine();
   ~Engine();
 
-  void Run();
+  void Run(const std::string& plyFilepath);
 
   void Close();
 

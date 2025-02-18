@@ -18,12 +18,12 @@ int main(int argc, char** argv) {
   try {
     vkgs::Engine engine;
 
+    std::string plyFilepath;
     if (parser.is_used("input")) {
-      auto ply_filepath = parser.get<std::string>("input");
-      // TODO
+      plyFilepath = parser.get<std::string>("input");
     }
 
-    engine.Run();
+    engine.Run(plyFilepath);
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
   }
