@@ -1,13 +1,13 @@
 #include <vkgs/engine/engine.h>
 
-#include <atomic>
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
-#include <mutex>
 #include <vector>
 #include <map>
 #include <fstream>
+#include <thread>
+#include <chrono>
 
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"
@@ -26,6 +26,8 @@
 
 #include "generated/color_vert.h"
 #include "generated/color_frag.h"
+#include "generated/splat_vert.h"
+#include "generated/splat_frag.h"
 
 namespace vkgs {
 namespace {
@@ -292,36 +294,34 @@ class Engine::Impl {
     vkAllocateCommandBuffers(device_, &commandBufferInfo, graphicsCommandBuffers_.data());
 
     // layouts
-    VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT};
+    VkDescriptorSetLayoutBinding cameraBinding = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT};
     VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     descriptorSetLayoutInfo.bindingCount = 1;
-    descriptorSetLayoutInfo.pBindings = &binding;
+    descriptorSetLayoutInfo.pBindings = &cameraBinding;
     vkCreateDescriptorSetLayout(device_, &descriptorSetLayoutInfo, NULL, &cameraSetLayout_);
 
+    VkDescriptorSetLayoutBinding splatBinding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT};
+    descriptorSetLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    descriptorSetLayoutInfo.bindingCount = 1;
+    descriptorSetLayoutInfo.pBindings = &splatBinding;
+    vkCreateDescriptorSetLayout(device_, &descriptorSetLayoutInfo, NULL, &splatSetLayout_);
+
+    std::vector<VkDescriptorSetLayout> setLayouts = {cameraSetLayout_, splatSetLayout_};
     VkPushConstantRange pushConstantRange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
     VkPipelineLayoutCreateInfo graphicsPipelineLayoutInfo = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    graphicsPipelineLayoutInfo.setLayoutCount = 1;
-    graphicsPipelineLayoutInfo.pSetLayouts = &cameraSetLayout_;
+    graphicsPipelineLayoutInfo.setLayoutCount = setLayouts.size();
+    graphicsPipelineLayoutInfo.pSetLayouts = setLayouts.data();
     graphicsPipelineLayoutInfo.pushConstantRangeCount = 1;
     graphicsPipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
     vkCreatePipelineLayout(device_, &graphicsPipelineLayoutInfo, NULL, &graphicsPipelineLayout_);
 
-    // descriptors and buffers
+    // descriptors
     VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufferInfo.size = sizeof(UniformCamera);
     bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     VmaAllocationCreateInfo allocationCreateInfo = {};
     allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
     allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
-
-    cameraBuffers_.resize(2);
-    VmaAllocationInfo allocationInfo;
-    vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &cameraBuffers_[0].buffer,
-                    &cameraBuffers_[0].allocation, &allocationInfo);
-    cameraBuffers_[0].ptr = allocationInfo.pMappedData;
-    vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &cameraBuffers_[1].buffer,
-                    &cameraBuffers_[1].allocation, &allocationInfo);
-    cameraBuffers_[1].ptr = allocationInfo.pMappedData;
 
     std::vector<VkDescriptorSetLayout> cameraSetLayouts = {
         cameraSetLayout_,
@@ -334,28 +334,11 @@ class Engine::Impl {
     cameraSets_.resize(2);
     vkAllocateDescriptorSets(device_, &descriptorSetInfo, cameraSets_.data());
 
-    std::vector<VkDescriptorBufferInfo> bufferInfos(2);
-    bufferInfos[0] = {cameraBuffers_[0].buffer, 0, sizeof(UniformCamera)};
-    bufferInfos[1] = {cameraBuffers_[1].buffer, 0, sizeof(UniformCamera)};
-
-    std::vector<VkWriteDescriptorSet> writes(2);
-    writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    writes[0].dstSet = cameraSets_[0];
-    writes[0].dstBinding = 0;
-    writes[0].dstArrayElement = 0;
-    writes[0].descriptorCount = 1;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[0].pBufferInfo = &bufferInfos[0];
-
-    writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    writes[1].dstSet = cameraSets_[1];
-    writes[1].dstBinding = 0;
-    writes[1].dstArrayElement = 0;
-    writes[1].descriptorCount = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[1].pBufferInfo = &bufferInfos[0];
-
-    vkUpdateDescriptorSets(device_, writes.size(), writes.data(), 0, NULL);
+    descriptorSetInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    descriptorSetInfo.descriptorPool = descriptorPool_;
+    descriptorSetInfo.descriptorSetCount = 1;
+    descriptorSetInfo.pSetLayouts = &splatSetLayout_;
+    vkAllocateDescriptorSets(device_, &descriptorSetInfo, &splatSet_);
 
     // transfer
     {
@@ -378,9 +361,12 @@ class Engine::Impl {
 
       VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       vkCreateSemaphore(device_, &semaphoreInfo, NULL, &transferSemaphore_);
+
+      VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+      vkCreateFence(device_, &fenceInfo, NULL, &transferFence_);
     }
 
-    // objects
+    // triangle
     {
       std::vector<float> vertexBuffer = {
           0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f,  //
@@ -450,7 +436,7 @@ class Engine::Impl {
       submitInfo.pCommandBufferInfos = &commandBufferInfo;
       submitInfo.signalSemaphoreInfoCount = 1;
       submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
-      vkQueueSubmit2(transferQueue_, 1, &submitInfo, NULL);
+      vkQueueSubmit2(transferQueue_, 1, &submitInfo, transferFence_);
 
       // transfer ownership
       vkBeginCommandBuffer(graphicsCommandBuffers_[0], &commandBufferBeginInfo);
@@ -485,6 +471,154 @@ class Engine::Impl {
       submitInfo.pCommandBufferInfos = &commandBufferInfo;
       vkQueueSubmit2(graphicsQueue_, 1, &submitInfo, NULL);
     }
+
+    // splats
+    {
+      std::vector<float> vertexBuffer = {
+          // xyzw              rotscale matrix            rgba
+          0.f, 0.f,  0.f,  1.f, -0.2f, -0.3f, 0.1f, -0.1f, 1.f, 0.f, 0.f, 0.75f,  //
+          0.f, 0.3f, 0.5f, 1.f, 0.2f,  0.f,   0.f,  0.2f,  0.f, 1.f, 0.f, 0.75f,  //
+      };
+      std::vector<uint32_t> indexBuffer = {0, 1, 2, 2, 1, 3, 4, 5, 6, 6, 5, 7};
+
+      VkDeviceSize vertexBufferSize = vertexBuffer.size() * sizeof(float);
+      VkDeviceSize indexBufferSize = indexBuffer.size() * sizeof(uint32_t);
+
+      VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      bufferInfo.size = vertexBufferSize;
+      bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      VmaAllocationCreateInfo allocationCreateInfo = {};
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &splat_.vertexBuffer.buffer,
+                      &splat_.vertexBuffer.allocation, NULL);
+
+      bufferInfo.size = indexBufferSize;
+      bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &splat_.indexBuffer.buffer,
+                      &splat_.indexBuffer.allocation, NULL);
+
+      splat_.indexCount = indexBuffer.size();
+
+      vkWaitForFences(device_, 1, &transferFence_, VK_TRUE, UINT64_MAX);
+      std::memcpy(staging_.ptr, vertexBuffer.data(), vertexBufferSize);
+      std::memcpy(static_cast<uint8_t*>(staging_.ptr) + vertexBufferSize, indexBuffer.data(), indexBufferSize);
+
+      VkCommandBufferBeginInfo commandBufferBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+      commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      vkBeginCommandBuffer(transferCommandBuffer_, &commandBufferBeginInfo);
+
+      VkBufferCopy region = {0, 0, vertexBufferSize};
+      vkCmdCopyBuffer(transferCommandBuffer_, staging_.buffer, splat_.vertexBuffer.buffer, 1, &region);
+
+      region = {vertexBufferSize, 0, indexBufferSize};
+      vkCmdCopyBuffer(transferCommandBuffer_, staging_.buffer, splat_.indexBuffer.buffer, 1, &region);
+
+      std::vector<VkBufferMemoryBarrier> barriers(2);
+      barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+      barriers[0].buffer = splat_.vertexBuffer.buffer;
+      barriers[0].offset = 0;
+      barriers[0].size = vertexBufferSize;
+      barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barriers[0].srcQueueFamilyIndex = transferQueueFamily_;
+
+      barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+      barriers[1].buffer = splat_.indexBuffer.buffer;
+      barriers[1].offset = 0;
+      barriers[1].size = indexBufferSize;
+      barriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barriers[1].srcQueueFamilyIndex = transferQueueFamily_;
+      vkCmdPipelineBarrier(transferCommandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, NULL, barriers.size(),
+                           barriers.data(), 0, NULL);
+
+      vkEndCommandBuffer(transferCommandBuffer_);
+
+      VkCommandBufferSubmitInfo commandBufferInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+      commandBufferInfo.commandBuffer = transferCommandBuffer_;
+      VkSemaphoreSubmitInfo signalSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+      signalSemaphoreInfo.semaphore = transferSemaphore_;
+      signalSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+      VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+      submitInfo.commandBufferInfoCount = 1;
+      submitInfo.pCommandBufferInfos = &commandBufferInfo;
+      submitInfo.signalSemaphoreInfoCount = 1;
+      submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
+      vkResetFences(device_, 1, &transferFence_);
+      vkQueueSubmit2(transferQueue_, 1, &submitInfo, transferFence_);
+
+      // transfer ownership
+      vkBeginCommandBuffer(graphicsCommandBuffers_[0], &commandBufferBeginInfo);
+
+      barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+      barriers[0].buffer = splat_.vertexBuffer.buffer;
+      barriers[0].offset = 0;
+      barriers[0].size = vertexBufferSize;
+      barriers[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      barriers[0].srcQueueFamilyIndex = transferQueueFamily_;
+
+      barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+      barriers[1].buffer = splat_.indexBuffer.buffer;
+      barriers[1].offset = 0;
+      barriers[1].size = indexBufferSize;
+      barriers[1].dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
+      barriers[1].dstQueueFamilyIndex = transferQueueFamily_;
+      vkCmdPipelineBarrier(graphicsCommandBuffers_[0], VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, NULL, barriers.size(),
+                           barriers.data(), 0, NULL);
+
+      vkEndCommandBuffer(graphicsCommandBuffers_[0]);
+
+      VkSemaphoreSubmitInfo waitSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+      waitSemaphoreInfo.semaphore = transferSemaphore_;
+      waitSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+      commandBufferInfo.commandBuffer = graphicsCommandBuffers_[0];
+      submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+      submitInfo.waitSemaphoreInfoCount = 1;
+      submitInfo.pWaitSemaphoreInfos = &waitSemaphoreInfo;
+      submitInfo.commandBufferInfoCount = 1;
+      submitInfo.pCommandBufferInfos = &commandBufferInfo;
+      vkQueueSubmit2(graphicsQueue_, 1, &submitInfo, NULL);
+    }
+
+    // buffers
+    cameraBuffers_.resize(2);
+    VmaAllocationInfo allocationInfo;
+    vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &cameraBuffers_[0].buffer,
+                    &cameraBuffers_[0].allocation, &allocationInfo);
+    cameraBuffers_[0].ptr = allocationInfo.pMappedData;
+    vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &cameraBuffers_[1].buffer,
+                    &cameraBuffers_[1].allocation, &allocationInfo);
+    cameraBuffers_[1].ptr = allocationInfo.pMappedData;
+
+    std::vector<VkDescriptorBufferInfo> bufferInfos(2);
+    bufferInfos[0] = {cameraBuffers_[0].buffer, 0, sizeof(UniformCamera)};
+    bufferInfos[1] = {cameraBuffers_[1].buffer, 0, sizeof(UniformCamera)};
+    bufferInfos[2] = {splat_.vertexBuffer.buffer, 0, VK_WHOLE_SIZE};
+
+    std::vector<VkWriteDescriptorSet> writes(3);
+    writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    writes[0].dstSet = cameraSets_[0];
+    writes[0].dstBinding = 0;
+    writes[0].dstArrayElement = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].pBufferInfo = &bufferInfos[0];
+
+    writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    writes[1].dstSet = cameraSets_[1];
+    writes[1].dstBinding = 0;
+    writes[1].dstArrayElement = 0;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].pBufferInfo = &bufferInfos[1];
+
+    writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    writes[2].dstSet = splatSet_;
+    writes[2].dstBinding = 0;
+    writes[2].dstArrayElement = 0;
+    writes[2].descriptorCount = 1;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[2].pBufferInfo = &bufferInfos[2];
+
+    vkUpdateDescriptorSets(device_, writes.size(), writes.data(), 0, NULL);
   }
 
   ~Impl() {
@@ -502,8 +636,10 @@ class Engine::Impl {
     vkDestroyPipelineCache(device_, pipelineCache_, NULL);
 
     vkDestroyDescriptorSetLayout(device_, cameraSetLayout_, NULL);
+    vkDestroyDescriptorSetLayout(device_, splatSetLayout_, NULL);
     vkDestroyPipelineLayout(device_, graphicsPipelineLayout_, NULL);
     if (colorTrianglePipeline_) vkDestroyPipeline(device_, colorTrianglePipeline_, NULL);
+    if (splatPipeline_) vkDestroyPipeline(device_, splatPipeline_, NULL);
 
     for (auto semaphore : imageAcquiredSemaphores_) vkDestroySemaphore(device_, semaphore, NULL);
     for (auto semaphore : renderFinishedSemaphores_) vkDestroySemaphore(device_, semaphore, NULL);
@@ -520,9 +656,12 @@ class Engine::Impl {
 
     vmaDestroyBuffer(allocator_, triangle_.vertexBuffer.buffer, triangle_.vertexBuffer.allocation);
     vmaDestroyBuffer(allocator_, triangle_.indexBuffer.buffer, triangle_.indexBuffer.allocation);
+    vmaDestroyBuffer(allocator_, splat_.vertexBuffer.buffer, splat_.vertexBuffer.allocation);
+    vmaDestroyBuffer(allocator_, splat_.indexBuffer.buffer, splat_.indexBuffer.allocation);
 
     vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
     vkDestroySemaphore(device_, transferSemaphore_, NULL);
+    vkDestroyFence(device_, transferFence_, NULL);
 
     for (const auto& buffer : cameraBuffers_) vmaDestroyBuffer(allocator_, buffer.buffer, buffer.allocation);
     vmaDestroyAllocator(allocator_);
@@ -663,8 +802,9 @@ class Engine::Impl {
       camera.screen_size = {width, height};
       std::memcpy(cameraBuffers_[renderIndex_].ptr, &camera, sizeof(UniformCamera));
 
-      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout_, 0, 1,
-                              &cameraSets_[renderIndex_], 0, NULL);
+      std::vector<VkDescriptorSet> descriptorSets = {cameraSets_[renderIndex_], splatSet_};
+      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout_, 0, descriptorSets.size(),
+                              descriptorSets.data(), 0, NULL);
       vkCmdPushConstants(cb, graphicsPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4),
                          glm::value_ptr(triangle_.model));
 
@@ -674,6 +814,11 @@ class Engine::Impl {
       vkCmdBindVertexBuffers(cb, 0, 1, &triangle_.vertexBuffer.buffer, &vertexBufferOffset);
       vkCmdBindIndexBuffer(cb, triangle_.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
       vkCmdDrawIndexed(cb, triangle_.indexCount, 1, 0, 0, 0);
+
+      // splat
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, splatPipeline_);
+      vkCmdBindIndexBuffer(cb, splat_.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cb, splat_.indexCount, 1, 0, 0, 0);
 
       viewer_.DrawUi(cb);
 
@@ -941,10 +1086,13 @@ class Engine::Impl {
 
   void RecreatePipelines() {
     if (colorTrianglePipeline_) vkDestroyPipeline(device_, colorTrianglePipeline_, NULL);
+    if (splatPipeline_) vkDestroyPipeline(device_, splatPipeline_, NULL);
 
     // shader modules
     VkShaderModule colorVertModule;
     VkShaderModule colorFragModule;
+    VkShaderModule splatVertModule;
+    VkShaderModule splatFragModule;
 
     VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     shaderModuleInfo.codeSize = sizeof(color_vert);
@@ -954,19 +1102,26 @@ class Engine::Impl {
     shaderModuleInfo.pCode = color_frag;
     vkCreateShaderModule(device_, &shaderModuleInfo, NULL, &colorFragModule);
 
-    std::vector<std::vector<VkPipelineShaderStageCreateInfo>> stages(1);
-    std::vector<std::vector<VkVertexInputBindingDescription>> bindings(1);
-    std::vector<std::vector<VkVertexInputAttributeDescription>> attributes(1);
-    std::vector<VkPipelineVertexInputStateCreateInfo> vertexInputStates(1);
-    std::vector<VkPipelineInputAssemblyStateCreateInfo> inputAssemblyStates(1);
-    std::vector<VkPipelineViewportStateCreateInfo> viewportStates(1);
-    std::vector<VkPipelineRasterizationStateCreateInfo> rasterizationStates(1);
-    std::vector<VkPipelineMultisampleStateCreateInfo> multisampleStates(1);
-    std::vector<VkPipelineDepthStencilStateCreateInfo> depthStencilStates(1);
-    std::vector<std::vector<VkPipelineColorBlendAttachmentState>> colorBlendAttachments(1);
-    std::vector<VkPipelineColorBlendStateCreateInfo> colorBlendStates(1);
-    std::vector<VkPipelineDynamicStateCreateInfo> dynamicStates(1);
-    std::vector<VkGraphicsPipelineCreateInfo> pipelineInfos(1);
+    shaderModuleInfo.codeSize = sizeof(splat_vert);
+    shaderModuleInfo.pCode = splat_vert;
+    vkCreateShaderModule(device_, &shaderModuleInfo, NULL, &splatVertModule);
+    shaderModuleInfo.codeSize = sizeof(splat_frag);
+    shaderModuleInfo.pCode = splat_frag;
+    vkCreateShaderModule(device_, &shaderModuleInfo, NULL, &splatFragModule);
+
+    std::vector<std::vector<VkPipelineShaderStageCreateInfo>> stages(2);
+    std::vector<std::vector<VkVertexInputBindingDescription>> bindings(2);
+    std::vector<std::vector<VkVertexInputAttributeDescription>> attributes(2);
+    std::vector<VkPipelineVertexInputStateCreateInfo> vertexInputStates(2);
+    std::vector<VkPipelineInputAssemblyStateCreateInfo> inputAssemblyStates(2);
+    std::vector<VkPipelineViewportStateCreateInfo> viewportStates(2);
+    std::vector<VkPipelineRasterizationStateCreateInfo> rasterizationStates(2);
+    std::vector<VkPipelineMultisampleStateCreateInfo> multisampleStates(2);
+    std::vector<VkPipelineDepthStencilStateCreateInfo> depthStencilStates(2);
+    std::vector<std::vector<VkPipelineColorBlendAttachmentState>> colorBlendAttachments(2);
+    std::vector<VkPipelineColorBlendStateCreateInfo> colorBlendStates(2);
+    std::vector<VkPipelineDynamicStateCreateInfo> dynamicStates(2);
+    std::vector<VkGraphicsPipelineCreateInfo> pipelineInfos(2);
 
     // color line pipeline
     stages[0].resize(2);
@@ -1050,14 +1205,86 @@ class Engine::Impl {
     pipelineInfos[0].renderPass = renderPass_;
     pipelineInfos[0].subpass = 0;
 
+    // splat pipeline
+    stages[1].resize(2);
+    stages[1][0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stages[1][0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[1][0].module = splatVertModule;
+    stages[1][0].pName = "main";
+
+    stages[1][1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stages[1][1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1][1].module = splatFragModule;
+    stages[1][1].pName = "main";
+
+    vertexInputStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+
+    inputAssemblyStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssemblyStates[1].topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    viewportStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportStates[1].viewportCount = 1;
+    viewportStates[1].scissorCount = 1;
+
+    rasterizationStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizationStates[1].polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizationStates[1].cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizationStates[1].frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizationStates[1].lineWidth = 1.f;
+
+    multisampleStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisampleStates[1].rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    depthStencilStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencilStates[1].depthTestEnable = VK_TRUE;
+    depthStencilStates[1].depthWriteEnable = VK_FALSE;
+    depthStencilStates[1].depthCompareOp = VK_COMPARE_OP_LESS;
+
+    colorBlendAttachments[1].resize(1);
+    colorBlendAttachments[1][0].blendEnable = VK_TRUE;
+    colorBlendAttachments[1][0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachments[1][0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachments[1][0].colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachments[1][0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachments[1][0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+    colorBlendAttachments[1][0].alphaBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachments[1][0].colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    colorBlendStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    colorBlendStates[1].attachmentCount = colorBlendAttachments[0].size();
+    colorBlendStates[1].pAttachments = colorBlendAttachments[0].data();
+
+    dynamicStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamicStates[1].dynamicStateCount = dynamicStateList.size();
+    dynamicStates[1].pDynamicStates = dynamicStateList.data();
+
+    pipelineInfos[1] = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipelineInfos[1].stageCount = stages[1].size();
+    pipelineInfos[1].pStages = stages[1].data();
+    pipelineInfos[1].pVertexInputState = &vertexInputStates[1];
+    pipelineInfos[1].pInputAssemblyState = &inputAssemblyStates[1];
+    pipelineInfos[1].pViewportState = &viewportStates[1];
+    pipelineInfos[1].pRasterizationState = &rasterizationStates[1];
+    pipelineInfos[1].pMultisampleState = &multisampleStates[1];
+    pipelineInfos[1].pDepthStencilState = &depthStencilStates[1];
+    pipelineInfos[1].pColorBlendState = &colorBlendStates[1];
+    pipelineInfos[1].pDynamicState = &dynamicStates[1];
+    pipelineInfos[1].layout = graphicsPipelineLayout_;
+    pipelineInfos[1].renderPass = renderPass_;
+    pipelineInfos[1].subpass = 0;
+
     std::vector<VkPipeline> pipelines(pipelineInfos.size());
     vkCreateGraphicsPipelines(device_, pipelineCache_, pipelineInfos.size(), pipelineInfos.data(), NULL,
                               pipelines.data());
 
     colorTrianglePipeline_ = pipelines[0];
+    splatPipeline_ = pipelines[1];
 
     vkDestroyShaderModule(device_, colorVertModule, NULL);
     vkDestroyShaderModule(device_, colorFragModule, NULL);
+    vkDestroyShaderModule(device_, splatVertModule, NULL);
+    vkDestroyShaderModule(device_, splatFragModule, NULL);
   }
 
   void ToggleDisplayMode() {
@@ -1108,20 +1335,24 @@ class Engine::Impl {
     uint32_t indexCount;
   };
   Object triangle_ = {};
+  Object splat_ = {};
 
   // render pass
   VkRenderPass renderPass_ = VK_NULL_HANDLE;
 
   // layouts
   VkDescriptorSetLayout cameraSetLayout_ = VK_NULL_HANDLE;
+  VkDescriptorSetLayout splatSetLayout_ = VK_NULL_HANDLE;
   VkPipelineLayout graphicsPipelineLayout_ = VK_NULL_HANDLE;
 
   // descriptors and uniform buffers
   std::vector<VkDescriptorSet> cameraSets_;
   std::vector<Buffer> cameraBuffers_;
+  VkDescriptorSet splatSet_ = VK_NULL_HANDLE;
 
   // pipelines
   VkPipeline colorTrianglePipeline_ = VK_NULL_HANDLE;
+  VkPipeline splatPipeline_ = VK_NULL_HANDLE;
 
   // swapchain
   VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
@@ -1136,6 +1367,7 @@ class Engine::Impl {
   // transfer
   VkCommandBuffer transferCommandBuffer_ = VK_NULL_HANDLE;
   VkSemaphore transferSemaphore_ = VK_NULL_HANDLE;
+  VkFence transferFence_ = VK_NULL_HANDLE;
   Buffer staging_ = {};
 
   // render

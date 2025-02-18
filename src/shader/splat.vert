@@ -1,6 +1,6 @@
 #version 460
 
-layout(std430, set = 1, binding = 1) readonly buffer Instances {
+layout(std430, set = 1, binding = 0) readonly buffer Instances {
   vec4 instances[];  // (N, 12). 3 for ndc position, 1 padding, 4 for rot scale, 4 for color.
 };
 
