@@ -645,6 +645,10 @@ class Engine::Impl {
     for (auto semaphore : renderFinishedSemaphores_) vkDestroySemaphore(device_, semaphore, NULL);
     for (auto fence : renderFinishedFences_) vkDestroyFence(device_, fence, NULL);
 
+    if (depthAttachment_.view) {
+      vkDestroyImageView(device_, depthAttachment_.view, NULL);
+      vmaDestroyImage(allocator_, depthAttachment_.image, depthAttachment_.allocation);
+    }
     for (auto framebuffer : framebuffers_) vkDestroyFramebuffer(device_, framebuffer, NULL);
 
     vkDestroyRenderPass(device_, renderPass_, NULL);
@@ -1006,7 +1010,7 @@ class Engine::Impl {
     // TODO: cache
     if (renderPass_) vkDestroyRenderPass(device_, renderPass_, NULL);
 
-    std::vector<VkAttachmentDescription> attachments(1);
+    std::vector<VkAttachmentDescription> attachments(2);
     attachments[0] = {};
     attachments[0].format = VK_FORMAT_B8G8R8A8_UNORM;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1017,23 +1021,42 @@ class Engine::Impl {
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    std::vector<VkAttachmentReference> colorAttachments(1);
-    colorAttachments[0] = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    attachments[1] = {};
+    attachments[1].format = VK_FORMAT_D32_SFLOAT;
+    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    std::vector<std::vector<VkAttachmentReference>> colorAttachments(1);
+    colorAttachments[0].resize(1);
+    colorAttachments[0][0] = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+
+    std::vector<VkAttachmentReference> depthAttachments(1);
+    depthAttachments[0] = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 
     std::vector<VkSubpassDescription> subpasses(1);
     subpasses[0] = {};
     subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpasses[0].colorAttachmentCount = colorAttachments.size();
-    subpasses[0].pColorAttachments = colorAttachments.data();
+    subpasses[0].colorAttachmentCount = colorAttachments[0].size();
+    subpasses[0].pColorAttachments = colorAttachments[0].data();
+    subpasses[0].pDepthStencilAttachment = &depthAttachments[0];
 
     std::vector<VkSubpassDependency> dependencies(1);
     dependencies[0] = {};
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
-    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                   VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                   VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
     VkRenderPassCreateInfo renderPassInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
     renderPassInfo.attachmentCount = attachments.size();
@@ -1050,13 +1073,39 @@ class Engine::Impl {
   }
 
   void RecreateFramebuffer() {
+    if (depthAttachment_.view) {
+      vkDestroyImageView(device_, depthAttachment_.view, NULL);
+      vmaDestroyImage(allocator_, depthAttachment_.image, depthAttachment_.allocation);
+    }
     for (auto framebuffer : framebuffers_) vkDestroyFramebuffer(device_, framebuffer, NULL);
     framebuffers_.resize(swapchainImageViews_.size());
 
+    VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_D32_SFLOAT;
+    imageInfo.extent = {swapchainWidth_, swapchainHeight_, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo allocationCreateInfo = {};
+    allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    vmaCreateImage(allocator_, &imageInfo, &allocationCreateInfo, &depthAttachment_.image, &depthAttachment_.allocation,
+                   NULL);
+
+    VkImageViewCreateInfo imageViewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    imageViewInfo.image = depthAttachment_.image;
+    imageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    imageViewInfo.format = VK_FORMAT_D32_SFLOAT;
+    imageViewInfo.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    vkCreateImageView(device_, &imageViewInfo, NULL, &depthAttachment_.view);
+
     for (int i = 0; i < swapchainImageViews_.size(); ++i) {
       std::vector<VkImageView> attachments = {
-          // TODO: color/depth attachments
           swapchainImageViews_[i],
+          depthAttachment_.view,
       };
       VkFramebufferCreateInfo framebufferInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
       framebufferInfo.renderPass = renderPass_;
@@ -1362,6 +1411,12 @@ class Engine::Impl {
   std::vector<VkImageView> swapchainImageViews_;
 
   // framebuffer
+  struct Attachment {
+    VkImage image;
+    VmaAllocation allocation;
+    VkImageView view;
+  };
+  Attachment depthAttachment_ = {};
   std::vector<VkFramebuffer> framebuffers_;
 
   // transfer
