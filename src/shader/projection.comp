@@ -2,59 +2,57 @@
 
 #extension GL_EXT_shader_16bit_storage : require
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform Camera {
   mat4 projection;
   mat4 view;
   vec3 camera_position;
-  float pad0;
   uvec2 screen_size;  // (width, height)
 };
 
-layout(push_constant, std430) uniform PushConstants { mat4 model; };
+layout(std430, push_constant) uniform PushConstants {
+  mat4 model;
+  uint point_count;
+};
 
-layout(set = 1, binding = 0) uniform Info { uint point_count; };
-
-layout(std430, set = 1, binding = 1) readonly buffer GaussianPosition {
+layout(std430, set = 1, binding = 0) readonly buffer GaussianPosition {
   float gaussian_position[];  // (N, 3)
 };
 
-layout(std430, set = 1, binding = 2) readonly buffer GaussianCov3d {
+layout(std430, set = 1, binding = 1) readonly buffer GaussianCov3d {
   float gaussian_cov3d[];  // (N, 6)
 };
 
-layout(std430, set = 1, binding = 3) readonly buffer GaussianOpacity {
+layout(std430, set = 1, binding = 2) readonly buffer GaussianOpacity {
   float gaussian_opacity[];  // (N)
 };
 
-layout(std430, set = 1, binding = 4) readonly buffer GaussianSh {
+layout(std430, set = 1, binding = 3) readonly buffer GaussianSh {
   f16vec4 gaussian_sh[];  // (N, 3, 4, 4), 16 values packed with 4 vec4.
 };
 
-layout(std430, set = 2, binding = 0) writeonly buffer DrawIndirect {
+layout(std430, set = 2, binding = 0) buffer VisiblePointCount { uint visible_point_count; };
+
+layout(std430, set = 2, binding = 3) readonly buffer InverseMap {
+  int inverse_index[];  // (N), inverse map from id to sorted index
+};
+
+layout(std430, set = 2, binding = 4) writeonly buffer DrawIndirect {
   uint indexCount;
   uint instanceCount;
   uint firstIndex;
   int vertexOffset;
   uint firstInstance;
-  uint pad[3];
-
-  // draw indirect
-  uint vertexCount1;
-  uint instanceCount1;
-  uint firstVertex1;
-  uint firstInstance1;
 };
 
-layout(std430, set = 2, binding = 1) writeonly buffer Instances {
-  vec4 instances[];  // (N, 12). 3 for ndc position, 1 padding, 4 for rot scale, 4 for color.
+layout(std430, set = 2, binding = 5) writeonly buffer Quads {
+  vec4 quads[];  // (N, 12). 3 for ndc position, 1 padding, 4 for rot scale, 4 for color.
 };
 
-layout(std430, set = 2, binding = 2) buffer VisiblePointCount { uint visible_point_count; };
-
-layout(std430, set = 2, binding = 5) readonly buffer InverseMap {
-  int inverse_map[];  // (N), inverse map from id to sorted index
+layout(std430, set = 2, binding = 6) writeonly buffer IndexBuffer {
+  // TODO: batch 16 quads.
+  uint quad_indices[];  // (6N). 0, 1, 2, 2, 1, 3, ...
 };
 
 void main() {
@@ -67,14 +65,9 @@ void main() {
     firstIndex = 0;
     vertexOffset = 0;
     firstInstance = 0;
-
-    vertexCount1 = visible_point_count;
-    instanceCount1 = 1;
-    firstVertex1 = 0;
-    firstInstance1 = 0;
   }
 
-  int inverse_id = inverse_map[id];
+  int inverse_id = inverse_index[id];
   if (inverse_id == -1) return;
 
   vec3 v0 = vec3(gaussian_cov3d[id * 6 + 0], gaussian_cov3d[id * 6 + 1], gaussian_cov3d[id * 6 + 2]);
@@ -174,7 +167,7 @@ void main() {
   color = max(color + 0.5f, 0.f);
   float opacity = gaussian_opacity[id];
 
-  instances[inverse_id * 3 + 0].xyz = pos.xyz;
-  instances[inverse_id * 3 + 1] = vec4(rot_scale[0], rot_scale[1]);
-  instances[inverse_id * 3 + 2] = vec4(color, opacity);
+  quads[inverse_id * 3 + 0].xyz = pos.xyz;
+  quads[inverse_id * 3 + 1] = vec4(rot_scale[0], rot_scale[1]);
+  quads[inverse_id * 3 + 2] = vec4(color, opacity);
 }

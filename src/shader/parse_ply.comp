@@ -4,21 +4,24 @@
 
 layout(local_size_x = 256) in;
 
-layout(set = 1, binding = 0) uniform Info { uint point_count; };
+layout(std430, push_constant) uniform PushConstants {
+  mat4 model;
+  uint point_count;
+};
 
-layout(std430, set = 1, binding = 1) writeonly buffer GaussianPosition {
+layout(std430, set = 1, binding = 0) writeonly buffer GaussianPosition {
   float gaussian_position[];  // (N, 3)
 };
 
-layout(std430, set = 1, binding = 2) writeonly buffer GaussianCov3d {
+layout(std430, set = 1, binding = 1) writeonly buffer GaussianCov3d {
   float gaussian_cov3d[];  // (N, 6)
 };
 
-layout(std430, set = 1, binding = 3) writeonly buffer GaussianOpacity {
+layout(std430, set = 1, binding = 2) writeonly buffer GaussianOpacity {
   float gaussian_opacity[];  // (N)
 };
 
-layout(std430, set = 1, binding = 4) writeonly buffer GaussianSh {
+layout(std430, set = 1, binding = 3) writeonly buffer GaussianSh {
   float16_t gaussian_sh[];  // (N, 3, 4, 4), 16 values packed with 4 vec4.
 };
 

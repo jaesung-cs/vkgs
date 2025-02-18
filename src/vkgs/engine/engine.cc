@@ -751,10 +751,10 @@ class Engine::Impl {
         shouldRecreateUi_ = false;
       }
 
-      if (shouldRecreatePipelines_) {
+      if (shouldRecreateGraphicsPipelines_) {
         vkWaitForFences(device_, renderFinishedFences_.size(), renderFinishedFences_.data(), VK_TRUE, UINT64_MAX);
-        RecreatePipelines();
-        shouldRecreatePipelines_ = false;
+        RecreateGraphicsPipelines();
+        shouldRecreateGraphicsPipelines_ = false;
       }
 
       VkCommandBuffer cb = graphicsCommandBuffers_[renderIndex_];
@@ -1069,7 +1069,7 @@ class Engine::Impl {
 
     shouldRecreateUi_ = true;
     shouldRecreateFramebuffer_ = true;
-    shouldRecreatePipelines_ = true;
+    shouldRecreateGraphicsPipelines_ = true;
   }
 
   void RecreateFramebuffer() {
@@ -1133,7 +1133,7 @@ class Engine::Impl {
     viewer_.PrepareUi(uiInfo);
   }
 
-  void RecreatePipelines() {
+  void RecreateGraphicsPipelines() {
     if (colorTrianglePipeline_) vkDestroyPipeline(device_, colorTrianglePipeline_, NULL);
     if (splatPipeline_) vkDestroyPipeline(device_, splatPipeline_, NULL);
 
@@ -1435,7 +1435,7 @@ class Engine::Impl {
   bool shouldRecreateSwapchain_ = false;
   bool shouldRecreateRenderPass_ = false;
   bool shouldRecreateFramebuffer_ = false;
-  bool shouldRecreatePipelines_ = false;
+  bool shouldRecreateGraphicsPipelines_ = false;
   bool shouldRecreateUi_ = false;
 
   // counters
