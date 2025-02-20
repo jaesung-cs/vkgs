@@ -22,6 +22,7 @@
 #include "vk_radix_sort.h"
 
 #include "vkgs/viewer/viewer.h"
+#include "vkgs/engine/load_ply.h"
 
 #include <vkgs/scene/camera.h>
 #include <vkgs/util/clock.h>
@@ -197,12 +198,12 @@ class Engine::Impl {
     std::vector<VkDeviceQueueCreateInfo> queueInfos;
     queueInfos.resize(3);
     queueInfos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    queueInfos[0].queueFamilyIndex = computeQueueFamily_;
+    queueInfos[0].queueFamilyIndex = transferQueueFamily_;
     queueInfos[0].queueCount = 1;
     queueInfos[0].pQueuePriorities = &queuePriorities[0];
 
     queueInfos[1] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-    queueInfos[1].queueFamilyIndex = transferQueueFamily_;
+    queueInfos[1].queueFamilyIndex = computeQueueFamily_;
     queueInfos[1].queueCount = 1;
     queueInfos[1].pQueuePriorities = &queuePriorities[1];
 
@@ -1542,6 +1543,25 @@ class Engine::Impl {
                       &gaussianCameraBuffers_[i].allocation, &allocationInfo);
       gaussianCameraBuffers_[i].ptr = allocationInfo.pMappedData;
     }
+
+    // command buffer
+    VkCommandBufferAllocateInfo commandBufferInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    commandBufferInfo.commandPool = computeCommandPool_;
+    commandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandBufferInfo.commandBufferCount = 2;
+    gaussianComputeCommandBuffers_.resize(commandBufferInfo.commandBufferCount);
+    vkAllocateCommandBuffers(device_, &commandBufferInfo, gaussianComputeCommandBuffers_.data());
+
+    // synchronizations
+    VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    vkCreateSemaphore(device_, &semaphoreInfo, NULL, &gaussianPlyTransferSemaphore_);
+
+    gaussianComputeFences_.resize(2);
+    for (int i = 0; i < 2; ++i) {
+      VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+      fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+      vkCreateFence(device_, &fenceInfo, NULL, &gaussianComputeFences_[i]);
+    }
   }
 
   void DestroyGaussianSplat() {
@@ -1558,11 +1578,127 @@ class Engine::Impl {
     vkDestroyPipeline(device_, rankPipeline_, NULL);
     vkDestroyPipeline(device_, inverseIndexPipeline_, NULL);
     vkDestroyPipeline(device_, projectionPipeline_, NULL);
+
+    if (gaussianPly_.plyBuffer.buffer) {
+      vmaDestroyBuffer(allocator_, gaussianPly_.plyBuffer.buffer, gaussianPly_.plyBuffer.allocation);
+      vmaDestroyBuffer(allocator_, gaussianPly_.staging.buffer, gaussianPly_.staging.allocation);
+    }
+
+    vkDestroySemaphore(device_, gaussianPlyTransferSemaphore_, NULL);
+    for (auto fence : gaussianComputeFences_) vkDestroyFence(device_, fence, NULL);
   }
 
   void ParsePly(const std::string& plyFilepath) {
-    // TODO
     std::cout << "Loading " << plyFilepath << std::endl;
+
+    auto plyBuffer = LoadPly(plyFilepath);
+
+    std::cout << "Loaded" << std::endl;
+
+    // to staging
+    VkDeviceSize offsetSize = plyBuffer.plyOffsets.size() * sizeof(plyBuffer.plyOffsets[0]);
+    VkDeviceSize bufferSize = plyBuffer.buffer.size() * sizeof(plyBuffer.buffer[0]);
+    VkDeviceSize size = offsetSize + bufferSize;
+    {
+      VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      bufferInfo.size = size;
+      bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+      VmaAllocationCreateInfo allocationCreateInfo = {};
+      allocationCreateInfo.flags =
+          VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      VmaAllocationInfo allocationInfo;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianPly_.staging.buffer,
+                      &gaussianPly_.staging.allocation, &allocationInfo);
+      gaussianPly_.staging.ptr = allocationInfo.pMappedData;
+
+      bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      allocationCreateInfo = {};
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianPly_.plyBuffer.buffer,
+                      &gaussianPly_.plyBuffer.allocation, NULL);
+
+      std::cout << "to staging buffer" << std::endl;
+      std::memcpy(gaussianPly_.staging.ptr, plyBuffer.plyOffsets.data(), offsetSize);
+      std::memcpy(reinterpret_cast<uint8_t*>(gaussianPly_.staging.ptr) + offsetSize, plyBuffer.buffer.data(),
+                  bufferSize);
+      std::cout << "to staging buffer done" << std::endl;
+    }
+
+    // transfer and release ownership
+    {
+      vkWaitForFences(device_, 1, &transferFence_, VK_TRUE, UINT64_MAX);
+
+      VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+      beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      vkBeginCommandBuffer(transferCommandBuffer_, &beginInfo);
+
+      VkBufferCopy region = {};
+      region.srcOffset = 0;
+      region.dstOffset = 0;
+      region.size = size;
+      vkCmdCopyBuffer(transferCommandBuffer_, gaussianPly_.staging.buffer, gaussianPly_.plyBuffer.buffer, 1, &region);
+
+      VkBufferMemoryBarrier barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+      barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier.srcQueueFamilyIndex = transferQueueFamily_;
+      barrier.dstQueueFamilyIndex = computeQueueFamily_;
+      barrier.buffer = gaussianPly_.plyBuffer.buffer;
+      barrier.offset = 0;
+      barrier.size = size;
+      vkCmdPipelineBarrier(transferCommandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, NULL, 1, &barrier, 0, NULL);
+
+      vkEndCommandBuffer(transferCommandBuffer_);
+
+      VkCommandBufferSubmitInfo commandBufferSubmitInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+      commandBufferSubmitInfo.commandBuffer = transferCommandBuffer_;
+      VkSemaphoreSubmitInfo signalSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+      signalSemaphoreInfo.semaphore = gaussianPlyTransferSemaphore_;
+      signalSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+      VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+      submitInfo.commandBufferInfoCount = 1;
+      submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+      submitInfo.signalSemaphoreInfoCount = 1;
+      submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
+      vkResetFences(device_, 1, &transferFence_);
+      vkQueueSubmit2(transferQueue_, 1, &submitInfo, transferFence_);
+    }
+
+    // TODO: acquire ownership and parse ply
+    {
+      VkCommandBuffer cb = gaussianComputeCommandBuffers_[renderIndex_];
+      VkFence fence = gaussianComputeFences_[renderIndex_];
+
+      vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+
+      VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+      beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      vkBeginCommandBuffer(cb, &beginInfo);
+
+      VkBufferMemoryBarrier barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+      barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      barrier.srcQueueFamilyIndex = transferQueueFamily_;
+      barrier.dstQueueFamilyIndex = computeQueueFamily_;
+      barrier.buffer = gaussianPly_.plyBuffer.buffer;
+      barrier.offset = 0;
+      barrier.size = size;
+      vkCmdPipelineBarrier(cb, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
+
+      vkEndCommandBuffer(cb);
+
+      VkSemaphoreSubmitInfo waitSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+      waitSemaphoreInfo.semaphore = gaussianPlyTransferSemaphore_;
+      waitSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      VkCommandBufferSubmitInfo commandBufferSubmitInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+      commandBufferSubmitInfo.commandBuffer = cb;
+      VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+      submitInfo.waitSemaphoreInfoCount = 1;
+      submitInfo.pWaitSemaphoreInfos = &waitSemaphoreInfo;
+      submitInfo.commandBufferInfoCount = 1;
+      submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+      vkResetFences(device_, 1, &fence);
+      vkQueueSubmit2(computeQueue_, 1, &submitInfo, fence);
+    }
   }
 
   viewer::Viewer viewer_;
@@ -1656,6 +1792,9 @@ class Engine::Impl {
   VkPipeline projectionPipeline_ = VK_NULL_HANDLE;
   VrdxSorter sorter_ = VK_NULL_HANDLE;
 
+  std::vector<VkCommandBuffer> gaussianComputeCommandBuffers_;
+  std::vector<VkFence> gaussianComputeFences_;
+
   struct GaussianCamera {
     glm::mat4 projection;
     glm::mat4 view;
@@ -1677,6 +1816,13 @@ class Engine::Impl {
     VkDescriptorSet ply;
   };
   std::vector<GaussianDescriptorSet> gaussianSets_;
+
+  struct GaussianPly {
+    Buffer plyBuffer;
+    Buffer staging;
+  };
+  GaussianPly gaussianPly_ = {};
+  VkSemaphore gaussianPlyTransferSemaphore_ = VK_NULL_HANDLE;
 
   struct GaussianSplat {
     glm::mat4 model;

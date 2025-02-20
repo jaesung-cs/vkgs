@@ -45,6 +45,7 @@ endfunction()
 # vkgs
 add_library(vkgs SHARED
   src/vkgs/engine/engine.cc
+  src/vkgs/engine/load_ply.cc
   src/vkgs/scene/camera.cc
   src/vkgs/viewer/viewer.cc
   src/vkgs/vulkan/vma_impl.cc
