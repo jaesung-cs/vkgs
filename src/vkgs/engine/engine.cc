@@ -350,6 +350,7 @@ class Engine::Impl {
     PrepareGaussianSplat();
 
     // transfer
+    std::vector<VkCommandBuffer> ownershipAcquiredCommandBuffers;
     {
       VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
       bufferInfo.size = 512 * 1024 * 1024;  // 512MB
@@ -367,6 +368,13 @@ class Engine::Impl {
       commandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
       commandBufferInfo.commandBufferCount = 1;
       vkAllocateCommandBuffers(device_, &commandBufferInfo, &transferCommandBuffer_);
+
+      commandBufferInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+      commandBufferInfo.commandPool = graphicsCommandPool_;
+      commandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+      commandBufferInfo.commandBufferCount = 2;
+      ownershipAcquiredCommandBuffers.resize(commandBufferInfo.commandBufferCount);
+      vkAllocateCommandBuffers(device_, &commandBufferInfo, ownershipAcquiredCommandBuffers.data());
 
       VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       vkCreateSemaphore(device_, &semaphoreInfo, NULL, &transferSemaphore0_);
@@ -449,7 +457,7 @@ class Engine::Impl {
       vkQueueSubmit2(transferQueue_, 1, &submitInfo, transferFence_);
 
       // transfer ownership
-      vkBeginCommandBuffer(graphicsCommandBuffers_[0], &commandBufferBeginInfo);
+      vkBeginCommandBuffer(ownershipAcquiredCommandBuffers[0], &commandBufferBeginInfo);
 
       barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
       barriers[0].buffer = triangle_.vertexBuffer.buffer;
@@ -464,16 +472,16 @@ class Engine::Impl {
       barriers[1].size = indexBufferSize;
       barriers[1].dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
       barriers[1].dstQueueFamilyIndex = transferQueueFamily_;
-      vkCmdPipelineBarrier(graphicsCommandBuffers_[0], VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, NULL, barriers.size(),
-                           barriers.data(), 0, NULL);
+      vkCmdPipelineBarrier(ownershipAcquiredCommandBuffers[0], VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, NULL,
+                           barriers.size(), barriers.data(), 0, NULL);
 
-      vkEndCommandBuffer(graphicsCommandBuffers_[0]);
+      vkEndCommandBuffer(ownershipAcquiredCommandBuffers[0]);
 
       VkSemaphoreSubmitInfo waitSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
       waitSemaphoreInfo.semaphore = transferSemaphore0_;
       waitSemaphoreInfo.stageMask =
           VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-      commandBufferInfo.commandBuffer = graphicsCommandBuffers_[0];
+      commandBufferInfo.commandBuffer = ownershipAcquiredCommandBuffers[0];
       submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
       submitInfo.waitSemaphoreInfoCount = 1;
       submitInfo.pWaitSemaphoreInfos = &waitSemaphoreInfo;
@@ -556,7 +564,7 @@ class Engine::Impl {
       vkQueueSubmit2(transferQueue_, 1, &submitInfo, transferFence_);
 
       // transfer ownership
-      vkBeginCommandBuffer(graphicsCommandBuffers_[1], &commandBufferBeginInfo);
+      vkBeginCommandBuffer(ownershipAcquiredCommandBuffers[1], &commandBufferBeginInfo);
 
       barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
       barriers[0].buffer = quadSplat_.vertexBuffer.buffer;
@@ -571,15 +579,15 @@ class Engine::Impl {
       barriers[1].size = indexBufferSize;
       barriers[1].dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
       barriers[1].dstQueueFamilyIndex = transferQueueFamily_;
-      vkCmdPipelineBarrier(graphicsCommandBuffers_[1], VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, NULL, barriers.size(),
-                           barriers.data(), 0, NULL);
+      vkCmdPipelineBarrier(ownershipAcquiredCommandBuffers[1], VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, NULL,
+                           barriers.size(), barriers.data(), 0, NULL);
 
-      vkEndCommandBuffer(graphicsCommandBuffers_[1]);
+      vkEndCommandBuffer(ownershipAcquiredCommandBuffers[1]);
 
       VkSemaphoreSubmitInfo waitSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
       waitSemaphoreInfo.semaphore = transferSemaphore1_;
       waitSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
-      commandBufferInfo.commandBuffer = graphicsCommandBuffers_[1];
+      commandBufferInfo.commandBuffer = ownershipAcquiredCommandBuffers[1];
       submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
       submitInfo.waitSemaphoreInfoCount = 1;
       submitInfo.pWaitSemaphoreInfos = &waitSemaphoreInfo;
