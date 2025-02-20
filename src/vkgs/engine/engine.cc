@@ -1499,9 +1499,56 @@ class Engine::Impl {
     vkDestroyShaderModule(device_, rankModule, NULL);
     vkDestroyShaderModule(device_, inverseIndexModule, NULL);
     vkDestroyShaderModule(device_, projectionModule, NULL);
+
+    VrdxSorterCreateInfo sorterInfo = {};
+    sorterInfo.device = device_;
+    sorterInfo.physicalDevice = physicalDevice_;
+    sorterInfo.pipelineCache = pipelineCache_;
+    vrdxCreateSorter(&sorterInfo, &sorter_);
+
+    // descriptor sets
+    gaussianSets_.resize(2);
+    for (int i = 0; i < gaussianSets_.size(); ++i) {
+      std::vector<VkDescriptorSetLayout> setLayouts = {
+          gaussianCameraSetLayout_,
+          gaussianSetLayout_,
+          gaussianQuadSetLayout_,
+          gaussianPlySetLayout_,
+      };
+      VkDescriptorSetAllocateInfo descriptorSetInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+      descriptorSetInfo.descriptorPool = descriptorPool_;
+      descriptorSetInfo.descriptorSetCount = setLayouts.size();
+      descriptorSetInfo.pSetLayouts = setLayouts.data();
+      std::vector<VkDescriptorSet> descriptors(setLayouts.size());
+      vkAllocateDescriptorSets(device_, &descriptorSetInfo, descriptors.data());
+
+      gaussianSets_[i].camera = descriptors[0];
+      gaussianSets_[i].gaussian = descriptors[1];
+      gaussianSets_[i].quad = descriptors[2];
+      gaussianSets_[i].ply = descriptors[3];
+    }
+
+    // uniform buffers
+    gaussianCameraBuffers_.resize(2);
+    for (int i = 0; i < gaussianCameraBuffers_.size(); ++i) {
+      VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      bufferInfo.size = sizeof(GaussianCamera);
+      bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+      VmaAllocationCreateInfo allocationCreateInfo = {};
+      allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      VmaAllocationInfo allocationInfo;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianCameraBuffers_[i].buffer,
+                      &gaussianCameraBuffers_[i].allocation, &allocationInfo);
+      gaussianCameraBuffers_[i].ptr = allocationInfo.pMappedData;
+    }
   }
 
   void DestroyGaussianSplat() {
+    vrdxDestroySorter(sorter_);
+
+    for (auto& buffer : gaussianCameraBuffers_) vmaDestroyBuffer(allocator_, buffer.buffer, buffer.allocation);
+
     vkDestroyDescriptorSetLayout(device_, gaussianCameraSetLayout_, NULL);
     vkDestroyDescriptorSetLayout(device_, gaussianSetLayout_, NULL);
     vkDestroyDescriptorSetLayout(device_, gaussianQuadSetLayout_, NULL);
@@ -1613,7 +1660,7 @@ class Engine::Impl {
     glm::mat4 projection;
     glm::mat4 view;
     glm::vec3 camera_position;
-    glm::uvec2 screen_size;  // (width, height)
+    alignas(16) glm::uvec2 screen_size;  // (width, height)
   };
 
   struct GaussianSplatPushConstant {
@@ -1622,6 +1669,14 @@ class Engine::Impl {
   };
 
   std::vector<Buffer> gaussianCameraBuffers_;
+
+  struct GaussianDescriptorSet {
+    VkDescriptorSet camera;
+    VkDescriptorSet gaussian;
+    VkDescriptorSet quad;
+    VkDescriptorSet ply;
+  };
+  std::vector<GaussianDescriptorSet> gaussianSets_;
 
   struct GaussianSplat {
     glm::mat4 model;
