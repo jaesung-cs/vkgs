@@ -831,18 +831,18 @@ class Engine::Impl {
         vkCmdDispatch(cb, (pointCount + localSize - 1) / localSize, 1, 1);
 
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                             &barrier, 0, NULL, 0, NULL);
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
+                             0, NULL, 0, NULL);
 
         vrdxCmdSortKeyValueIndirect(cb, sorter_, pointCount, gaussianStorage_.visiblePointCount.buffer, 0,
                                     gaussianStorage_.key.buffer, 0, gaussianStorage_.value.buffer, 0,
                                     gaussianStorage_.storage.buffer, 0, NULL, 0);
 
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                             &barrier, 0, NULL, 0, NULL);
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
+                             0, NULL, 0, NULL);
 
         // sorter binds its own, so reset pipeline layout.
         vkCmdPushConstants(cb, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
@@ -978,15 +978,15 @@ class Engine::Impl {
       VkViewport viewport;
       viewport.x = 0;
       viewport.y = 0;
-      viewport.width = width;
-      viewport.height = height;
+      viewport.width = swapchainWidth_;
+      viewport.height = swapchainHeight_;
       viewport.minDepth = 0.f;
       viewport.maxDepth = 1.f;
       vkCmdSetViewport(cb, 0, 1, &viewport);
 
       VkRect2D scissor;
       scissor.offset = {0, 0};
-      scissor.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+      scissor.extent = {static_cast<uint32_t>(swapchainWidth_), static_cast<uint32_t>(swapchainHeight_)};
       vkCmdSetScissor(cb, 0, 1, &scissor);
 
       // update uniform buffer
@@ -994,7 +994,7 @@ class Engine::Impl {
       camera.projection = camera_.ProjectionMatrix();
       camera.view = camera_.ViewMatrix();
       camera.camera_position = camera_.Eye();
-      camera.screen_size = {width, height};
+      camera.screen_size = {swapchainWidth_, swapchainHeight_};
       std::memcpy(cameraBuffers_[renderIndex_].ptr, &camera, sizeof(UniformCamera));
 
       vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout_, 0, 1,
