@@ -195,8 +195,7 @@ class Engine::Impl {
 
     // queues
     std::vector<float> queuePriorities = {0.25f, 0.5f, 1.f};
-    std::vector<VkDeviceQueueCreateInfo> queueInfos;
-    queueInfos.resize(3);
+    std::vector<VkDeviceQueueCreateInfo> queueInfos(3);
     queueInfos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfos[0].queueFamilyIndex = transferQueueFamily_;
     queueInfos[0].queueCount = 1;
@@ -210,7 +209,7 @@ class Engine::Impl {
     queueInfos[2] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfos[2].queueFamilyIndex = graphicsQueueFamily_;
     queueInfos[2].queueCount = 1;
-    queueInfos[2].pQueuePriorities = &queuePriorities[1];
+    queueInfos[2].pQueuePriorities = &queuePriorities[2];
 
     // device
     std::vector<const char*> deviceExtensions = {
@@ -296,7 +295,7 @@ class Engine::Impl {
     VkCommandBufferAllocateInfo commandBufferInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     commandBufferInfo.commandPool = graphicsCommandPool_;
     commandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    commandBufferInfo.commandBufferCount = 3;
+    commandBufferInfo.commandBufferCount = 2;
     graphicsCommandBuffers_.resize(commandBufferInfo.commandBufferCount);
     vkAllocateCommandBuffers(device_, &commandBufferInfo, graphicsCommandBuffers_.data());
 
@@ -323,13 +322,6 @@ class Engine::Impl {
     vkCreatePipelineLayout(device_, &graphicsPipelineLayoutInfo, NULL, &graphicsPipelineLayout_);
 
     // descriptors
-    VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    bufferInfo.size = sizeof(UniformCamera);
-    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    VmaAllocationCreateInfo allocationCreateInfo = {};
-    allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
-    allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
-
     std::vector<VkDescriptorSetLayout> cameraSetLayouts = {
         cameraSetLayout_,
         cameraSetLayout_,
@@ -354,7 +346,7 @@ class Engine::Impl {
     std::vector<VkCommandBuffer> ownershipAcquiredCommandBuffers;
     {
       VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-      bufferInfo.size = 512 * 1024 * 1024;  // 512MB
+      bufferInfo.size = 2 * 1024 * 1024;  // 2MB
       bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
       VmaAllocationCreateInfo allocationCreateInfo = {};
       allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
@@ -598,6 +590,13 @@ class Engine::Impl {
     }
 
     // buffers
+    VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bufferInfo.size = sizeof(UniformCamera);
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    VmaAllocationCreateInfo allocationCreateInfo = {};
+    allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
     cameraBuffers_.resize(2);
     VmaAllocationInfo allocationInfo;
     vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &cameraBuffers_[0].buffer,
@@ -607,7 +606,7 @@ class Engine::Impl {
                     &cameraBuffers_[1].allocation, &allocationInfo);
     cameraBuffers_[1].ptr = allocationInfo.pMappedData;
 
-    std::vector<VkDescriptorBufferInfo> bufferInfos(2);
+    std::vector<VkDescriptorBufferInfo> bufferInfos(3);
     bufferInfos[0] = {cameraBuffers_[0].buffer, 0, sizeof(UniformCamera)};
     bufferInfos[1] = {cameraBuffers_[1].buffer, 0, sizeof(UniformCamera)};
     bufferInfos[2] = {quadSplat_.vertexBuffer.buffer, 0, VK_WHOLE_SIZE};
@@ -999,7 +998,7 @@ class Engine::Impl {
 
     VkSwapchainKHR oldSwapchain = swapchain_;
     VkSwapchainCreateInfoKHR swapchainInfo = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
-    swapchainInfo.surface = viewer_.surface();
+    swapchainInfo.surface = surface;
     swapchainInfo.minImageCount = 3;
     swapchainInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
     swapchainInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
@@ -1107,8 +1106,6 @@ class Engine::Impl {
       vkDestroyImageView(device_, depthAttachment_.view, NULL);
       vmaDestroyImage(allocator_, depthAttachment_.image, depthAttachment_.allocation);
     }
-    for (auto framebuffer : framebuffers_) vkDestroyFramebuffer(device_, framebuffer, NULL);
-    framebuffers_.resize(swapchainImageViews_.size());
 
     VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -1131,6 +1128,9 @@ class Engine::Impl {
     imageViewInfo.format = VK_FORMAT_D32_SFLOAT;
     imageViewInfo.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
     vkCreateImageView(device_, &imageViewInfo, NULL, &depthAttachment_.view);
+
+    for (auto framebuffer : framebuffers_) vkDestroyFramebuffer(device_, framebuffer, NULL);
+    framebuffers_.resize(swapchainImageViews_.size());
 
     for (int i = 0; i < swapchainImageViews_.size(); ++i) {
       std::vector<VkImageView> attachments = {
@@ -1331,8 +1331,8 @@ class Engine::Impl {
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     colorBlendStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    colorBlendStates[1].attachmentCount = colorBlendAttachments[0].size();
-    colorBlendStates[1].pAttachments = colorBlendAttachments[0].data();
+    colorBlendStates[1].attachmentCount = colorBlendAttachments[1].size();
+    colorBlendStates[1].pAttachments = colorBlendAttachments[1].data();
 
     dynamicStates[1] = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dynamicStates[1].dynamicStateCount = dynamicStateList.size();
@@ -1581,7 +1581,6 @@ class Engine::Impl {
 
     if (gaussianPly_.plyBuffer.buffer) {
       vmaDestroyBuffer(allocator_, gaussianPly_.plyBuffer.buffer, gaussianPly_.plyBuffer.allocation);
-      vmaDestroyBuffer(allocator_, gaussianPly_.staging.buffer, gaussianPly_.staging.allocation);
     }
 
     vkDestroySemaphore(device_, gaussianPlyTransferSemaphore_, NULL);
@@ -1618,7 +1617,7 @@ class Engine::Impl {
       vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianPly_.plyBuffer.buffer,
                       &gaussianPly_.plyBuffer.allocation, NULL);
 
-      std::cout << "to staging buffer" << std::endl;
+      std::cout << "to staging buffer, " << size << " bytes" << std::endl;
       std::memcpy(gaussianPly_.staging.ptr, plyBuffer.plyOffsets.data(), offsetSize);
       std::memcpy(reinterpret_cast<uint8_t*>(gaussianPly_.staging.ptr) + offsetSize, plyBuffer.buffer.data(),
                   bufferSize);
@@ -1699,6 +1698,10 @@ class Engine::Impl {
       vkResetFences(device_, 1, &fence);
       vkQueueSubmit2(computeQueue_, 1, &submitInfo, fence);
     }
+
+    // TODO: destroy staging buffer once meantime
+    vkWaitForFences(device_, 1, &transferFence_, VK_TRUE, UINT64_MAX);
+    vmaDestroyBuffer(allocator_, gaussianPly_.staging.buffer, gaussianPly_.staging.allocation);
   }
 
   viewer::Viewer viewer_;
@@ -1832,7 +1835,7 @@ class Engine::Impl {
     Buffer opacity;   // (N)
     Buffer sh;        // (N, 3, 16) float16
   };
-  GaussianSplat splat_;
+  GaussianSplat splat_ = {};
 
   struct GaussianSplatStorage {
     Buffer visiblePointCount;  // (1)

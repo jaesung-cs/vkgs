@@ -74,12 +74,14 @@ class Viewer::Impl {
   }
 
   void DestroyWindow() {
-    vkDestroySurfaceKHR(instance_, surface_, NULL);
+    if (hasUi_) {
+      ImGui_ImplVulkan_Shutdown();
+    }
 
-    glfwDestroyWindow(window_);
-
-    ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
+
+    vkDestroySurfaceKHR(instance_, surface_, NULL);
+    glfwDestroyWindow(window_);
   }
 
   void PrepareUi(const UiCreateInfo& createInfo) {
@@ -137,7 +139,7 @@ class Viewer::Impl {
     ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
   }
 
-  std::vector<std::string> ConsumeDroppedFilepaths() { return std::move(dropped_filepaths_); }
+  std::vector<std::string> ConsumeDroppedFilepaths() { return std::move(droppedFilepaths_); }
 
  private:
   ImGui_ImplVulkan_InitInfo GetImguiInitInfo(const UiCreateInfo& createInfo) {
@@ -159,9 +161,9 @@ class Viewer::Impl {
     return initInfo;
   }
 
-  void SetDroppedFilepaths(const std::vector<std::string>& filepaths) { dropped_filepaths_ = filepaths; }
+  void SetDroppedFilepaths(const std::vector<std::string>& filepaths) { droppedFilepaths_ = filepaths; }
 
-  std::vector<std::string> dropped_filepaths_;
+  std::vector<std::string> droppedFilepaths_;
 
   bool hasUi_ = false;
 
