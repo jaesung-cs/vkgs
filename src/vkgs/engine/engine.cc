@@ -986,6 +986,8 @@ class Engine::Impl {
       ImGui::RadioButton("Off", &presentMode, VK_PRESENT_MODE_MAILBOX_KHR);
       if (swapchainPresentMode_ != static_cast<VkPresentModeKHR>(presentMode)) shouldRecreateSwapchain_ = true;
       swapchainPresentMode_ = static_cast<VkPresentModeKHR>(presentMode);
+
+      ImGui::Text("%u points", gaussianSplat_.pointCount);
     }
     ImGui::End();
   }
@@ -1583,6 +1585,31 @@ class Engine::Impl {
       vmaDestroyBuffer(allocator_, gaussianPly_.plyBuffer.buffer, gaussianPly_.plyBuffer.allocation);
     }
 
+    if (gaussianSplat_.position.buffer)
+      vmaDestroyBuffer(allocator_, gaussianSplat_.position.buffer, gaussianSplat_.position.allocation);
+    if (gaussianSplat_.cov3d.buffer)
+      vmaDestroyBuffer(allocator_, gaussianSplat_.cov3d.buffer, gaussianSplat_.cov3d.allocation);
+    if (gaussianSplat_.opacity.buffer)
+      vmaDestroyBuffer(allocator_, gaussianSplat_.opacity.buffer, gaussianSplat_.opacity.allocation);
+    if (gaussianSplat_.sh.buffer) vmaDestroyBuffer(allocator_, gaussianSplat_.sh.buffer, gaussianSplat_.sh.allocation);
+
+    if (gaussianStorage_.key.buffer)
+      vmaDestroyBuffer(allocator_, gaussianStorage_.key.buffer, gaussianStorage_.key.allocation);
+    if (gaussianStorage_.value.buffer)
+      vmaDestroyBuffer(allocator_, gaussianStorage_.value.buffer, gaussianStorage_.value.allocation);
+    if (gaussianStorage_.storage.buffer)
+      vmaDestroyBuffer(allocator_, gaussianStorage_.storage.buffer, gaussianStorage_.storage.allocation);
+    if (gaussianStorage_.visiblePointCount.buffer)
+      vmaDestroyBuffer(allocator_, gaussianStorage_.visiblePointCount.buffer,
+                       gaussianStorage_.visiblePointCount.allocation);
+
+    if (gaussianQuads_.indirect.buffer)
+      vmaDestroyBuffer(allocator_, gaussianQuads_.indirect.buffer, gaussianQuads_.indirect.allocation);
+    if (gaussianQuads_.indexBuffer.buffer)
+      vmaDestroyBuffer(allocator_, gaussianQuads_.indexBuffer.buffer, gaussianQuads_.indexBuffer.allocation);
+    if (gaussianQuads_.quad.buffer)
+      vmaDestroyBuffer(allocator_, gaussianQuads_.quad.buffer, gaussianQuads_.quad.allocation);
+
     vkDestroySemaphore(device_, gaussianPlyTransferSemaphore_, NULL);
     for (auto fence : gaussianComputeFences_) vkDestroyFence(device_, fence, NULL);
   }
@@ -1593,6 +1620,104 @@ class Engine::Impl {
     auto plyBuffer = LoadPly(plyFilepath);
 
     std::cout << "Loaded" << std::endl;
+
+    auto pointCount = plyBuffer.pointCount;
+
+    // allocate gaussian buffers
+    {
+      gaussianSplat_.pointCount = pointCount;
+      gaussianSplat_.model = glm::mat4{1.f};
+
+      if (gaussianSplat_.position.buffer)
+        vmaDestroyBuffer(allocator_, gaussianSplat_.position.buffer, gaussianSplat_.position.allocation);
+      if (gaussianSplat_.cov3d.buffer)
+        vmaDestroyBuffer(allocator_, gaussianSplat_.cov3d.buffer, gaussianSplat_.cov3d.allocation);
+      if (gaussianSplat_.opacity.buffer)
+        vmaDestroyBuffer(allocator_, gaussianSplat_.opacity.buffer, gaussianSplat_.opacity.allocation);
+      if (gaussianSplat_.sh.buffer)
+        vmaDestroyBuffer(allocator_, gaussianSplat_.sh.buffer, gaussianSplat_.sh.allocation);
+
+      VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      bufferInfo.size = pointCount * 3 * sizeof(float);
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      VmaAllocationCreateInfo allocationCreateInfo = {};
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianSplat_.position.buffer,
+                      &gaussianSplat_.position.allocation, NULL);
+      bufferInfo.size = pointCount * 6 * sizeof(float);
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianSplat_.cov3d.buffer,
+                      &gaussianSplat_.cov3d.allocation, NULL);
+      bufferInfo.size = pointCount * 1 * sizeof(float);
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianSplat_.opacity.buffer,
+                      &gaussianSplat_.opacity.allocation, NULL);
+      bufferInfo.size = pointCount * 3 * 16 * sizeof(uint16_t);
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianSplat_.sh.buffer,
+                      &gaussianSplat_.sh.allocation, NULL);
+    }
+
+    // allocate storage buffers
+    {
+      if (gaussianStorage_.key.buffer)
+        vmaDestroyBuffer(allocator_, gaussianStorage_.key.buffer, gaussianStorage_.key.allocation);
+      if (gaussianStorage_.value.buffer)
+        vmaDestroyBuffer(allocator_, gaussianStorage_.value.buffer, gaussianStorage_.value.allocation);
+      if (gaussianStorage_.storage.buffer)
+        vmaDestroyBuffer(allocator_, gaussianStorage_.storage.buffer, gaussianStorage_.storage.allocation);
+      if (gaussianStorage_.visiblePointCount.buffer)
+        vmaDestroyBuffer(allocator_, gaussianStorage_.visiblePointCount.buffer,
+                         gaussianStorage_.visiblePointCount.allocation);
+
+      VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      bufferInfo.size = pointCount * sizeof(uint32_t);
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      VmaAllocationCreateInfo allocationCreateInfo = {};
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianStorage_.key.buffer,
+                      &gaussianStorage_.key.allocation, NULL);
+      bufferInfo.size = pointCount * sizeof(uint32_t);
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianStorage_.value.buffer,
+                      &gaussianStorage_.value.allocation, NULL);
+
+      VrdxSorterStorageRequirements requirements;
+      vrdxGetSorterStorageRequirements(sorter_, pointCount, &requirements);
+      bufferInfo.size = requirements.size;
+      bufferInfo.usage = requirements.usage | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianStorage_.storage.buffer,
+                      &gaussianStorage_.storage.allocation, NULL);
+
+      bufferInfo.size = sizeof(uint32_t);
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianStorage_.visiblePointCount.buffer,
+                      &gaussianStorage_.visiblePointCount.allocation, NULL);
+    }
+
+    // allocate quads
+    {
+      if (gaussianQuads_.indirect.buffer)
+        vmaDestroyBuffer(allocator_, gaussianQuads_.indirect.buffer, gaussianQuads_.indirect.allocation);
+      if (gaussianQuads_.indexBuffer.buffer)
+        vmaDestroyBuffer(allocator_, gaussianQuads_.indexBuffer.buffer, gaussianQuads_.indexBuffer.allocation);
+      if (gaussianQuads_.quad.buffer)
+        vmaDestroyBuffer(allocator_, gaussianQuads_.quad.buffer, gaussianQuads_.quad.allocation);
+
+      VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      bufferInfo.size = sizeof(VkDrawIndexedIndirectCommand);
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+      VmaAllocationCreateInfo allocationCreateInfo = {};
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianQuads_.indirect.buffer,
+                      &gaussianQuads_.indirect.allocation, NULL);
+
+      bufferInfo.size = pointCount * 6 * sizeof(uint32_t);
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianQuads_.indexBuffer.buffer,
+                      &gaussianQuads_.indexBuffer.allocation, NULL);
+
+      bufferInfo.size = pointCount * 12 * sizeof(float);
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianQuads_.quad.buffer,
+                      &gaussianQuads_.quad.allocation, NULL);
+    }
 
     // to staging
     VkDeviceSize offsetSize = plyBuffer.plyOffsets.size() * sizeof(plyBuffer.plyOffsets[0]);
@@ -1663,12 +1788,59 @@ class Engine::Impl {
       vkQueueSubmit2(transferQueue_, 1, &submitInfo, transferFence_);
     }
 
-    // TODO: acquire ownership and parse ply
+    // acquire ownership and parse ply
     {
       VkCommandBuffer cb = gaussianComputeCommandBuffers_[renderIndex_];
       VkFence fence = gaussianComputeFences_[renderIndex_];
 
       vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+
+      // update descriptors
+      VkDescriptorSet gaussianSet = gaussianSets_[renderIndex_].gaussian;
+      VkDescriptorSet plySet = gaussianSets_[renderIndex_].ply;
+
+      std::vector<VkDescriptorBufferInfo> bufferInfos(5);
+      bufferInfos[0] = {gaussianPly_.plyBuffer.buffer, 0, VK_WHOLE_SIZE};
+      bufferInfos[1] = {gaussianSplat_.position.buffer, 0, VK_WHOLE_SIZE};
+      bufferInfos[2] = {gaussianSplat_.cov3d.buffer, 0, VK_WHOLE_SIZE};
+      bufferInfos[3] = {gaussianSplat_.opacity.buffer, 0, VK_WHOLE_SIZE};
+      bufferInfos[4] = {gaussianSplat_.sh.buffer, 0, VK_WHOLE_SIZE};
+
+      std::vector<VkWriteDescriptorSet> writes(5);
+      writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[0].dstSet = gaussianSet;
+      writes[0].dstBinding = 0;
+      writes[0].dstArrayElement = 0;
+      writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[0].pBufferInfo = &bufferInfos[0];
+
+      writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[1].dstSet = gaussianSet;
+      writes[1].dstBinding = 1;
+      writes[1].dstArrayElement = 0;
+      writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[1].pBufferInfo = &bufferInfos[1];
+
+      writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[2].dstSet = gaussianSet;
+      writes[2].dstBinding = 2;
+      writes[2].dstArrayElement = 0;
+      writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[2].pBufferInfo = &bufferInfos[2];
+
+      writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[3].dstSet = gaussianSet;
+      writes[3].dstBinding = 3;
+      writes[3].dstArrayElement = 0;
+      writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[3].pBufferInfo = &bufferInfos[3];
+
+      writes[4] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+      writes[4].dstSet = plySet;
+      writes[4].dstBinding = 0;
+      writes[4].dstArrayElement = 0;
+      writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[4].pBufferInfo = &bufferInfos[4];
 
       VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
       beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1682,6 +1854,18 @@ class Engine::Impl {
       barrier.offset = 0;
       barrier.size = size;
       vkCmdPipelineBarrier(cb, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
+
+      // parse ply
+      vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, parsePlyPipeline_);
+      vkCmdPushConstants(cb, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, sizeof(glm::mat4),
+                         sizeof(uint32_t), &pointCount);
+      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gaussianSplatPipelineLayout_, 1, 1, &gaussianSet, 0,
+                              NULL);
+      vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gaussianSplatPipelineLayout_, 3, 1, &plySet, 0, NULL);
+
+      constexpr uint32_t localSize = 256;
+      uint32_t groupSize = (pointCount + localSize - 1) / localSize;
+      vkCmdDispatch(cb, groupSize, 1, 1);
 
       vkEndCommandBuffer(cb);
 
@@ -1835,7 +2019,7 @@ class Engine::Impl {
     Buffer opacity;   // (N)
     Buffer sh;        // (N, 3, 16) float16
   };
-  GaussianSplat splat_ = {};
+  GaussianSplat gaussianSplat_ = {};
 
   struct GaussianSplatStorage {
     Buffer visiblePointCount;  // (1)
@@ -1843,12 +2027,14 @@ class Engine::Impl {
     Buffer value;              // (N)
     Buffer storage;            // (M), by sorter.
   };
+  GaussianSplatStorage gaussianStorage_ = {};
 
   struct GaussianSplatQuad {
     Buffer indirect;     // (8), VkDrawIndexedIndirectCommand
     Buffer quad;         // (N, 12)
     Buffer indexBuffer;  // (6N)
   };
+  GaussianSplatQuad gaussianQuads_ = {};
 
   // render
   std::vector<VkCommandBuffer> graphicsCommandBuffers_;
