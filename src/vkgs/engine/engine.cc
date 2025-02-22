@@ -178,8 +178,12 @@ class Engine::Impl {
     std::cout << "compute  queue family: " << computeQueueFamily_ << std::endl;
     std::cout << "graphics queue family: " << graphicsQueueFamily_ << std::endl;
 
+    VkPhysicalDeviceTimelineSemaphoreFeatures timelineSemaphoreFeatures = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+
     VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+    bufferDeviceAddressFeatures.pNext = &timelineSemaphoreFeatures;
 
     VkPhysicalDevice16BitStorageFeatures k16bitStorageFeatures = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
@@ -668,8 +672,8 @@ class Engine::Impl {
 
       if (gaussianSplat_.pointCount > 0) {
         uint32_t pointCount = gaussianSplat_.pointCount;
-        VkCommandBuffer cb = gaussianComputeCommandBuffers_[renderIndex_];
-        VkSemaphore semaphore = gaussianComputeSemaphores_[renderIndex_];
+        VkCommandBuffer cb0 = gaussianComputeCommandBuffers_[renderIndex_ * 2 + 0];
+        VkCommandBuffer cb1 = gaussianComputeCommandBuffers_[renderIndex_ * 2 + 1];
         VkFence fence = gaussianComputeFences_[renderIndex_];
 
         vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -692,7 +696,7 @@ class Engine::Impl {
         bufferInfos[5] = {gaussianStorage_.visiblePointCount.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[6] = {gaussianStorage_.key.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[7] = {gaussianStorage_.value.buffer, 0, VK_WHOLE_SIZE};
-        bufferInfos[8] = {gaussianStorage_.key.buffer, 0, VK_WHOLE_SIZE};  // inverse buffer reusing key buffer
+        bufferInfos[8] = {gaussianStorage_.inverse.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[9] = {gaussianQuads_.indirect.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[10] = {gaussianQuads_.indexBuffer.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[11] = {gaussianQuads_.quad.buffer, 0, VK_WHOLE_SIZE};
@@ -802,14 +806,14 @@ class Engine::Impl {
         // commands
         VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cb, &beginInfo);
+        vkBeginCommandBuffer(cb0, &beginInfo);
 
-        vkCmdFillBuffer(cb, gaussianStorage_.visiblePointCount.buffer, 0, sizeof(uint32_t), 0);
+        vkCmdFillBuffer(cb0, gaussianStorage_.visiblePointCount.buffer, 0, sizeof(uint32_t), 0);
 
         VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier,
+        vkCmdPipelineBarrier(cb0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier,
                              0, NULL, 0, NULL);
 
         GaussianSplatPushConstant pushConstants = {};
@@ -821,56 +825,74 @@ class Engine::Impl {
             gaussianSets_[renderIndex_].gaussian,
             gaussianSets_[renderIndex_].quad,
         };
-        vkCmdPushConstants(cb, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
+        vkCmdPushConstants(cb0, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
                            &pushConstants);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gaussianSplatPipelineLayout_, 0, descriptors.size(),
-                                descriptors.data(), 0, NULL);
+        vkCmdBindDescriptorSets(cb0, VK_PIPELINE_BIND_POINT_COMPUTE, gaussianSplatPipelineLayout_, 0,
+                                descriptors.size(), descriptors.data(), 0, NULL);
 
         constexpr uint32_t localSize = 256;
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, rankPipeline_);
-        vkCmdDispatch(cb, (pointCount + localSize - 1) / localSize, 1, 1);
+        vkCmdBindPipeline(cb0, VK_PIPELINE_BIND_POINT_COMPUTE, rankPipeline_);
+        vkCmdDispatch(cb0, (pointCount + localSize - 1) / localSize, 1, 1);
 
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
+        vkCmdPipelineBarrier(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
                              0, NULL, 0, NULL);
 
-        vrdxCmdSortKeyValueIndirect(cb, sorter_, pointCount, gaussianStorage_.visiblePointCount.buffer, 0,
+        vrdxCmdSortKeyValueIndirect(cb0, sorter_, pointCount, gaussianStorage_.visiblePointCount.buffer, 0,
                                     gaussianStorage_.key.buffer, 0, gaussianStorage_.value.buffer, 0,
                                     gaussianStorage_.storage.buffer, 0, NULL, 0);
 
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
+        vkCmdPipelineBarrier(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
                              0, NULL, 0, NULL);
 
         // sorter binds its own, so reset pipeline layout.
-        vkCmdPushConstants(cb, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
+        vkCmdPushConstants(cb0, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
                            &pushConstants);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, gaussianSplatPipelineLayout_, 0, descriptors.size(),
-                                descriptors.data(), 0, NULL);
+        vkCmdBindDescriptorSets(cb0, VK_PIPELINE_BIND_POINT_COMPUTE, gaussianSplatPipelineLayout_, 0,
+                                descriptors.size(), descriptors.data(), 0, NULL);
 
-        vkCmdFillBuffer(cb, gaussianStorage_.key.buffer, 0, pointCount * sizeof(uint32_t), -1);
+        vkCmdFillBuffer(cb0, gaussianStorage_.inverse.buffer, 0, pointCount * sizeof(uint32_t), -1);
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier,
+        vkCmdPipelineBarrier(cb0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier,
                              0, NULL, 0, NULL);
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, inverseIndexPipeline_);
-        vkCmdDispatch(cb, (pointCount + localSize - 1) / localSize, 1, 1);
+        vkCmdBindPipeline(cb0, VK_PIPELINE_BIND_POINT_COMPUTE, inverseIndexPipeline_);
+        vkCmdDispatch(cb0, (pointCount + localSize - 1) / localSize, 1, 1);
 
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+        vkCmdPipelineBarrier(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
                              &barrier, 0, NULL, 0, NULL);
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, projectionPipeline_);
-        vkCmdDispatch(cb, (pointCount + localSize - 1) / localSize, 1, 1);
+        vkEndCommandBuffer(cb0);
+
+        // submit preprocesses
+        VkCommandBufferSubmitInfo commandBufferSubmitInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+        commandBufferSubmitInfo.commandBuffer = cb0;
+        VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        submitInfo.commandBufferInfoCount = 1;
+        submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+        vkQueueSubmit2(computeQueue_, 1, &submitInfo, NULL);
+
+        // projection after rendering finishes
+        vkBeginCommandBuffer(cb1, &beginInfo);
+
+        vkCmdPushConstants(cb1, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
+                           &pushConstants);
+        vkCmdBindDescriptorSets(cb1, VK_PIPELINE_BIND_POINT_COMPUTE, gaussianSplatPipelineLayout_, 0,
+                                descriptors.size(), descriptors.data(), 0, NULL);
+
+        vkCmdBindPipeline(cb1, VK_PIPELINE_BIND_POINT_COMPUTE, projectionPipeline_);
+        vkCmdDispatch(cb1, (pointCount + localSize - 1) / localSize, 1, 1);
 
         // barrier for next processing
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
+        vkCmdPipelineBarrier(cb1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
                              0, NULL, 0, NULL);
 
         // transfer ownership
@@ -898,23 +920,32 @@ class Engine::Impl {
         ownershipBarriers[2].buffer = gaussianQuads_.quad.buffer;
         ownershipBarriers[2].offset = 0;
         ownershipBarriers[2].size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, NULL, ownershipBarriers.size(),
+        vkCmdPipelineBarrier(cb1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, NULL, ownershipBarriers.size(),
                              ownershipBarriers.data(), 0, NULL);
 
-        vkEndCommandBuffer(cb);
+        vkEndCommandBuffer(cb1);
 
-        VkCommandBufferSubmitInfo commandBufferSubmitInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-        commandBufferSubmitInfo.commandBuffer = cb;
-        VkSemaphoreSubmitInfo signalSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-        signalSemaphoreInfo.semaphore = semaphore;
-        signalSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-        submitInfo.commandBufferInfoCount = 1;
-        submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
-        submitInfo.signalSemaphoreInfoCount = 1;
-        submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
-        vkResetFences(device_, 1, &fence);
-        vkQueueSubmit2(computeQueue_, 1, &submitInfo, fence);
+        {
+          VkSemaphoreSubmitInfo waitSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+          waitSemaphoreInfo.semaphore = gaussianTimelineSemaphore_;
+          waitSemaphoreInfo.value = gaussianTimeline_;
+          waitSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          VkCommandBufferSubmitInfo commandBufferSubmitInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+          commandBufferSubmitInfo.commandBuffer = cb1;
+          VkSemaphoreSubmitInfo signalSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+          signalSemaphoreInfo.semaphore = gaussianTimelineSemaphore_;
+          signalSemaphoreInfo.value = gaussianTimeline_ + 1;
+          signalSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+          VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+          submitInfo.waitSemaphoreInfoCount = 1;
+          submitInfo.pWaitSemaphoreInfos = &waitSemaphoreInfo;
+          submitInfo.commandBufferInfoCount = 1;
+          submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+          submitInfo.signalSemaphoreInfoCount = 1;
+          submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
+          vkResetFences(device_, 1, &fence);
+          vkQueueSubmit2(computeQueue_, 1, &submitInfo, fence);
+        }
       }
 
       VkCommandBuffer cb = graphicsCommandBuffers_[renderIndex_];
@@ -1041,7 +1072,8 @@ class Engine::Impl {
       waitSemaphoreInfos.back().stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
       if (gaussianSplat_.pointCount > 0) {
         waitSemaphoreInfos.push_back({VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO});
-        waitSemaphoreInfos.back().semaphore = gaussianComputeSemaphores_[renderIndex_];
+        waitSemaphoreInfos.back().semaphore = gaussianTimelineSemaphore_;
+        waitSemaphoreInfos.back().value = gaussianTimeline_ + 1;
         waitSemaphoreInfos.back().stageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
                                               VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT |
                                               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -1049,18 +1081,33 @@ class Engine::Impl {
 
       VkCommandBufferSubmitInfo commandBufferInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
       commandBufferInfo.commandBuffer = cb;
-      VkSemaphoreSubmitInfo signalSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-      signalSemaphoreInfo.semaphore = renderFinishedSemaphore;
-      signalSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+      std::vector<VkSemaphoreSubmitInfo> signalSemaphoreInfos;
+      signalSemaphoreInfos.push_back({VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO});
+      signalSemaphoreInfos.back().semaphore = renderFinishedSemaphore;
+      signalSemaphoreInfos.back().stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+      if (gaussianSplat_.pointCount > 0) {
+        signalSemaphoreInfos.push_back({VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO});
+        signalSemaphoreInfos.back().semaphore = gaussianTimelineSemaphore_;
+        signalSemaphoreInfos.back().value = gaussianTimeline_ + 2;
+        signalSemaphoreInfos.back().stageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
+                                                VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT |
+                                                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      }
+
       VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
       submitInfo.waitSemaphoreInfoCount = waitSemaphoreInfos.size();
       submitInfo.pWaitSemaphoreInfos = waitSemaphoreInfos.data();
       submitInfo.commandBufferInfoCount = 1;
       submitInfo.pCommandBufferInfos = &commandBufferInfo;
-      submitInfo.signalSemaphoreInfoCount = 1;
-      submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
+      submitInfo.signalSemaphoreInfoCount = signalSemaphoreInfos.size();
+      submitInfo.pSignalSemaphoreInfos = signalSemaphoreInfos.data();
       vkResetFences(device_, 1, &renderFinishedFence);
       vkQueueSubmit2(graphicsQueue_, 1, &submitInfo, renderFinishedFence);
+
+      if (gaussianSplat_.pointCount > 0) {
+        gaussianTimeline_ += 2;
+      }
 
       VkPresentInfoKHR presentInfo = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
       presentInfo.waitSemaphoreCount = 1;
@@ -1750,7 +1797,7 @@ class Engine::Impl {
     VkCommandBufferAllocateInfo commandBufferInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     commandBufferInfo.commandPool = computeCommandPool_;
     commandBufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    commandBufferInfo.commandBufferCount = 2;
+    commandBufferInfo.commandBufferCount = 4;
     gaussianComputeCommandBuffers_.resize(commandBufferInfo.commandBufferCount);
     vkAllocateCommandBuffers(device_, &commandBufferInfo, gaussianComputeCommandBuffers_.data());
 
@@ -1765,10 +1812,13 @@ class Engine::Impl {
       vkCreateFence(device_, &fenceInfo, NULL, &gaussianComputeFences_[i]);
     }
 
-    gaussianComputeSemaphores_.resize(2);
-    for (int i = 0; i < 2; ++i) {
+    {
+      VkSemaphoreTypeCreateInfo timelineSemaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+      timelineSemaphoreInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+      timelineSemaphoreInfo.initialValue = gaussianTimeline_;
       VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-      vkCreateSemaphore(device_, &semaphoreInfo, NULL, &gaussianComputeSemaphores_[i]);
+      semaphoreInfo.pNext = &timelineSemaphoreInfo;
+      vkCreateSemaphore(device_, &semaphoreInfo, NULL, &gaussianTimelineSemaphore_);
     }
   }
 
@@ -1805,6 +1855,8 @@ class Engine::Impl {
       vmaDestroyBuffer(allocator_, gaussianStorage_.value.buffer, gaussianStorage_.value.allocation);
     if (gaussianStorage_.storage.buffer)
       vmaDestroyBuffer(allocator_, gaussianStorage_.storage.buffer, gaussianStorage_.storage.allocation);
+    if (gaussianStorage_.inverse.buffer)
+      vmaDestroyBuffer(allocator_, gaussianStorage_.inverse.buffer, gaussianStorage_.inverse.allocation);
     if (gaussianStorage_.visiblePointCount.buffer)
       vmaDestroyBuffer(allocator_, gaussianStorage_.visiblePointCount.buffer,
                        gaussianStorage_.visiblePointCount.allocation);
@@ -1818,7 +1870,7 @@ class Engine::Impl {
 
     vkDestroySemaphore(device_, gaussianPlyTransferSemaphore_, NULL);
     for (auto fence : gaussianComputeFences_) vkDestroyFence(device_, fence, NULL);
-    for (auto semaphore : gaussianComputeSemaphores_) vkDestroySemaphore(device_, semaphore, NULL);
+    vkDestroySemaphore(device_, gaussianTimelineSemaphore_, NULL);
   }
 
   void ParsePly(const std::string& plyFilepath) {
@@ -1870,6 +1922,8 @@ class Engine::Impl {
         vmaDestroyBuffer(allocator_, gaussianStorage_.value.buffer, gaussianStorage_.value.allocation);
       if (gaussianStorage_.storage.buffer)
         vmaDestroyBuffer(allocator_, gaussianStorage_.storage.buffer, gaussianStorage_.storage.allocation);
+      if (gaussianStorage_.storage.buffer)
+        vmaDestroyBuffer(allocator_, gaussianStorage_.inverse.buffer, gaussianStorage_.inverse.allocation);
       if (gaussianStorage_.visiblePointCount.buffer)
         vmaDestroyBuffer(allocator_, gaussianStorage_.visiblePointCount.buffer,
                          gaussianStorage_.visiblePointCount.allocation);
@@ -1885,6 +1939,10 @@ class Engine::Impl {
       bufferInfo.size = pointCount * sizeof(uint32_t);
       vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianStorage_.value.buffer,
                       &gaussianStorage_.value.allocation, NULL);
+      bufferInfo.size = pointCount * sizeof(uint32_t);
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianStorage_.inverse.buffer,
+                      &gaussianStorage_.inverse.allocation, NULL);
 
       VrdxSorterStorageRequirements requirements;
       vrdxGetSorterStorageRequirements(sorter_, pointCount, &requirements);
@@ -2194,7 +2252,8 @@ class Engine::Impl {
   VrdxSorter sorter_ = VK_NULL_HANDLE;
 
   std::vector<VkCommandBuffer> gaussianComputeCommandBuffers_;
-  std::vector<VkSemaphore> gaussianComputeSemaphores_;
+  VkSemaphore gaussianTimelineSemaphore_ = VK_NULL_HANDLE;
+  uint64_t gaussianTimeline_ = 0;
   std::vector<VkFence> gaussianComputeFences_;
 
   struct GaussianCamera {
@@ -2241,6 +2300,7 @@ class Engine::Impl {
     Buffer key;                // (N). shared with inverse_index.
     Buffer value;              // (N)
     Buffer storage;            // (M), by sorter.
+    Buffer inverse;            // (N)
   };
   GaussianSplatStorage gaussianStorage_ = {};
 
