@@ -39,6 +39,8 @@
 namespace vkgs {
 namespace {
 
+constexpr uint32_t QUAD_BATCH_SIZE = 16;
+
 struct Resolution {
   int width;
   int height;
@@ -687,7 +689,7 @@ class Engine::Impl {
         std::memcpy(gaussianCameraBuffers_[renderIndex_].ptr, &gaussianCamera, sizeof(gaussianCamera));
 
         // update descriptors
-        std::vector<VkDescriptorBufferInfo> bufferInfos(12);
+        std::vector<VkDescriptorBufferInfo> bufferInfos(11);
         bufferInfos[0] = {gaussianCameraBuffers_[renderIndex_].buffer, 0, sizeof(GaussianCamera)};
         bufferInfos[1] = {gaussianSplat_.position.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[2] = {gaussianSplat_.cov3d.buffer, 0, VK_WHOLE_SIZE};
@@ -698,10 +700,9 @@ class Engine::Impl {
         bufferInfos[7] = {gaussianStorage_.value.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[8] = {gaussianStorage_.inverse.buffer, 0, VK_WHOLE_SIZE};
         bufferInfos[9] = {gaussianQuads_.indirect.buffer, 0, VK_WHOLE_SIZE};
-        bufferInfos[10] = {gaussianQuads_.indexBuffer.buffer, 0, VK_WHOLE_SIZE};
-        bufferInfos[11] = {gaussianQuads_.quad.buffer, 0, VK_WHOLE_SIZE};
+        bufferInfos[10] = {gaussianQuads_.quad.buffer, 0, VK_WHOLE_SIZE};
 
-        std::vector<VkWriteDescriptorSet> writes(12);
+        std::vector<VkWriteDescriptorSet> writes(11);
         // camera
         writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         writes[0].dstSet = gaussianSets_[renderIndex_].camera;
@@ -792,14 +793,6 @@ class Engine::Impl {
         writes[10].descriptorCount = 1;
         writes[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[10].pBufferInfo = &bufferInfos[10];
-
-        writes[11] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        writes[11].dstSet = gaussianSets_[renderIndex_].quad;
-        writes[11].dstBinding = 6;
-        writes[11].dstArrayElement = 0;
-        writes[11].descriptorCount = 1;
-        writes[11].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[11].pBufferInfo = &bufferInfos[11];
 
         vkUpdateDescriptorSets(device_, writes.size(), writes.data(), 0, NULL);
 
@@ -896,7 +889,7 @@ class Engine::Impl {
                              0, NULL, 0, NULL);
 
         // transfer ownership
-        std::vector<VkBufferMemoryBarrier> ownershipBarriers(3);
+        std::vector<VkBufferMemoryBarrier> ownershipBarriers(2);
         ownershipBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
         ownershipBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         ownershipBarriers[0].srcQueueFamilyIndex = computeQueueFamily_;
@@ -909,17 +902,9 @@ class Engine::Impl {
         ownershipBarriers[1].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         ownershipBarriers[1].srcQueueFamilyIndex = computeQueueFamily_;
         ownershipBarriers[1].dstQueueFamilyIndex = graphicsQueueFamily_;
-        ownershipBarriers[1].buffer = gaussianQuads_.indexBuffer.buffer;
+        ownershipBarriers[1].buffer = gaussianQuads_.quad.buffer;
         ownershipBarriers[1].offset = 0;
         ownershipBarriers[1].size = VK_WHOLE_SIZE;
-
-        ownershipBarriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        ownershipBarriers[2].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        ownershipBarriers[2].srcQueueFamilyIndex = computeQueueFamily_;
-        ownershipBarriers[2].dstQueueFamilyIndex = graphicsQueueFamily_;
-        ownershipBarriers[2].buffer = gaussianQuads_.quad.buffer;
-        ownershipBarriers[2].offset = 0;
-        ownershipBarriers[2].size = VK_WHOLE_SIZE;
         vkCmdPipelineBarrier(cb1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, NULL, ownershipBarriers.size(),
                              ownershipBarriers.data(), 0, NULL);
 
@@ -970,16 +955,6 @@ class Engine::Impl {
         ownershipBarrier.offset = 0;
         ownershipBarrier.size = VK_WHOLE_SIZE;
         vkCmdPipelineBarrier(cb, 0, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, NULL, 1, &ownershipBarrier, 0, NULL);
-
-        ownershipBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        ownershipBarrier.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
-        ownershipBarrier.srcQueueFamilyIndex = computeQueueFamily_;
-        ownershipBarrier.dstQueueFamilyIndex = graphicsQueueFamily_;
-        ownershipBarrier.buffer = gaussianQuads_.indexBuffer.buffer;
-        ownershipBarrier.offset = 0;
-        ownershipBarrier.size = VK_WHOLE_SIZE;
-        // TODO: VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT with synchronization 2
-        vkCmdPipelineBarrier(cb, 0, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, NULL, 1, &ownershipBarrier, 0, NULL);
 
         ownershipBarrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
         ownershipBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -1975,8 +1950,8 @@ class Engine::Impl {
       vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianQuads_.indirect.buffer,
                       &gaussianQuads_.indirect.allocation, NULL);
 
-      bufferInfo.size = pointCount * 6 * sizeof(uint32_t);
-      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+      bufferInfo.size = QUAD_BATCH_SIZE * 6 * sizeof(uint32_t);
+      bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
       vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &gaussianQuads_.indexBuffer.buffer,
                       &gaussianQuads_.indexBuffer.allocation, NULL);
 
@@ -2156,6 +2131,46 @@ class Engine::Impl {
       vkQueueSubmit2(computeQueue_, 1, &submitInfo, fence);
     }
 
+    // fill index buffer
+    {
+      std::vector<uint32_t> indexBuffer;
+      for (int i = 0; i < QUAD_BATCH_SIZE; ++i) {
+        indexBuffer.push_back(4 * i + 0);
+        indexBuffer.push_back(4 * i + 1);
+        indexBuffer.push_back(4 * i + 2);
+        indexBuffer.push_back(4 * i + 2);
+        indexBuffer.push_back(4 * i + 1);
+        indexBuffer.push_back(4 * i + 3);
+      }
+
+      VkDeviceSize indexBufferSize = indexBuffer.size() * sizeof(indexBuffer[0]);
+
+      vkWaitForFences(device_, 1, &transferFence_, VK_TRUE, UINT64_MAX);
+
+      std::memcpy(gaussianPly_.staging.ptr, indexBuffer.data(), indexBufferSize);
+
+      VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+      beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      vkBeginCommandBuffer(transferCommandBuffer_, &beginInfo);
+
+      VkBufferCopy region = {};
+      region.srcOffset = 0;
+      region.dstOffset = 0;
+      region.size = indexBufferSize;
+      vkCmdCopyBuffer(transferCommandBuffer_, gaussianPly_.staging.buffer, gaussianQuads_.indexBuffer.buffer, 1,
+                      &region);
+
+      vkEndCommandBuffer(transferCommandBuffer_);
+
+      VkCommandBufferSubmitInfo commandBufferSubmitInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+      commandBufferSubmitInfo.commandBuffer = transferCommandBuffer_;
+      VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+      submitInfo.commandBufferInfoCount = 1;
+      submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
+      vkResetFences(device_, 1, &transferFence_);
+      vkQueueSubmit2(transferQueue_, 1, &submitInfo, transferFence_);
+    }
+
     // TODO: destroy staging buffer once meantime
     vkWaitForFences(device_, 1, &transferFence_, VK_TRUE, UINT64_MAX);
     vmaDestroyBuffer(allocator_, gaussianPly_.staging.buffer, gaussianPly_.staging.allocation);
@@ -2307,7 +2322,7 @@ class Engine::Impl {
   struct GaussianSplatQuad {
     Buffer indirect;     // (8), VkDrawIndexedIndirectCommand
     Buffer quad;         // (N, 12)
-    Buffer indexBuffer;  // (6N)
+    Buffer indexBuffer;  // (96)
   };
   GaussianSplatQuad gaussianQuads_ = {};
 
