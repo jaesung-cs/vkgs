@@ -532,6 +532,8 @@ class Engine::Impl {
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     writes[1].pBufferInfo = &bufferInfos[1];
     vkUpdateDescriptorSets(device_, writes.size(), writes.data(), 0, NULL);
+
+    frameInfos_.resize(2);
   }
 
   ~Impl() {
@@ -547,6 +549,11 @@ class Engine::Impl {
       if (out.is_open()) out.write(data.data(), data.size());
     }
     vkDestroyPipelineCache(device_, pipelineCache_, NULL);
+
+    for (const auto& frameInfo : frameInfos_) {
+      if (frameInfo.computeQueryPool) vkDestroyQueryPool(device_, frameInfo.computeQueryPool, NULL);
+      if (frameInfo.graphicsQueryPool) vkDestroyQueryPool(device_, frameInfo.graphicsQueryPool, NULL);
+    }
 
     DestroyGaussianSplat();
 
@@ -672,6 +679,7 @@ class Engine::Impl {
 
       camera_.SetWindowSize(swapchainWidth_, swapchainHeight_);
 
+      auto& frameInfo = frameInfos_[renderIndex_];
       const GaussianSplatStorage& storage = gaussianStorages_[renderIndex_];
       const GaussianSplatQuad& quad = gaussianQuads_[renderIndex_];
       if (gaussianSplat_.pointCount > 0) {
@@ -681,6 +689,22 @@ class Engine::Impl {
         VkFence fence = gaussianComputeFences_[renderIndex_];
 
         vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+
+        if (!frameInfo.computeQueryPool) {
+          VkQueryPoolCreateInfo queryPoolInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+          queryPoolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+          queryPoolInfo.queryCount = 5;
+          vkCreateQueryPool(device_, &queryPoolInfo, NULL, &frameInfo.computeQueryPool);
+        } else {
+          std::vector<uint64_t> timestamps(5);
+          vkGetQueryPoolResults(device_, frameInfo.computeQueryPool, 0, 5, sizeof(uint64_t) * timestamps.size(),
+                                timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+          frameInfo.rankTime = timestamps[1] - timestamps[0];
+          frameInfo.sortTime = timestamps[2] - timestamps[1];
+          frameInfo.inverseTime = timestamps[3] - timestamps[2];
+          frameInfo.projectionTime = timestamps[4] - timestamps[3];
+          frameInfo.totalComputeTime = timestamps[4] - timestamps[0];
+        }
 
         // update uniforms
         GaussianCamera gaussianCamera = {};
@@ -803,6 +827,10 @@ class Engine::Impl {
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cb0, &beginInfo);
 
+        vkCmdResetQueryPool(cb0, frameInfo.computeQueryPool, 0, 5);
+
+        vkCmdWriteTimestamp(cb0, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, frameInfo.computeQueryPool, 0);
+
         vkCmdFillBuffer(cb0, storage.visiblePointCount.buffer, 0, sizeof(uint32_t), 0);
 
         VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
@@ -829,6 +857,8 @@ class Engine::Impl {
         vkCmdBindPipeline(cb0, VK_PIPELINE_BIND_POINT_COMPUTE, rankPipeline_);
         vkCmdDispatch(cb0, (pointCount + localSize - 1) / localSize, 1, 1);
 
+        vkCmdWriteTimestamp(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, frameInfo.computeQueryPool, 1);
+
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         vkCmdPipelineBarrier(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
@@ -836,6 +866,8 @@ class Engine::Impl {
 
         vrdxCmdSortKeyValueIndirect(cb0, sorter_, pointCount, storage.visiblePointCount.buffer, 0, storage.key.buffer,
                                     0, storage.value.buffer, 0, storage.storage.buffer, 0, NULL, 0);
+
+        vkCmdWriteTimestamp(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, frameInfo.computeQueryPool, 2);
 
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -856,6 +888,8 @@ class Engine::Impl {
 
         vkCmdBindPipeline(cb0, VK_PIPELINE_BIND_POINT_COMPUTE, inverseIndexPipeline_);
         vkCmdDispatch(cb0, (pointCount + localSize - 1) / localSize, 1, 1);
+
+        vkCmdWriteTimestamp(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, frameInfo.computeQueryPool, 3);
 
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -882,6 +916,8 @@ class Engine::Impl {
 
         vkCmdBindPipeline(cb1, VK_PIPELINE_BIND_POINT_COMPUTE, projectionPipeline_);
         vkCmdDispatch(cb1, (pointCount + localSize - 1) / localSize, 1, 1);
+
+        vkCmdWriteTimestamp(cb1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, frameInfo.computeQueryPool, 4);
 
         // barrier for next processing
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -941,10 +977,25 @@ class Engine::Impl {
       // wait for render finishes
       vkWaitForFences(device_, 1, &renderFinishedFence, VK_TRUE, UINT64_MAX);
 
+      if (!frameInfo.graphicsQueryPool) {
+        VkQueryPoolCreateInfo queryPoolInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+        queryPoolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        queryPoolInfo.queryCount = 2;
+        vkCreateQueryPool(device_, &queryPoolInfo, NULL, &frameInfo.graphicsQueryPool);
+      } else {
+        std::vector<uint64_t> timestamps(2);
+        vkGetQueryPoolResults(device_, frameInfo.graphicsQueryPool, 0, 2, sizeof(uint64_t) * timestamps.size(),
+                              timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+        frameInfo.drawTime = timestamps[1] - timestamps[0];
+        frameInfo.totalGraphicsTime = timestamps[1] - timestamps[0];
+      }
+
       // record draw commands
       VkCommandBufferBeginInfo commandBufferBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
       commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       vkBeginCommandBuffer(cb, &commandBufferBeginInfo);
+
+      vkCmdResetQueryPool(cb, frameInfo.graphicsQueryPool, 0, 2);
 
       // acquire ownership from compute queue
       if (gaussianSplat_.pointCount > 0) {
@@ -966,6 +1017,8 @@ class Engine::Impl {
         ownershipBarrier.size = VK_WHOLE_SIZE;
         vkCmdPipelineBarrier(cb, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 1, &ownershipBarrier, 0, NULL);
       }
+
+      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, frameInfo.graphicsQueryPool, 0);
 
       std::vector<VkClearValue> clearValues(2);
       clearValues[0].color.float32[0] = 0.f;
@@ -1040,6 +1093,9 @@ class Engine::Impl {
       viewer_.DrawUi(cb);
 
       vkCmdEndRenderPass(cb);
+
+      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, frameInfo.graphicsQueryPool, 1);
+
       vkEndCommandBuffer(cb);
 
       std::vector<VkSemaphoreSubmitInfo> waitSemaphoreInfos;
@@ -1211,6 +1267,21 @@ class Engine::Impl {
                     budgets[i].statistics.allocationBytes);
         ImGui::Text("heap %d: total %llu bytes, budget %llu bytes", i, budgets[i].usage, budgets[i].budget);
       }
+
+      // draw time
+      const auto& frameInfo = frameInfos_[renderIndex_];
+      uint64_t totalTime = frameInfo.rankTime + frameInfo.sortTime + frameInfo.inverseTime + frameInfo.projectionTime +
+                           frameInfo.drawTime;
+      ImGui::Text("rank      : %6.3f ms (%5.2f %%)", static_cast<float>(frameInfo.rankTime) / 1e6,
+                  static_cast<float>(frameInfo.rankTime) / totalTime * 100.f);
+      ImGui::Text("sort      : %6.3f ms (%5.2f %%)", static_cast<float>(frameInfo.sortTime) / 1e6,
+                  static_cast<float>(frameInfo.sortTime) / totalTime * 100.f);
+      ImGui::Text("inverse   : %6.3f ms (%5.2f %%)", static_cast<float>(frameInfo.inverseTime) / 1e6,
+                  static_cast<float>(frameInfo.inverseTime) / totalTime * 100.f);
+      ImGui::Text("projection: %6.3f ms (%5.2f %%)", static_cast<float>(frameInfo.projectionTime) / 1e6,
+                  static_cast<float>(frameInfo.projectionTime) / totalTime * 100.f);
+      ImGui::Text("draw      : %6.3f ms (%5.2f %%)", static_cast<float>(frameInfo.drawTime) / 1e6,
+                  static_cast<float>(frameInfo.drawTime) / totalTime * 100.f);
     }
     ImGui::End();
   }
@@ -2331,6 +2402,21 @@ class Engine::Impl {
   std::vector<VkSemaphore> imageAcquiredSemaphores_;
   std::vector<VkSemaphore> renderFinishedSemaphores_;
   std::vector<VkFence> renderFinishedFences_;
+
+  struct FrameInfo {
+    VkQueryPool computeQueryPool;
+    VkQueryPool graphicsQueryPool;
+
+    uint64_t rankTime;
+    uint64_t sortTime;
+    uint64_t inverseTime;
+    uint64_t projectionTime;
+    uint64_t drawTime;
+
+    uint64_t totalComputeTime;
+    uint64_t totalGraphicsTime;
+  };
+  std::vector<FrameInfo> frameInfos_;
 
   // dirty flags
   bool shouldRecreateSwapchain_ = false;
