@@ -704,6 +704,8 @@ class Engine::Impl {
           frameInfo.inverseTime = timestamps[3] - timestamps[2];
           frameInfo.projectionTime = timestamps[4] - timestamps[3];
           frameInfo.totalComputeTime = timestamps[4] - timestamps[0];
+
+          std::memcpy(&frameInfo.visiblePointCount, storage.visiblePointCountStaging.ptr, sizeof(uint32_t));
         }
 
         // update uniforms
@@ -863,6 +865,12 @@ class Engine::Impl {
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         vkCmdPipelineBarrier(cb0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
                              0, NULL, 0, NULL);
+
+        VkBufferCopy region = {};
+        region.srcOffset = 0;
+        region.dstOffset = 0;
+        region.size = sizeof(uint32_t);
+        vkCmdCopyBuffer(cb0, storage.visiblePointCount.buffer, storage.visiblePointCountStaging.buffer, 1, &region);
 
         vrdxCmdSortKeyValueIndirect(cb0, sorter_, pointCount, storage.visiblePointCount.buffer, 0, storage.key.buffer,
                                     0, storage.value.buffer, 0, storage.storage.buffer, 0, NULL, 0);
@@ -1252,7 +1260,10 @@ class Engine::Impl {
       if (swapchainPresentMode_ != static_cast<VkPresentModeKHR>(presentMode)) shouldRecreateSwapchain_ = true;
       swapchainPresentMode_ = static_cast<VkPresentModeKHR>(presentMode);
 
+      const auto& frameInfo = frameInfos_[renderIndex_];
       ImGui::Text("%u points", gaussianSplat_.pointCount);
+      ImGui::Text("%u visible points (%5.2f %%)", frameInfo.visiblePointCount,
+                  static_cast<float>(frameInfo.visiblePointCount) / gaussianSplat_.pointCount);
 
       // GPU memory
       VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
@@ -1269,7 +1280,6 @@ class Engine::Impl {
       }
 
       // draw time
-      const auto& frameInfo = frameInfos_[renderIndex_];
       uint64_t totalTime = frameInfo.rankTime + frameInfo.sortTime + frameInfo.inverseTime + frameInfo.projectionTime +
                            frameInfo.drawTime;
       ImGui::Text("rank      : %6.3f ms (%5.2f %%)", static_cast<float>(frameInfo.rankTime) / 1e6,
@@ -1906,6 +1916,9 @@ class Engine::Impl {
       if (storage.inverse.buffer) vmaDestroyBuffer(allocator_, storage.inverse.buffer, storage.inverse.allocation);
       if (storage.visiblePointCount.buffer)
         vmaDestroyBuffer(allocator_, storage.visiblePointCount.buffer, storage.visiblePointCount.allocation);
+      if (storage.visiblePointCountStaging.buffer)
+        vmaDestroyBuffer(allocator_, storage.visiblePointCountStaging.buffer,
+                         storage.visiblePointCountStaging.allocation);
     }
 
     for (const auto& quad : gaussianQuads_) {
@@ -1970,6 +1983,9 @@ class Engine::Impl {
       if (storage.storage.buffer) vmaDestroyBuffer(allocator_, storage.inverse.buffer, storage.inverse.allocation);
       if (storage.visiblePointCount.buffer)
         vmaDestroyBuffer(allocator_, storage.visiblePointCount.buffer, storage.visiblePointCount.allocation);
+      if (storage.visiblePointCountStaging.buffer)
+        vmaDestroyBuffer(allocator_, storage.visiblePointCountStaging.buffer,
+                         storage.visiblePointCountStaging.allocation);
 
       VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
       bufferInfo.size = pointCount * sizeof(uint32_t);
@@ -1999,6 +2015,15 @@ class Engine::Impl {
           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
       vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &storage.visiblePointCount.buffer,
                       &storage.visiblePointCount.allocation, NULL);
+
+      bufferInfo.size = sizeof(uint32_t);
+      bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+      allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+      VmaAllocationInfo allocationInfo;
+      vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &storage.visiblePointCountStaging.buffer,
+                      &storage.visiblePointCountStaging.allocation, &allocationInfo);
+      storage.visiblePointCountStaging.ptr = allocationInfo.pMappedData;
     }
 
     // allocate quads
@@ -2382,11 +2407,12 @@ class Engine::Impl {
   GaussianSplat gaussianSplat_ = {};
 
   struct GaussianSplatStorage {
-    Buffer visiblePointCount;  // (1)
-    Buffer key;                // (N). shared with inverse_index.
-    Buffer value;              // (N)
-    Buffer storage;            // (M), by sorter.
-    Buffer inverse;            // (N)
+    Buffer visiblePointCount;         // (1)
+    Buffer visiblePointCountStaging;  // (1)
+    Buffer key;                       // (N). shared with inverse_index.
+    Buffer value;                     // (N)
+    Buffer storage;                   // (M), by sorter.
+    Buffer inverse;                   // (N)
   };
   std::vector<GaussianSplatStorage> gaussianStorages_;
 
@@ -2406,6 +2432,8 @@ class Engine::Impl {
   struct FrameInfo {
     VkQueryPool computeQueryPool;
     VkQueryPool graphicsQueryPool;
+
+    uint32_t visiblePointCount;
 
     uint64_t rankTime;
     uint64_t sortTime;
