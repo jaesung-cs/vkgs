@@ -1,7 +1,5 @@
 #version 460
 
-#define QUAD_BATCH_SIZE 16
-
 layout(std430, set = 1, binding = 0) readonly buffer Instances {
   vec4 instances[];  // (N, 12). 3 for ndc position, 1 padding, 4 for rot scale, 4 for color.
 };
@@ -11,7 +9,7 @@ layout(location = 1) out vec2 out_position;
 
 void main() {
   // index [0,1,2,2,1,3], 4 vertices for a splat.
-  int index = gl_VertexIndex / 4 + gl_InstanceIndex * QUAD_BATCH_SIZE;
+  int index = gl_VertexIndex / 4;
   // TODO: handle index outside point count range
   vec3 ndc_position = instances[index * 3 + 0].xyz;
   mat2 rot_scale = mat2(instances[index * 3 + 1].xy, instances[index * 3 + 1].zw);

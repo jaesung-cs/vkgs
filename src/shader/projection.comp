@@ -2,8 +2,6 @@
 
 #extension GL_EXT_shader_16bit_storage : require
 
-#define QUAD_BATCH_SIZE 16
-
 layout(local_size_x = 256) in;
 
 layout(set = 0, binding = 0) uniform Camera {
@@ -57,8 +55,8 @@ void main() {
   if (id >= point_count) return;
 
   if (id == 0) {
-    indexCount = 6 * QUAD_BATCH_SIZE;
-    instanceCount = (visible_point_count + QUAD_BATCH_SIZE - 1) / QUAD_BATCH_SIZE;
+    indexCount = 6 * visible_point_count;
+    instanceCount = 1;
     firstIndex = 0;
     vertexOffset = 0;
     firstInstance = 0;

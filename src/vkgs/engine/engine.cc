@@ -39,8 +39,6 @@
 namespace vkgs {
 namespace {
 
-constexpr uint32_t QUAD_BATCH_SIZE = 16;
-
 struct Resolution {
   int width;
   int height;
@@ -2046,7 +2044,7 @@ class Engine::Impl {
     }
 
     VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    bufferInfo.size = QUAD_BATCH_SIZE * 6 * sizeof(uint32_t);
+    bufferInfo.size = pointCount * 6 * sizeof(uint32_t);
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     VmaAllocationCreateInfo allocationCreateInfo = {};
     allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -2226,7 +2224,7 @@ class Engine::Impl {
     // fill index buffer
     {
       std::vector<uint32_t> indexBuffer;
-      for (int i = 0; i < QUAD_BATCH_SIZE; ++i) {
+      for (int i = 0; i < pointCount; ++i) {
         indexBuffer.push_back(4 * i + 0);
         indexBuffer.push_back(4 * i + 1);
         indexBuffer.push_back(4 * i + 2);
