@@ -1556,7 +1556,7 @@ class Engine::Impl {
     colorBlendAttachments[0][0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colorBlendAttachments[0][0].colorBlendOp = VK_BLEND_OP_ADD;
     colorBlendAttachments[0][0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachments[0][0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+    colorBlendAttachments[0][0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colorBlendAttachments[0][0].alphaBlendOp = VK_BLEND_OP_ADD;
     colorBlendAttachments[0][0].colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -1629,7 +1629,7 @@ class Engine::Impl {
     colorBlendAttachments[1][0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colorBlendAttachments[1][0].colorBlendOp = VK_BLEND_OP_ADD;
     colorBlendAttachments[1][0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachments[1][0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+    colorBlendAttachments[1][0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colorBlendAttachments[1][0].alphaBlendOp = VK_BLEND_OP_ADD;
     colorBlendAttachments[1][0].colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
