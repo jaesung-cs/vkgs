@@ -41,8 +41,7 @@ cudaExternalSemaphore_t ImportVulkanSemaphoreObjectFromNTHandle(HANDLE handle) {
 }
 #endif
 
-void SignalExternalSemaphore(cudaExternalSemaphore_t extSem,
-                             cudaStream_t stream) {
+void SignalExternalSemaphore(cudaExternalSemaphore_t extSem, cudaStream_t stream) {
   cudaExternalSemaphoreSignalParams params = {};
   memset(&params, 0, sizeof(params));
   cudaSignalExternalSemaphoresAsync(&extSem, &params, 1, stream);
@@ -56,24 +55,19 @@ class CudaSemaphore::Impl {
 
   Impl(Context context) : context_(context) {
 #ifdef _WIN32
-    constexpr VkExternalSemaphoreHandleTypeFlagBits handle_type =
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+    constexpr VkExternalSemaphoreHandleTypeFlagBits handle_type = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #else
-    constexpr VkExternalSemaphoreHandleTypeFlagBits handle_type =
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    constexpr VkExternalSemaphoreHandleTypeFlagBits handle_type = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
 #endif
-    VkExportSemaphoreCreateInfo external_semaphore_info = {
-        VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
+    VkExportSemaphoreCreateInfo external_semaphore_info = {VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
     external_semaphore_info.handleTypes = handle_type;
 
-    VkSemaphoreCreateInfo semaphore_info = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    VkSemaphoreCreateInfo semaphore_info = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     semaphore_info.pNext = &external_semaphore_info;
     vkCreateSemaphore(context.device(), &semaphore_info, NULL, &semaphore_);
 
 #ifdef _WIN32
-    VkSemaphoreGetWin32HandleInfoKHR handle_info = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
+    VkSemaphoreGetWin32HandleInfoKHR handle_info = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
     handle_info.semaphore = semaphore_;
     handle_info.handleType = handle_type;
     HANDLE handle;
@@ -81,8 +75,7 @@ class CudaSemaphore::Impl {
 
     cuda_semaphore_ = ImportVulkanSemaphoreObjectFromNTHandle(handle);
 #else
-    VkSemaphoreGetFdInfoKHR fd_info = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
+    VkSemaphoreGetFdInfoKHR fd_info = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
     fd_info.semaphore = semaphore_;
     fd_info.handleType = handle_type;
     int fd = -1;
@@ -96,9 +89,7 @@ class CudaSemaphore::Impl {
 
   VkSemaphore semaphore() const noexcept { return semaphore_; }
 
-  void signal(cudaStream_t stream) {
-    SignalExternalSemaphore(cuda_semaphore_, stream);
-  }
+  void signal(cudaStream_t stream) { SignalExternalSemaphore(cuda_semaphore_, stream); }
 
  private:
   Context context_;
@@ -108,8 +99,7 @@ class CudaSemaphore::Impl {
 
 CudaSemaphore::CudaSemaphore() = default;
 
-CudaSemaphore::CudaSemaphore(Context context)
-    : impl_(std::make_shared<Impl>(context)) {}
+CudaSemaphore::CudaSemaphore(Context context) : impl_(std::make_shared<Impl>(context)) {}
 
 CudaSemaphore::~CudaSemaphore() = default;
 

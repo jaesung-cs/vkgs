@@ -44,14 +44,11 @@ class Context {
   bool geometry_shader_available() const;
 
   VkResult GetMemoryFdKHR(const VkMemoryGetFdInfoKHR* pGetFdInfo, int* pFd);
-  VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo,
-                             int* pFd);
+  VkResult GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR* pGetFdInfo, int* pFd);
 
 #ifdef _WIN32
-  VkResult Context::GetMemoryWin32HandleKHR(
-      const VkMemoryGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* handle);
-  VkResult Context::GetSemaphoreWin32HandleKHR(
-      const VkSemaphoreGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* handle);
+  VkResult Context::GetMemoryWin32HandleKHR(const VkMemoryGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* handle);
+  VkResult Context::GetSemaphoreWin32HandleKHR(const VkSemaphoreGetWin32HandleInfoKHR* pGetFdInfo, HANDLE* handle);
 #endif
 
  private:

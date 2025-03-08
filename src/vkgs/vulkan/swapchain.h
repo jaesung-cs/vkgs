@@ -31,7 +31,7 @@ class Swapchain {
 
   void SetVsync(bool flag = true);
   bool ShouldRecreate() const;
-  void Recreate();
+  bool Recreate();
 
   bool AcquireNextImage(VkSemaphore semaphore, uint32_t* image_index);
 

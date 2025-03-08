@@ -7,8 +7,7 @@ class Swapchain::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, VkSurfaceKHR surface, bool vsync)
-      : context_(context), surface_(surface) {
+  Impl(Context context, VkSurfaceKHR surface, bool vsync) : context_(context), surface_(surface) {
     if (vsync) {
       present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
     } else {
@@ -19,11 +18,9 @@ class Swapchain::Impl {
     format_ = VK_FORMAT_B8G8R8A8_UNORM;
 
     VkSurfaceCapabilitiesKHR surface_capabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.physical_device(),
-                                              surface_, &surface_capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.physical_device(), surface_, &surface_capabilities);
 
-    VkSwapchainCreateInfoKHR swapchain_info = {
-        VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+    VkSwapchainCreateInfoKHR swapchain_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swapchain_info.surface = surface_;
     swapchain_info.minImageCount = 3;
     swapchain_info.imageFormat = format_;
@@ -42,20 +39,16 @@ class Swapchain::Impl {
     uint32_t image_count = 0;
     vkGetSwapchainImagesKHR(context.device(), swapchain_, &image_count, NULL);
     images_.resize(image_count);
-    vkGetSwapchainImagesKHR(context.device(), swapchain_, &image_count,
-                            images_.data());
+    vkGetSwapchainImagesKHR(context.device(), swapchain_, &image_count, images_.data());
 
     image_views_.resize(image_count);
     for (int i = 0; i < image_count; ++i) {
-      VkImageViewCreateInfo image_view_info = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      VkImageViewCreateInfo image_view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
       image_view_info.image = images_[i];
       image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
       image_view_info.format = swapchain_info.imageFormat;
-      image_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-                                          1};
-      vkCreateImageView(context.device(), &image_view_info, NULL,
-                        &image_views_[i]);
+      image_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      vkCreateImageView(context.device(), &image_view_info, NULL, &image_views_[i]);
     }
   }
 
@@ -73,17 +66,13 @@ class Swapchain::Impl {
   uint32_t height() const noexcept { return height_; }
   VkImageUsageFlags usage() const noexcept { return usage_; }
   VkFormat format() const noexcept { return format_; }
-  ImageSpec image_spec() const noexcept {
-    return ImageSpec{width_, height_, usage_, format_};
-  }
+  ImageSpec image_spec() const noexcept { return ImageSpec{width_, height_, usage_, format_}; }
   int image_count() const noexcept { return images_.size(); }
   VkImage image(int index) const { return images_[index]; }
   VkImageView image_view(int index) const { return image_views_[index]; }
 
   bool AcquireNextImage(VkSemaphore semaphore, uint32_t* image_index) {
-    VkResult result =
-        vkAcquireNextImageKHR(context_.device(), swapchain_, UINT64_MAX,
-                              semaphore, NULL, image_index);
+    VkResult result = vkAcquireNextImageKHR(context_.device(), swapchain_, UINT64_MAX, semaphore, NULL, image_index);
 
     switch (result) {
       case VK_SUCCESS:
@@ -118,13 +107,13 @@ class Swapchain::Impl {
 
   bool ShouldRecreate() { return should_recreate_; }
 
-  void Recreate() {
+  bool Recreate() {
     VkSurfaceCapabilitiesKHR surface_capabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context_.physical_device(),
-                                              surface_, &surface_capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context_.physical_device(), surface_, &surface_capabilities);
 
-    VkSwapchainCreateInfoKHR swapchain_info = {
-        VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+    if (surface_capabilities.currentExtent.width == 0 || surface_capabilities.currentExtent.height == 0) return false;
+
+    VkSwapchainCreateInfoKHR swapchain_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swapchain_info.surface = surface_;
     swapchain_info.minImageCount = 3;
     swapchain_info.imageFormat = format_;
@@ -139,8 +128,7 @@ class Swapchain::Impl {
     swapchain_info.oldSwapchain = swapchain_;
 
     VkSwapchainKHR new_swapchain;
-    vkCreateSwapchainKHR(context_.device(), &swapchain_info, NULL,
-                         &new_swapchain);
+    vkCreateSwapchainKHR(context_.device(), &swapchain_info, NULL, &new_swapchain);
     vkDestroySwapchainKHR(context_.device(), swapchain_, NULL);
     swapchain_ = new_swapchain;
 
@@ -150,26 +138,22 @@ class Swapchain::Impl {
     uint32_t image_count = 0;
     vkGetSwapchainImagesKHR(context_.device(), swapchain_, &image_count, NULL);
     images_.resize(image_count);
-    vkGetSwapchainImagesKHR(context_.device(), swapchain_, &image_count,
-                            images_.data());
+    vkGetSwapchainImagesKHR(context_.device(), swapchain_, &image_count, images_.data());
 
-    for (auto image_view : image_views_)
-      vkDestroyImageView(context_.device(), image_view, NULL);
+    for (auto image_view : image_views_) vkDestroyImageView(context_.device(), image_view, NULL);
 
     image_views_.resize(image_count);
     for (int i = 0; i < image_count; ++i) {
-      VkImageViewCreateInfo image_view_info = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      VkImageViewCreateInfo image_view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
       image_view_info.image = images_[i];
       image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
       image_view_info.format = swapchain_info.imageFormat;
-      image_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-                                          1};
-      vkCreateImageView(context_.device(), &image_view_info, NULL,
-                        &image_views_[i]);
+      image_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      vkCreateImageView(context_.device(), &image_view_info, NULL, &image_views_[i]);
     }
 
     should_recreate_ = false;
+    return true;
   }
 
  private:
@@ -209,15 +193,13 @@ int Swapchain::image_count() const { return impl_->image_count(); }
 
 VkImage Swapchain::image(int index) const { return impl_->image(index); }
 
-VkImageView Swapchain::image_view(int index) const {
-  return impl_->image_view(index);
-}
+VkImageView Swapchain::image_view(int index) const { return impl_->image_view(index); }
 
 void Swapchain::SetVsync(bool flag) { impl_->SetVsync(flag); }
 
 bool Swapchain::ShouldRecreate() const { return impl_->ShouldRecreate(); }
 
-void Swapchain::Recreate() { impl_->Recreate(); }
+bool Swapchain::Recreate() { return impl_->Recreate(); }
 
 bool Swapchain::AcquireNextImage(VkSemaphore semaphore, uint32_t* image_index) {
   return impl_->AcquireNextImage(semaphore, image_index);

@@ -7,12 +7,10 @@ class Descriptor::Impl {
  public:
   Impl() = delete;
 
-  Impl(Context context, DescriptorLayout layout)
-      : context_(context), layout_(layout) {
+  Impl(Context context, DescriptorLayout layout) : context_(context), layout_(layout) {
     VkDescriptorSetLayout layout_handle = layout;
 
-    VkDescriptorSetAllocateInfo descriptor_info = {
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    VkDescriptorSetAllocateInfo descriptor_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     descriptor_info.descriptorPool = context.descriptor_pool();
     descriptor_info.descriptorSetCount = 1;
     descriptor_info.pSetLayouts = &layout_handle;
@@ -23,8 +21,7 @@ class Descriptor::Impl {
 
   operator VkDescriptorSet() const noexcept { return descriptor_; }
 
-  void Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset,
-              VkDeviceSize size) {
+  void Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) {
     VkDescriptorBufferInfo buffer_info = {};
     buffer_info.buffer = buffer;
     buffer_info.offset = offset;
@@ -64,20 +61,17 @@ class Descriptor::Impl {
 
 Descriptor::Descriptor() = default;
 
-Descriptor::Descriptor(Context context, DescriptorLayout layout)
-    : impl_(std::make_shared<Impl>(context, layout)) {}
+Descriptor::Descriptor(Context context, DescriptorLayout layout) : impl_(std::make_shared<Impl>(context, layout)) {}
 
 Descriptor::~Descriptor() = default;
 
 Descriptor::operator VkDescriptorSet() const { return *impl_; }
 
-void Descriptor::Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset,
-                        VkDeviceSize size) {
+void Descriptor::Update(uint32_t binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) {
   impl_->Update(binding, buffer, offset, size);
 }
 
-void Descriptor::UpdateInputAttachment(uint32_t binding,
-                                       VkImageView image_view) {
+void Descriptor::UpdateInputAttachment(uint32_t binding, VkImageView image_view) {
   impl_->UpdateInputAttachment(binding, image_view);
 }
 
