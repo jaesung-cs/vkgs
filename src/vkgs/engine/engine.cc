@@ -329,23 +329,23 @@ class Engine::Impl {
       std::vector<VkVertexInputBindingDescription> input_bindings(1);
       input_bindings[0].binding = 0;
       input_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-      input_bindings[0].stride = sizeof(float) * 10;
+      input_bindings[0].stride = sizeof(float) * 12;
 
       std::vector<VkVertexInputAttributeDescription> input_attributes(3);
       input_attributes[0].location = 0;
       input_attributes[0].binding = 0;
-      input_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+      input_attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
       input_attributes[0].offset = 0;
 
       input_attributes[1].location = 1;
       input_attributes[1].binding = 0;
-      input_attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-      input_attributes[1].offset = sizeof(float) * 3;
+      input_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      input_attributes[1].offset = sizeof(float) * 4;
 
       input_attributes[2].location = 2;
       input_attributes[2].binding = 0;
       input_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-      input_attributes[2].offset = sizeof(float) * 6;
+      input_attributes[2].offset = sizeof(float) * 8;
 
       vk::GraphicsPipelineCreateInfo pipeline_info = {};
       pipeline_info.layout = graphics_pipeline_layout_;
