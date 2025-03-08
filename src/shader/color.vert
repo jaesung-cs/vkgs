@@ -6,9 +6,6 @@ layout(location = 1) in vec4 color;
 layout(set = 0, binding = 0) uniform Camera {
   mat4 projection;
   mat4 view;
-  vec3 camera_position;
-  float pad0;
-  uvec2 screen_size;  // (width, height)
 };
 
 layout(push_constant, std430) uniform PushConstants { mat4 model; };

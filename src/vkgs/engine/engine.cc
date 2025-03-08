@@ -35,7 +35,6 @@
 #include "vkgs/vulkan/buffer.h"
 #include "vkgs/vulkan/cpu_buffer.h"
 #include "vkgs/vulkan/uniform_buffer.h"
-#include "vkgs/vulkan/shader/uniforms.h"
 
 #include "generated/parse_ply_comp.h"
 #include "generated/projection_comp.h"
@@ -96,6 +95,23 @@ std::vector<Resolution> preset_resolutions = {
     // clang-format on
 };
 
+struct alignas(64) DrawCamera {
+  glm::mat4 projection;
+  glm::mat4 view;
+};
+
+struct alignas(64) SplatCamera {
+  glm::mat4 projection;
+  glm::mat4 view;
+  glm::vec3 camera_position;
+  alignas(16) glm::uvec2 screen_size;
+};
+
+struct SplatPushConstant {
+  glm::mat4 model;
+  uint32_t point_count;
+};
+
 }  // namespace
 
 class Engine::Impl {
@@ -131,8 +147,8 @@ class Engine::Impl {
       descriptor_layout_info.bindings[0] = {};
       descriptor_layout_info.bindings[0].binding = 0;
       descriptor_layout_info.bindings[0].descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      descriptor_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-      camera_descriptor_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
+      descriptor_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
+      splat_camera_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
     {
@@ -158,7 +174,7 @@ class Engine::Impl {
       descriptor_layout_info.bindings[3].descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[3].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-      gaussian_descriptor_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
+      gaussian_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
     {
@@ -205,7 +221,18 @@ class Engine::Impl {
       descriptor_layout_info.bindings[0].descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-      ply_descriptor_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
+      ply_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
+    }
+
+    {
+      vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
+      descriptor_layout_info.bindings.resize(1);
+      descriptor_layout_info.bindings[0] = {};
+      descriptor_layout_info.bindings[0].binding = 0;
+      descriptor_layout_info.bindings[0].descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      descriptor_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_VERTEX_BIT;
+
+      draw_camera_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
     {
@@ -223,16 +250,16 @@ class Engine::Impl {
     {
       vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
       pipeline_layout_info.layouts = {
-          camera_descriptor_layout_,
-          gaussian_descriptor_layout_,
+          splat_camera_layout_,
+          gaussian_layout_,
           instance_layout_,
-          ply_descriptor_layout_,
+          ply_layout_,
       };
 
       pipeline_layout_info.push_constants.resize(1);
       pipeline_layout_info.push_constants[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
       pipeline_layout_info.push_constants[0].offset = 0;
-      pipeline_layout_info.push_constants[0].size = sizeof(vk::shader::GaussianComputePushConstant);
+      pipeline_layout_info.push_constants[0].size = sizeof(SplatPushConstant);
 
       splat_pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
     }
@@ -240,7 +267,7 @@ class Engine::Impl {
     // graphics pipeline layout
     {
       vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
-      pipeline_layout_info.layouts = {camera_descriptor_layout_, quads_layout_};
+      pipeline_layout_info.layouts = {draw_camera_layout_, quads_layout_};
 
       pipeline_layout_info.push_constants.resize(1);
       pipeline_layout_info.push_constants[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -423,21 +450,24 @@ class Engine::Impl {
     }
 
     // uniforms and descriptors
-    camera_buffer_ = vk::UniformBuffer<vk::shader::Camera>(context_, 2);
+    splat_camera_buffer_ = vk::UniformBuffer<SplatCamera>(context_, 2);
+    draw_camera_buffer_ = vk::UniformBuffer<DrawCamera>(context_, 2);
     splat_descriptors_.resize(2);
     for (int i = 0; i < 2; ++i) {
-      splat_descriptors_[i].camera = vk::Descriptor(context_, camera_descriptor_layout_);
-      splat_descriptors_[i].camera.Update(0, camera_buffer_, camera_buffer_.offset(i), camera_buffer_.element_size());
+      splat_descriptors_[i].camera = vk::Descriptor(context_, splat_camera_layout_);
+      splat_descriptors_[i].camera.Update(0, splat_camera_buffer_, splat_camera_buffer_.offset(i),
+                                          splat_camera_buffer_.element_size());
 
-      splat_descriptors_[i].gaussian = vk::Descriptor(context_, gaussian_descriptor_layout_);
+      splat_descriptors_[i].gaussian = vk::Descriptor(context_, gaussian_layout_);
       splat_descriptors_[i].splat_instance = vk::Descriptor(context_, instance_layout_);
-      splat_descriptors_[i].ply = vk::Descriptor(context_, ply_descriptor_layout_);
+      splat_descriptors_[i].ply = vk::Descriptor(context_, ply_layout_);
     }
 
     draw_descriptors_.resize(2);
     for (int i = 0; i < 2; ++i) {
-      draw_descriptors_[i].camera = vk::Descriptor(context_, camera_descriptor_layout_);
-      draw_descriptors_[i].camera.Update(0, camera_buffer_, camera_buffer_.offset(i), camera_buffer_.element_size());
+      draw_descriptors_[i].camera = vk::Descriptor(context_, draw_camera_layout_);
+      draw_descriptors_[i].camera.Update(0, draw_camera_buffer_, draw_camera_buffer_.offset(i),
+                                         draw_camera_buffer_.element_size());
 
       draw_descriptors_[i].quads = vk::Descriptor(context_, quads_layout_);
     }
@@ -474,17 +504,14 @@ class Engine::Impl {
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &transfer_semaphore_);
     }
 
-    // create query pools
-    timestamp_query_pools_.resize(2);
+    // frame info
+    frame_infos_.resize(2);
     for (int i = 0; i < 2; ++i) {
       VkQueryPoolCreateInfo query_pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
       query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-      query_pool_info.queryCount = timestamp_count_;
-      vkCreateQueryPool(context_.device(), &query_pool_info, NULL, &timestamp_query_pools_[i]);
+      query_pool_info.queryCount = TIMESTAMP_COUNT;
+      vkCreateQueryPool(context_.device(), &query_pool_info, NULL, &frame_infos_[i].timestamp_query_pool);
     }
-
-    // frame info
-    frame_infos_.resize(2);
 
     {
       // create sorter
@@ -547,7 +574,7 @@ class Engine::Impl {
     for (auto fence : render_finished_fences_) vkDestroyFence(context_.device(), fence, NULL);
     vkDestroySemaphore(context_.device(), transfer_semaphore_, NULL);
 
-    for (auto query_pool : timestamp_query_pools_) vkDestroyQueryPool(context_.device(), query_pool, NULL);
+    for (auto& frame_info : frame_infos_) vkDestroyQueryPool(context_.device(), frame_info.timestamp_query_pool, NULL);
   }
 
   void LoadSplats(const std::string& ply_filepath) {
@@ -1034,10 +1061,9 @@ class Engine::Impl {
     vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE, UINT64_MAX);
 
     // get timestamps
-    VkQueryPool timestamp_query_pool = timestamp_query_pools_[frame_index];
     if (frame_info.drew_splats) {
-      std::vector<uint64_t> timestamps(timestamp_count_);
-      vkGetQueryPoolResults(context_.device(), timestamp_query_pool, 0, timestamps.size(),
+      std::vector<uint64_t> timestamps(TIMESTAMP_COUNT);
+      vkGetQueryPoolResults(context_.device(), frame_info.timestamp_query_pool, 0, timestamps.size(),
                             timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
                             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 
@@ -1049,10 +1075,10 @@ class Engine::Impl {
       frame_info.end_to_end_time = timestamps[11] - timestamps[0];
     }
 
-    camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
-    camera_buffer_[frame_index].view = camera_.ViewMatrix();
-    camera_buffer_[frame_index].camera_position = camera_.Eye();
-    camera_buffer_[frame_index].screen_size = {camera_.width(), camera_.height()};
+    splat_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
+    splat_camera_buffer_[frame_index].view = camera_.ViewMatrix();
+    splat_camera_buffer_[frame_index].camera_position = camera_.Eye();
+    splat_camera_buffer_[frame_index].screen_size = {camera_.width(), camera_.height()};
 
     // recreate swapchain if need resize
     if (swapchain_.ShouldRecreate()) {
@@ -1067,11 +1093,12 @@ class Engine::Impl {
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
       VkCommandBuffer cb = draw_command_buffers_[frame_index];
+      VkQueryPool timestamp_query_pool = frame_info.timestamp_query_pool;
 
       VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
       command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
       vkBeginCommandBuffer(cb, &command_begin_info);
-      vkCmdResetQueryPool(cb, timestamp_query_pool, 0, timestamp_count_);
+      vkCmdResetQueryPool(cb, timestamp_query_pool, 0, TIMESTAMP_COUNT);
       vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_query_pool, 0);
 
       // TODO: get the loading part out of presentation part.
@@ -1111,9 +1138,9 @@ class Engine::Impl {
                                                               loaded_point_count_ * 12 * sizeof(float));
       }
 
-      vk::shader::GaussianComputePushConstant gaussianComputePushConstant;
-      gaussianComputePushConstant.model = model;
-      gaussianComputePushConstant.point_count = loaded_point_count_;
+      SplatPushConstant splat_push_constant;
+      splat_push_constant.model = model;
+      splat_push_constant.point_count = loaded_point_count_;
 
       VkMemoryBarrier barrier;
 
@@ -1139,8 +1166,8 @@ class Engine::Impl {
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, parse_ply_pipeline_);
 
-        vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(gaussianComputePushConstant), &gaussianComputePushConstant);
+        vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push_constant),
+                           &splat_push_constant);
 
         VkDescriptorSet descriptor = splat_descriptors_[frame_index].gaussian;
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, splat_pipeline_layout_, 1, 1, &descriptor, 0, NULL);
@@ -1184,8 +1211,8 @@ class Engine::Impl {
           vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, splat_pipeline_layout_, 0, descriptors.size(),
                                   descriptors.data(), 0, nullptr);
 
-          vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                             sizeof(gaussianComputePushConstant), &gaussianComputePushConstant);
+          vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push_constant),
+                             &splat_push_constant);
 
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, timestamp_query_pool, 1);
 
@@ -1234,8 +1261,8 @@ class Engine::Impl {
 
           vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, inverse_index_pipeline_);
 
-          vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                             sizeof(gaussianComputePushConstant), &gaussianComputePushConstant);
+          vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push_constant),
+                             &splat_push_constant);
 
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 5);
 
@@ -1282,6 +1309,10 @@ class Engine::Impl {
         draw_descriptors_[frame_index].quads.Update(0, splat_storage_.quads, 0,
                                                     loaded_point_count_ * 12 * sizeof(float));
       }
+
+      draw_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
+      draw_camera_buffer_[frame_index].view = camera_.ViewMatrix();
+
       vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 9);
       DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(), swapchain_.image_view(image_index));
       vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, timestamp_query_pool, 10);
@@ -1566,12 +1597,13 @@ class Engine::Impl {
   std::vector<VkSemaphore> render_finished_semaphores_;
   std::vector<VkFence> render_finished_fences_;
 
-  vk::DescriptorLayout camera_descriptor_layout_;
-  vk::DescriptorLayout gaussian_descriptor_layout_;
+  vk::DescriptorLayout splat_camera_layout_;
+  vk::DescriptorLayout gaussian_layout_;
   vk::DescriptorLayout instance_layout_;
-  vk::DescriptorLayout ply_descriptor_layout_;
+  vk::DescriptorLayout ply_layout_;
   vk::PipelineLayout splat_pipeline_layout_;
 
+  vk::DescriptorLayout draw_camera_layout_;
   vk::DescriptorLayout quads_layout_;
   vk::PipelineLayout graphics_pipeline_layout_;
 
@@ -1594,7 +1626,8 @@ class Engine::Impl {
   vk::Attachment color_attachment_;
   vk::Attachment depth_attachment_;
 
-  vk::UniformBuffer<vk::shader::Camera> camera_buffer_;
+  vk::UniformBuffer<SplatCamera> splat_camera_buffer_;
+  vk::UniformBuffer<DrawCamera> draw_camera_buffer_;
 
   struct ColorObject {
     vk::Buffer position_buffer;
@@ -1619,6 +1652,7 @@ class Engine::Impl {
   };
   std::vector<DrawDescriptor> draw_descriptors_;
 
+  static constexpr uint32_t TIMESTAMP_COUNT = 12;
   struct FrameInfo {
     bool drew_splats = false;
     uint32_t total_point_count = 0;
@@ -1635,6 +1669,8 @@ class Engine::Impl {
     uint64_t present_done_timestamp = 0;
 
     vk::Buffer ply_buffer;
+
+    VkQueryPool timestamp_query_pool;
   };
   std::vector<FrameInfo> frame_infos_;
 
@@ -1675,10 +1711,6 @@ class Engine::Impl {
 
   SplatLoadThread splat_load_thread_;
   uint32_t loaded_point_count_ = 0;
-
-  // timestamp queries
-  static constexpr uint32_t timestamp_count_ = 12;
-  std::vector<VkQueryPool> timestamp_query_pools_;
 
   uint64_t frame_counter_ = 0;
 };
