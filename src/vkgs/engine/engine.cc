@@ -137,10 +137,10 @@ class Engine::Impl {
 
     {
       vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
-      descriptor_layout_info.bindings.resize(5);
+      descriptor_layout_info.bindings.resize(4);
       descriptor_layout_info.bindings[0] = {};
       descriptor_layout_info.bindings[0].binding = 0;
-      descriptor_layout_info.bindings[0].descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+      descriptor_layout_info.bindings[0].descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
 
       descriptor_layout_info.bindings[1] = {};
@@ -158,11 +158,6 @@ class Engine::Impl {
       descriptor_layout_info.bindings[3].descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descriptor_layout_info.bindings[3].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-      descriptor_layout_info.bindings[4] = {};
-      descriptor_layout_info.bindings[4].binding = 4;
-      descriptor_layout_info.bindings[4].descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      descriptor_layout_info.bindings[4].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
-
       gaussian_descriptor_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
@@ -177,7 +172,7 @@ class Engine::Impl {
       descriptor_layout_info.bindings[1] = {};
       descriptor_layout_info.bindings[1].binding = 1;
       descriptor_layout_info.bindings[1].descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      descriptor_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+      descriptor_layout_info.bindings[1].stage_flags = VK_SHADER_STAGE_COMPUTE_BIT;
 
       descriptor_layout_info.bindings[2] = {};
       descriptor_layout_info.bindings[2].binding = 2;
@@ -213,6 +208,17 @@ class Engine::Impl {
       ply_descriptor_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
     }
 
+    {
+      vk::DescriptorLayoutCreateInfo descriptor_layout_info = {};
+      descriptor_layout_info.bindings.resize(1);
+      descriptor_layout_info.bindings[0] = {};
+      descriptor_layout_info.bindings[0].binding = 0;
+      descriptor_layout_info.bindings[0].descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      descriptor_layout_info.bindings[0].stage_flags = VK_SHADER_STAGE_VERTEX_BIT;
+
+      quads_layout_ = vk::DescriptorLayout(context_, descriptor_layout_info);
+    }
+
     // compute pipeline layout
     {
       vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
@@ -226,7 +232,7 @@ class Engine::Impl {
       pipeline_layout_info.push_constants.resize(1);
       pipeline_layout_info.push_constants[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
       pipeline_layout_info.push_constants[0].offset = 0;
-      pipeline_layout_info.push_constants[0].size = sizeof(glm::mat4);
+      pipeline_layout_info.push_constants[0].size = sizeof(vk::shader::GaussianComputePushConstant);
 
       compute_pipeline_layout_ = vk::PipelineLayout(context_, pipeline_layout_info);
     }
@@ -234,7 +240,7 @@ class Engine::Impl {
     // graphics pipeline layout
     {
       vk::PipelineLayoutCreateInfo pipeline_layout_info = {};
-      pipeline_layout_info.layouts = {camera_descriptor_layout_, instance_layout_};
+      pipeline_layout_info.layouts = {camera_descriptor_layout_, quads_layout_};
 
       pipeline_layout_info.push_constants.resize(1);
       pipeline_layout_info.push_constants[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -429,7 +435,14 @@ class Engine::Impl {
       descriptors_[i].ply = vk::Descriptor(context_, ply_descriptor_layout_);
     }
 
-    splat_info_buffer_ = vk::UniformBuffer<vk::shader::SplatInfo>(context_, 2);
+    draw_descriptors_.resize(2);
+    for (int i = 0; i < 2; ++i) {
+      draw_descriptors_[i].camera = vk::Descriptor(context_, camera_descriptor_layout_);
+      draw_descriptors_[i].camera.Update(0, camera_buffer_, camera_buffer_.offset(i), camera_buffer_.element_size());
+
+      draw_descriptors_[i].quads = vk::Descriptor(context_, quads_layout_);
+    }
+
     splat_visible_point_count_ = vk::Buffer(
         context_, sizeof(uint32_t),
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
@@ -1082,33 +1095,34 @@ class Engine::Impl {
       }
 
       // update descriptor
-      descriptors_[frame_index].gaussian.Update(0, splat_info_buffer_, splat_info_buffer_.offset(frame_index),
-                                                splat_info_buffer_.element_size());
-
-      descriptors_[frame_index].splat_instance.Update(0, splat_draw_indirect_, 0, splat_draw_indirect_.size());
 
       if (loaded_point_count_ != 0) {
-        descriptors_[frame_index].gaussian.Update(1, splat_storage_.position, 0,
+        descriptors_[frame_index].gaussian.Update(0, splat_storage_.position, 0,
                                                   loaded_point_count_ * 3 * sizeof(float));
-        descriptors_[frame_index].gaussian.Update(2, splat_storage_.cov3d, 0, loaded_point_count_ * 6 * sizeof(float));
-        descriptors_[frame_index].gaussian.Update(3, splat_storage_.opacity, 0,
+        descriptors_[frame_index].gaussian.Update(1, splat_storage_.cov3d, 0, loaded_point_count_ * 6 * sizeof(float));
+        descriptors_[frame_index].gaussian.Update(2, splat_storage_.opacity, 0,
                                                   loaded_point_count_ * 1 * sizeof(float));
-        descriptors_[frame_index].gaussian.Update(4, splat_storage_.sh, 0, loaded_point_count_ * 48 * sizeof(uint16_t));
+        descriptors_[frame_index].gaussian.Update(3, splat_storage_.sh, 0, loaded_point_count_ * 48 * sizeof(uint16_t));
 
-        descriptors_[frame_index].splat_instance.Update(1, splat_storage_.instance, 0,
-                                                        loaded_point_count_ * 12 * sizeof(float));
-        descriptors_[frame_index].splat_instance.Update(2, splat_visible_point_count_, 0,
+        descriptors_[frame_index].splat_instance.Update(0, splat_visible_point_count_, 0,
                                                         splat_visible_point_count_.size());
-        descriptors_[frame_index].splat_instance.Update(3, splat_storage_.key, 0,
+        descriptors_[frame_index].splat_instance.Update(1, splat_storage_.key, 0,
                                                         loaded_point_count_ * sizeof(uint32_t));
-        descriptors_[frame_index].splat_instance.Update(4, splat_storage_.index, 0,
+        descriptors_[frame_index].splat_instance.Update(2, splat_storage_.index, 0,
                                                         loaded_point_count_ * sizeof(uint32_t));
-        descriptors_[frame_index].splat_instance.Update(5, splat_storage_.inverse_index, 0,
+        descriptors_[frame_index].splat_instance.Update(3, splat_storage_.inverse_index, 0,
                                                         loaded_point_count_ * sizeof(uint32_t));
+        descriptors_[frame_index].splat_instance.Update(4, splat_draw_indirect_, 0, splat_draw_indirect_.size());
+        descriptors_[frame_index].splat_instance.Update(5, splat_storage_.instance, 0,
+                                                        loaded_point_count_ * 12 * sizeof(float));
+
+        draw_descriptors_[frame_index].quads.Update(0, splat_storage_.instance, 0,
+                                                    loaded_point_count_ * 12 * sizeof(float));
       }
 
-      // update uniform buffer
-      splat_info_buffer_[frame_index].point_count = loaded_point_count_;
+      vk::shader::GaussianComputePushConstant gaussianComputePushConstant;
+      gaussianComputePushConstant.model = model;
+      gaussianComputePushConstant.point_count = loaded_point_count_;
 
       VkMemoryBarrier barrier;
 
@@ -1134,6 +1148,9 @@ class Engine::Impl {
         descriptors_[frame_index].ply.Update(0, progress.ply_buffer, 0);
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, parse_ply_pipeline_);
+
+        vkCmdPushConstants(cb, compute_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(gaussianComputePushConstant), &gaussianComputePushConstant);
 
         VkDescriptorSet descriptor = descriptors_[frame_index].gaussian;
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout_, 1, 1, &descriptor, 0,
@@ -1178,8 +1195,8 @@ class Engine::Impl {
           vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_layout_, 0, descriptors.size(),
                                   descriptors.data(), 0, nullptr);
 
-          vkCmdPushConstants(cb, compute_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(model),
-                             glm::value_ptr(model));
+          vkCmdPushConstants(cb, compute_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                             sizeof(gaussianComputePushConstant), &gaussianComputePushConstant);
 
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, timestamp_query_pool, 1);
 
@@ -1422,8 +1439,8 @@ class Engine::Impl {
     vkCmdSetScissor(cb, 0, 1, &scissor);
 
     std::vector<VkDescriptorSet> descriptors = {
-        descriptors_[frame_index].camera,
-        descriptors_[frame_index].splat_instance,
+        draw_descriptors_[frame_index].camera,
+        draw_descriptors_[frame_index].quads,
     };
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline_layout_, 0, descriptors.size(),
                             descriptors.data(), 0, nullptr);
@@ -1567,6 +1584,7 @@ class Engine::Impl {
   vk::DescriptorLayout gaussian_descriptor_layout_;
   vk::DescriptorLayout instance_layout_;
   vk::DescriptorLayout ply_descriptor_layout_;
+  vk::DescriptorLayout quads_layout_;
   vk::PipelineLayout compute_pipeline_layout_;
   vk::PipelineLayout graphics_pipeline_layout_;
 
@@ -1608,6 +1626,12 @@ class Engine::Impl {
   };
   std::vector<FrameDescriptor> descriptors_;
 
+  struct DrawDescriptor {
+    vk::Descriptor camera;
+    vk::Descriptor quads;
+  };
+  std::vector<DrawDescriptor> draw_descriptors_;
+
   struct FrameInfo {
     bool drew_splats = false;
     uint32_t total_point_count = 0;
@@ -1644,9 +1668,8 @@ class Engine::Impl {
   static constexpr uint32_t MAX_SPLAT_COUNT = 1 << 23;  // 2^23
   // 2^23 * 3 * 16 * sizeof(float) is already 1.6GB.
 
-  vk::UniformBuffer<vk::shader::SplatInfo> splat_info_buffer_;  // (2)
-  vk::Buffer splat_visible_point_count_;                        // (2)
-  vk::Buffer splat_draw_indirect_;                              // (5)
+  vk::Buffer splat_visible_point_count_;  // (2)
+  vk::Buffer splat_draw_indirect_;        // (5)
 
   glm::vec3 translation_{0.f, 0.f, 0.f};
   glm::quat rotation_{1.f, 0.f, 0.f, 0.f};

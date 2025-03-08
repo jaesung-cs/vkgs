@@ -1,12 +1,12 @@
 #version 460 core
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256) in;
 
-layout(std430, set = 2, binding = 2) buffer VisiblePointCount { uint visible_point_count; };
+layout(std430, set = 2, binding = 0) readonly buffer VisiblePointCount { uint visible_point_count; };
 
-layout(std430, set = 2, binding = 4) readonly buffer InstanceIndex { uint index[]; };
+layout(std430, set = 2, binding = 2) readonly buffer Index { uint index[]; };
 
-layout(std430, set = 2, binding = 5) writeonly buffer InverseMap {
+layout(std430, set = 2, binding = 3) writeonly buffer InverseIndex {
   int inverse_index[];  // (N), inverse map from id to sorted index
 };
 

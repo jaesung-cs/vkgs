@@ -14,7 +14,8 @@ struct alignas(64) Camera {
   alignas(16) glm::uvec2 screen_size;
 };
 
-struct alignas(64) SplatInfo {
+struct GaussianComputePushConstant {
+  glm::mat4 model;
   uint32_t point_count;
 };
 
