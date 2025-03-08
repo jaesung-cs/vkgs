@@ -2002,7 +2002,7 @@ class Engine::Impl {
                       &storage.inverse.allocation, NULL);
 
       VrdxSorterStorageRequirements requirements;
-      vrdxGetSorterStorageRequirements(sorter_, pointCount, &requirements);
+      vrdxGetSorterKeyValueStorageRequirements(sorter_, pointCount, &requirements);
       bufferInfo.size = requirements.size;
       bufferInfo.usage = requirements.usage | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
       vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &storage.storage.buffer,
