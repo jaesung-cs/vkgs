@@ -1069,12 +1069,6 @@ class Engine::Impl {
     VkSemaphore image_acquired_semaphore = image_acquired_semaphores_[acquire_index];
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
-      if (!framebuffer_ || swapchain_.width() != framebuffer_.width() || swapchain_.height() != framebuffer_.height()) {
-        vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
-                        UINT64_MAX);
-        RecreateFramebuffer();
-      }
-
       VkCommandBuffer cb = draw_command_buffers_[frame_index];
 
       VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1287,22 +1281,24 @@ class Engine::Impl {
                                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &barrier,
                                0, NULL, 0, NULL);
         }
+      }
 
-        // draw
-        {
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 9);
+      if (!framebuffer_ || swapchain_.width() != framebuffer_.width() || swapchain_.height() != framebuffer_.height()) {
+        vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
+                        UINT64_MAX);
+        RecreateFramebuffer();
+      }
 
-          DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(), swapchain_.image_view(image_index));
+      // draw
+      {
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 9);
+        DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(), swapchain_.image_view(image_index));
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, timestamp_query_pool, 10);
+      }
 
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, timestamp_query_pool, 10);
-        }
+      if (loaded_point_count_ != 0) {
         frame_info.drew_splats = true;
       } else {
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 9);
-
-        DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(), swapchain_.image_view(image_index));
-
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, timestamp_query_pool, 10);
         frame_info.drew_splats = false;
       }
 
