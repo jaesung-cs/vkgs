@@ -198,7 +198,7 @@ class Engine::Impl {
     vkGetPhysicalDeviceFeatures2(physicalDevice_, &features);
 
     // queues
-    std::vector<float> queuePriorities = {0.25f, 0.5f, 1.f};
+    std::vector<float> queuePriorities = {1.f, 1.f};
     std::vector<VkDeviceQueueCreateInfo> queueInfos(3);
     queueInfos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfos[0].queueFamilyIndex = transferQueueFamily_;
@@ -207,13 +207,13 @@ class Engine::Impl {
 
     queueInfos[1] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfos[1].queueFamilyIndex = computeQueueFamily_;
-    queueInfos[1].queueCount = 1;
-    queueInfos[1].pQueuePriorities = &queuePriorities[1];
+    queueInfos[1].queueCount = 2;
+    queueInfos[1].pQueuePriorities = &queuePriorities[0];
 
     queueInfos[2] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfos[2].queueFamilyIndex = graphicsQueueFamily_;
     queueInfos[2].queueCount = 1;
-    queueInfos[2].pQueuePriorities = &queuePriorities[2];
+    queueInfos[2].pQueuePriorities = &queuePriorities[0];
 
     // device
     std::vector<const char*> deviceExtensions = {
@@ -231,8 +231,10 @@ class Engine::Impl {
     deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
     vkCreateDevice(physicalDevice_, &deviceInfo, NULL, &device_);
 
+    computeQueues_.resize(2);
     vkGetDeviceQueue(device_, transferQueueFamily_, 0, &transferQueue_);
-    vkGetDeviceQueue(device_, computeQueueFamily_, 0, &computeQueue_);
+    vkGetDeviceQueue(device_, computeQueueFamily_, 0, &computeQueues_[0]);
+    vkGetDeviceQueue(device_, computeQueueFamily_, 1, &computeQueues_[1]);
     vkGetDeviceQueue(device_, graphicsQueueFamily_, 0, &graphicsQueue_);
 
     // allocator
@@ -684,6 +686,7 @@ class Engine::Impl {
         uint32_t pointCount = gaussianSplat_.pointCount;
         VkCommandBuffer cb0 = gaussianComputeCommandBuffers_[renderIndex_ * 2 + 0];
         VkCommandBuffer cb1 = gaussianComputeCommandBuffers_[renderIndex_ * 2 + 1];
+        VkQueue computeQueue = computeQueues_[renderIndex_];
         VkFence fence = gaussianComputeFences_[renderIndex_];
 
         vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -691,16 +694,16 @@ class Engine::Impl {
         if (!frameInfo.computeQueryPool) {
           VkQueryPoolCreateInfo queryPoolInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
           queryPoolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
-          queryPoolInfo.queryCount = 5;
+          queryPoolInfo.queryCount = 6;
           vkCreateQueryPool(device_, &queryPoolInfo, NULL, &frameInfo.computeQueryPool);
         } else {
-          std::vector<uint64_t> timestamps(5);
-          vkGetQueryPoolResults(device_, frameInfo.computeQueryPool, 0, 5, sizeof(uint64_t) * timestamps.size(),
-                                timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+          std::vector<uint64_t> timestamps(6);
+          vkGetQueryPoolResults(device_, frameInfo.computeQueryPool, 0, 6, sizeof(uint64_t) * timestamps.size(),
+                                timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
           frameInfo.rankTime = timestamps[1] - timestamps[0];
           frameInfo.sortTime = timestamps[2] - timestamps[1];
           frameInfo.inverseTime = timestamps[3] - timestamps[2];
-          frameInfo.projectionTime = timestamps[4] - timestamps[3];
+          frameInfo.projectionTime = timestamps[5] - timestamps[4];
           frameInfo.totalComputeTime = timestamps[4] - timestamps[0];
 
           std::memcpy(&frameInfo.visiblePointCount, storage.visiblePointCountStaging.ptr, sizeof(uint32_t));
@@ -827,7 +830,7 @@ class Engine::Impl {
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cb0, &beginInfo);
 
-        vkCmdResetQueryPool(cb0, frameInfo.computeQueryPool, 0, 5);
+        vkCmdResetQueryPool(cb0, frameInfo.computeQueryPool, 0, 6);
 
         vkCmdWriteTimestamp(cb0, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, frameInfo.computeQueryPool, 0);
 
@@ -910,10 +913,12 @@ class Engine::Impl {
         VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
         submitInfo.commandBufferInfoCount = 1;
         submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
-        vkQueueSubmit2(computeQueue_, 1, &submitInfo, NULL);
+        vkQueueSubmit2(computeQueue, 1, &submitInfo, NULL);
 
         // projection after rendering finishes
         vkBeginCommandBuffer(cb1, &beginInfo);
+
+        vkCmdWriteTimestamp(cb1, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frameInfo.computeQueryPool, 4);
 
         vkCmdPushConstants(cb1, gaussianSplatPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
                            &pushConstants);
@@ -923,7 +928,7 @@ class Engine::Impl {
         vkCmdBindPipeline(cb1, VK_PIPELINE_BIND_POINT_COMPUTE, projectionPipeline_);
         vkCmdDispatch(cb1, (pointCount + localSize - 1) / localSize, 1, 1);
 
-        vkCmdWriteTimestamp(cb1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, frameInfo.computeQueryPool, 4);
+        vkCmdWriteTimestamp(cb1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, frameInfo.computeQueryPool, 5);
 
         // barrier for next processing
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -972,7 +977,7 @@ class Engine::Impl {
           submitInfo.signalSemaphoreInfoCount = 1;
           submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
           vkResetFences(device_, 1, &fence);
-          vkQueueSubmit2(computeQueue_, 1, &submitInfo, fence);
+          vkQueueSubmit2(computeQueue, 1, &submitInfo, fence);
         }
       }
 
@@ -1112,9 +1117,8 @@ class Engine::Impl {
         waitSemaphoreInfos.push_back({VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO});
         waitSemaphoreInfos.back().semaphore = gaussianTimelineSemaphores_[renderIndex_].semaphore;
         waitSemaphoreInfos.back().value = gaussianTimelineSemaphores_[renderIndex_].timeline + 1;
-        waitSemaphoreInfos.back().stageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
-                                              VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT |
-                                              VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        waitSemaphoreInfos.back().stageMask =
+            VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
       }
 
       VkCommandBufferSubmitInfo commandBufferInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
@@ -1128,9 +1132,8 @@ class Engine::Impl {
         signalSemaphoreInfos.push_back({VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO});
         signalSemaphoreInfos.back().semaphore = gaussianTimelineSemaphores_[renderIndex_].semaphore;
         signalSemaphoreInfos.back().value = gaussianTimelineSemaphores_[renderIndex_].timeline + 2;
-        signalSemaphoreInfos.back().stageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
-                                                VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT |
-                                                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        signalSemaphoreInfos.back().stageMask =
+            VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
       }
 
       VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
@@ -1987,8 +1990,7 @@ class Engine::Impl {
 
       VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
       bufferInfo.size = pointCount * sizeof(uint32_t);
-      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+      bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
       VmaAllocationCreateInfo allocationCreateInfo = {};
       allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
       vmaCreateBuffer(allocator_, &bufferInfo, &allocationCreateInfo, &storage.key.buffer, &storage.key.allocation,
@@ -2218,7 +2220,7 @@ class Engine::Impl {
       submitInfo.commandBufferInfoCount = 1;
       submitInfo.pCommandBufferInfos = &commandBufferSubmitInfo;
       vkResetFences(device_, 1, &fence);
-      vkQueueSubmit2(computeQueue_, 1, &submitInfo, fence);
+      vkQueueSubmit2(computeQueues_[0], 1, &submitInfo, fence);
     }
 
     // fill index buffer
@@ -2274,7 +2276,7 @@ class Engine::Impl {
   VkPhysicalDevice physicalDevice_ = VK_NULL_HANDLE;
   VkDevice device_ = VK_NULL_HANDLE;
   VkQueue transferQueue_ = VK_NULL_HANDLE;
-  VkQueue computeQueue_ = VK_NULL_HANDLE;
+  std::vector<VkQueue> computeQueues_;
   VkQueue graphicsQueue_ = VK_NULL_HANDLE;
   uint32_t transferQueueFamily_ = 0;
   uint32_t computeQueueFamily_ = 0;
