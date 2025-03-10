@@ -473,16 +473,25 @@ class Engine::Impl {
     }
 
     // commands and synchronizations
-    draw_command_buffers_.resize(3);
+    splat_command_buffers_.resize(2);
     VkCommandBufferAllocateInfo command_buffer_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     command_buffer_info.commandPool = context_.command_pool();
     command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_info.commandBufferCount = splat_command_buffers_.size();
+    vkAllocateCommandBuffers(context_.device(), &command_buffer_info, splat_command_buffers_.data());
+
+    draw_command_buffers_.resize(3);
     command_buffer_info.commandBufferCount = draw_command_buffers_.size();
     vkAllocateCommandBuffers(context_.device(), &command_buffer_info, draw_command_buffers_.data());
 
     VkSemaphoreCreateInfo semaphore_info = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    splat_fences_.resize(2);
+    for (int i = 0; i < 2; ++i) {
+      vkCreateFence(context_.device(), &fence_info, NULL, &splat_fences_[i]);
+    }
 
     render_finished_semaphores_.resize(2);
     render_finished_fences_.resize(2);
@@ -506,12 +515,6 @@ class Engine::Impl {
 
     // frame info
     frame_infos_.resize(2);
-    for (int i = 0; i < 2; ++i) {
-      VkQueryPoolCreateInfo query_pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-      query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-      query_pool_info.queryCount = TIMESTAMP_COUNT;
-      vkCreateQueryPool(context_.device(), &query_pool_info, NULL, &frame_infos_[i].timestamp_query_pool);
-    }
 
     {
       // create sorter
@@ -572,9 +575,13 @@ class Engine::Impl {
     for (auto semaphore : image_acquired_semaphores_) vkDestroySemaphore(context_.device(), semaphore, NULL);
     for (auto semaphore : render_finished_semaphores_) vkDestroySemaphore(context_.device(), semaphore, NULL);
     for (auto fence : render_finished_fences_) vkDestroyFence(context_.device(), fence, NULL);
+    for (auto fence : splat_fences_) vkDestroyFence(context_.device(), fence, NULL);
     vkDestroySemaphore(context_.device(), transfer_semaphore_, NULL);
 
-    for (auto& frame_info : frame_infos_) vkDestroyQueryPool(context_.device(), frame_info.timestamp_query_pool, NULL);
+    for (auto& frame_info : frame_infos_) {
+      vkDestroyQueryPool(context_.device(), frame_info.splat_timestamps, NULL);
+      vkDestroyQueryPool(context_.device(), frame_info.draw_timestamps, NULL);
+    }
   }
 
   void LoadSplats(const std::string& ply_filepath) {
@@ -929,7 +936,6 @@ class Engine::Impl {
         ImGui::Text("size      : %dx%d", swapchain_.width(), swapchain_.height());
         ImGui::Text("fps       : %7.3f", io.Framerate);
         ImGui::Text("            %7.3fms", 1e3 / io.Framerate);
-        ImGui::Text("frame e2e : %7.3fms", static_cast<double>(frame_info.end_to_end_time) / 1e6);
 
         uint64_t total_time = frame_info.rank_time + frame_info.sort_time + frame_info.inverse_time +
                               frame_info.projection_time + frame_info.rendering_time;
@@ -1056,30 +1062,6 @@ class Engine::Impl {
     model = ToScaleMatrix4(scale_ * scale) * glm::toMat4(gq) * ToTranslationMatrix4(translation_ + gt) *
             glm::toMat4(rotation_ * lq) * ToTranslationMatrix4(lt);
 
-    // record command buffer
-    VkFence render_finished_fence = render_finished_fences_[frame_index];
-    vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE, UINT64_MAX);
-
-    // get timestamps
-    if (frame_info.drew_splats) {
-      std::vector<uint64_t> timestamps(TIMESTAMP_COUNT);
-      vkGetQueryPoolResults(context_.device(), frame_info.timestamp_query_pool, 0, timestamps.size(),
-                            timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
-                            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-
-      frame_info.rank_time = timestamps[2] - timestamps[1];
-      frame_info.sort_time = timestamps[4] - timestamps[3];
-      frame_info.inverse_time = timestamps[6] - timestamps[5];
-      frame_info.projection_time = timestamps[8] - timestamps[7];
-      frame_info.rendering_time = timestamps[10] - timestamps[9];
-      frame_info.end_to_end_time = timestamps[11] - timestamps[0];
-    }
-
-    splat_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
-    splat_camera_buffer_[frame_index].view = camera_.ViewMatrix();
-    splat_camera_buffer_[frame_index].camera_position = camera_.Eye();
-    splat_camera_buffer_[frame_index].screen_size = {camera_.width(), camera_.height()};
-
     // recreate swapchain if need resize
     if (swapchain_.ShouldRecreate()) {
       vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
@@ -1092,29 +1074,26 @@ class Engine::Impl {
     VkSemaphore image_acquired_semaphore = image_acquired_semaphores_[acquire_index];
     uint32_t image_index;
     if (swapchain_.AcquireNextImage(image_acquired_semaphore, &image_index)) {
-      VkCommandBuffer cb = draw_command_buffers_[frame_index];
-      VkQueryPool timestamp_query_pool = frame_info.timestamp_query_pool;
-
-      VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-      command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-      vkBeginCommandBuffer(cb, &command_begin_info);
-      vkCmdResetQueryPool(cb, timestamp_query_pool, 0, TIMESTAMP_COUNT);
-      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_query_pool, 0);
-
       // TODO: get the loading part out of presentation part.
       // check loading status
       auto progress = splat_load_thread_.GetProgress();
       frame_info.total_point_count = progress.total_point_count;
       frame_info.loaded_point_count = progress.loaded_point_count;
-      frame_info.ply_buffer = progress.ply_buffer;
 
       if (!progress.buffer_barriers.empty()) {
         loaded_point_count_ = progress.loaded_point_count;
       }
 
-      // update descriptor
-
       if (loaded_point_count_ != 0) {
+        VkFence splat_fence = splat_fences_[frame_index];
+        vkWaitForFences(context_.device(), 1, &splat_fence, VK_TRUE, UINT64_MAX);
+
+        // update descriptor
+        splat_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
+        splat_camera_buffer_[frame_index].view = camera_.ViewMatrix();
+        splat_camera_buffer_[frame_index].camera_position = camera_.Eye();
+        splat_camera_buffer_[frame_index].screen_size = {camera_.width(), camera_.height()};
+
         splat_descriptors_[frame_index].gaussian.Update(0, gaussian_storage_.position, 0,
                                                         loaded_point_count_ * 3 * sizeof(float));
         splat_descriptors_[frame_index].gaussian.Update(1, gaussian_storage_.cov3d, 0,
@@ -1136,64 +1115,91 @@ class Engine::Impl {
                                                               splat_storage_.indirect.size());
         splat_descriptors_[frame_index].splat_instance.Update(5, splat_storage_.quads, 0,
                                                               loaded_point_count_ * 12 * sizeof(float));
-      }
 
-      SplatPushConstant splat_push_constant;
-      splat_push_constant.model = model;
-      splat_push_constant.point_count = loaded_point_count_;
+        SplatPushConstant splat_push_constant;
+        splat_push_constant.model = model;
+        splat_push_constant.point_count = loaded_point_count_;
 
-      VkMemoryBarrier barrier;
+        if (frame_info.splat_timestamps == VK_NULL_HANDLE) {
+          VkQueryPoolCreateInfo query_pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+          query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+          query_pool_info.queryCount = 5;
+          vkCreateQueryPool(context_.device(), &query_pool_info, NULL, &frame_info.splat_timestamps);
+        } else {
+          std::vector<uint64_t> splat_timestamps(5);
+          vkGetQueryPoolResults(context_.device(), frame_info.splat_timestamps, 0, splat_timestamps.size(),
+                                splat_timestamps.size() * sizeof(uint64_t), splat_timestamps.data(), sizeof(uint64_t),
+                                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 
-      // acquire ownership
-      // according to spec:
-      //   The buffer range or image subresource range specified in an
-      //   acquireoperation must match exactly that of a previous release
-      //   operation.
-      if (!progress.buffer_barriers.empty()) {
-        std::vector<VkBufferMemoryBarrier> buffer_barriers = std::move(progress.buffer_barriers);
-
-        // change src/dst synchronization scope
-        for (auto& buffer_barrier : buffer_barriers) {
-          buffer_barrier.srcAccessMask = 0;
-          buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+          frame_info.rank_time = splat_timestamps[1] - splat_timestamps[0];
+          frame_info.sort_time = splat_timestamps[2] - splat_timestamps[1];
+          frame_info.inverse_time = splat_timestamps[3] - splat_timestamps[2];
+          frame_info.projection_time = splat_timestamps[4] - splat_timestamps[3];
         }
 
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
-                             buffer_barriers.size(), buffer_barriers.data(), 0, NULL);
+        VkCommandBuffer cb = splat_command_buffers_[frame_index];
+        VkQueryPool splat_timestamps = frame_info.splat_timestamps;
 
-        // parse ply file
-        splat_descriptors_[frame_index].ply.Update(0, progress.ply_buffer, 0);
+        VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cb, &command_begin_info);
+        vkCmdResetQueryPool(cb, splat_timestamps, 0, 5);
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, parse_ply_pipeline_);
+        VkMemoryBarrier barrier;
 
-        vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push_constant),
-                           &splat_push_constant);
+        // acquire ownership
+        // according to spec:
+        //   The buffer range or image subresource range specified in an
+        //   acquireoperation must match exactly that of a previous release
+        //   operation.
+        if (!progress.buffer_barriers.empty()) {
+          std::vector<VkBufferMemoryBarrier> buffer_barriers = std::move(progress.buffer_barriers);
 
-        VkDescriptorSet descriptor = splat_descriptors_[frame_index].gaussian;
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, splat_pipeline_layout_, 1, 1, &descriptor, 0, NULL);
+          // change src/dst synchronization scope
+          for (auto& buffer_barrier : buffer_barriers) {
+            buffer_barrier.srcAccessMask = 0;
+            buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+          }
 
-        descriptor = splat_descriptors_[frame_index].ply;
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, splat_pipeline_layout_, 3, 1, &descriptor, 0, NULL);
+          vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
+                               buffer_barriers.size(), buffer_barriers.data(), 0, NULL);
 
-        constexpr int local_size = 256;
-        vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size, 1, 1);
+          // parse ply file
+          splat_descriptors_[frame_index].ply.Update(0, progress.ply_buffer, 0);
 
-        barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                             &barrier, 0, NULL, 0, NULL);
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, parse_ply_pipeline_);
 
-        // hold buffer until the end of frame
-        frame_info.ply_buffer = progress.ply_buffer;
-      }
+          vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push_constant),
+                             &splat_push_constant);
 
-      if (loaded_point_count_ != 0) {
+          VkDescriptorSet descriptor = splat_descriptors_[frame_index].gaussian;
+          vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, splat_pipeline_layout_, 1, 1, &descriptor, 0,
+                                  NULL);
+
+          descriptor = splat_descriptors_[frame_index].ply;
+          vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, splat_pipeline_layout_, 3, 1, &descriptor, 0,
+                                  NULL);
+
+          constexpr int local_size = 256;
+          vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size, 1, 1);
+
+          barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+          barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+          barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+          vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                               &barrier, 0, NULL, 0, NULL);
+
+          // hold buffer until the end of frame
+          frame_info.ply_buffer = progress.ply_buffer;
+        }
+
         std::vector<VkDescriptorSet> descriptors = {
             splat_descriptors_[frame_index].camera,
             splat_descriptors_[frame_index].gaussian,
             splat_descriptors_[frame_index].splat_instance,
         };
+
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, splat_timestamps, 0);
 
         // rank
         {
@@ -1214,13 +1220,11 @@ class Engine::Impl {
           vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push_constant),
                              &splat_push_constant);
 
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, timestamp_query_pool, 1);
-
           constexpr int local_size = 256;
           vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size, 1, 1);
-
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 2);
         }
+
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 1);
 
         // visible point count to CPU
         {
@@ -1239,14 +1243,12 @@ class Engine::Impl {
 
         // radix sort
         {
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, timestamp_query_pool, 3);
-
           vrdxCmdSortKeyValueIndirect(cb, sorter_, loaded_point_count_, splat_storage_.visible_point_count, 0,
                                       splat_storage_.key, 0, splat_storage_.index, 0, splat_storage_.sort_storage, 0,
                                       NULL, 0);
-
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 4);
         }
+
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 2);
 
         // inverse map
         {
@@ -1264,13 +1266,11 @@ class Engine::Impl {
           vkCmdPushConstants(cb, splat_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push_constant),
                              &splat_push_constant);
 
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 5);
-
           constexpr int local_size = 256;
           vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size, 1, 1);
-
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 6);
         }
+
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 3);
 
         // projection
         {
@@ -1280,14 +1280,14 @@ class Engine::Impl {
           vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
                                &barrier, 0, NULL, 0, NULL);
 
-          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, projection_pipeline_);
+          barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+          vkCmdPipelineBarrier(cb, VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 0, NULL);
 
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 7);
+          vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, projection_pipeline_);
 
           constexpr int local_size = 256;
           vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size, 1, 1);
-
-          vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 8);
 
           barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
           barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1296,6 +1296,16 @@ class Engine::Impl {
                                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &barrier,
                                0, NULL, 0, NULL);
         }
+
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 4);
+
+        vkEndCommandBuffer(cb);
+
+        VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &cb;
+        vkResetFences(context_.device(), 1, &splat_fence);
+        vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, splat_fence);
       }
 
       if (!framebuffer_ || swapchain_.width() != framebuffer_.width() || swapchain_.height() != framebuffer_.height()) {
@@ -1305,60 +1315,80 @@ class Engine::Impl {
       }
 
       // draw
-      if (loaded_point_count_ != 0) {
-        draw_descriptors_[frame_index].quads.Update(0, splat_storage_.quads, 0,
-                                                    loaded_point_count_ * 12 * sizeof(float));
+      {
+        VkFence render_finished_fence = render_finished_fences_[frame_index];
+        vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE, UINT64_MAX);
+
+        if (frame_info.draw_timestamps == VK_NULL_HANDLE) {
+          VkQueryPoolCreateInfo query_pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+          query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+          query_pool_info.queryCount = 2;
+          vkCreateQueryPool(context_.device(), &query_pool_info, NULL, &frame_info.draw_timestamps);
+        } else {
+          std::vector<uint64_t> draw_timestamps(2);
+          vkGetQueryPoolResults(context_.device(), frame_info.draw_timestamps, 0, draw_timestamps.size(),
+                                draw_timestamps.size() * sizeof(uint64_t), draw_timestamps.data(), sizeof(uint64_t),
+                                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+          frame_info.rendering_time = draw_timestamps[1] - draw_timestamps[0];
+        }
+
+        draw_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
+        draw_camera_buffer_[frame_index].view = camera_.ViewMatrix();
+
+        if (loaded_point_count_ != 0) {
+          draw_descriptors_[frame_index].quads.Update(0, splat_storage_.quads, 0,
+                                                      loaded_point_count_ * 12 * sizeof(float));
+        }
+
+        VkCommandBuffer cb = draw_command_buffers_[frame_index];
+        VkQueryPool draw_timestamps = frame_info.draw_timestamps;
+
+        VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cb, &command_begin_info);
+        vkCmdResetQueryPool(cb, draw_timestamps, 0, 2);
+
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, draw_timestamps, 0);
+        DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(), swapchain_.image_view(image_index));
+        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, draw_timestamps, 1);
+
+        vkEndCommandBuffer(cb);
+
+        std::vector<VkSemaphore> wait_semaphores = {image_acquired_semaphore, transfer_semaphore_};
+        std::vector<VkPipelineStageFlags> wait_stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
+        std::vector<uint64_t> wait_values = {0, transfer_timeline_};
+
+        VkTimelineSemaphoreSubmitInfo timeline_semaphore_submit_info = {
+            VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+        timeline_semaphore_submit_info.waitSemaphoreValueCount = wait_values.size();
+        timeline_semaphore_submit_info.pWaitSemaphoreValues = wait_values.data();
+
+        VkSemaphore render_finished_semaphore = render_finished_semaphores_[frame_index];
+        vkResetFences(context_.device(), 1, &render_finished_fence);
+
+        VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit_info.pNext = &timeline_semaphore_submit_info;
+        submit_info.waitSemaphoreCount = wait_semaphores.size();
+        submit_info.pWaitSemaphores = wait_semaphores.data();
+        submit_info.pWaitDstStageMask = wait_stages.data();
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &cb;
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &render_finished_semaphore;
+        vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, render_finished_fence);
+
+        VkSwapchainKHR swapchain_handle = swapchain_;
+        VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        present_info.waitSemaphoreCount = 1;
+        present_info.pWaitSemaphores = &render_finished_semaphore;
+        present_info.swapchainCount = 1;
+        present_info.pSwapchains = &swapchain_handle;
+        present_info.pImageIndices = &image_index;
+        frame_info.present_timestamp = Clock::timestamp();
+        vkQueuePresentKHR(context_.graphics_queue(), &present_info);
+        frame_info.present_done_timestamp = Clock::timestamp();
       }
-
-      draw_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
-      draw_camera_buffer_[frame_index].view = camera_.ViewMatrix();
-
-      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 9);
-      DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(), swapchain_.image_view(image_index));
-      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, timestamp_query_pool, 10);
-
-      if (loaded_point_count_ != 0) {
-        frame_info.drew_splats = true;
-      } else {
-        frame_info.drew_splats = false;
-      }
-
-      vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, timestamp_query_pool, 11);
-      vkEndCommandBuffer(cb);
-
-      std::vector<VkSemaphore> wait_semaphores = {image_acquired_semaphore, transfer_semaphore_};
-      std::vector<VkPipelineStageFlags> wait_stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
-      std::vector<uint64_t> wait_values = {0, transfer_timeline_};
-
-      VkTimelineSemaphoreSubmitInfo timeline_semaphore_submit_info = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-      timeline_semaphore_submit_info.waitSemaphoreValueCount = wait_values.size();
-      timeline_semaphore_submit_info.pWaitSemaphoreValues = wait_values.data();
-
-      VkSemaphore render_finished_semaphore = render_finished_semaphores_[frame_index];
-      vkResetFences(context_.device(), 1, &render_finished_fence);
-
-      VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-      submit_info.pNext = &timeline_semaphore_submit_info;
-      submit_info.waitSemaphoreCount = wait_semaphores.size();
-      submit_info.pWaitSemaphores = wait_semaphores.data();
-      submit_info.pWaitDstStageMask = wait_stages.data();
-      submit_info.commandBufferCount = 1;
-      submit_info.pCommandBuffers = &cb;
-      submit_info.signalSemaphoreCount = 1;
-      submit_info.pSignalSemaphores = &render_finished_semaphore;
-      vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, render_finished_fence);
-
-      VkSwapchainKHR swapchain_handle = swapchain_;
-      VkPresentInfoKHR present_info = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-      present_info.waitSemaphoreCount = 1;
-      present_info.pWaitSemaphores = &render_finished_semaphore;
-      present_info.swapchainCount = 1;
-      present_info.pSwapchains = &swapchain_handle;
-      present_info.pImageIndices = &image_index;
-      frame_info.present_timestamp = Clock::timestamp();
-      vkQueuePresentKHR(context_.graphics_queue(), &present_info);
-      frame_info.present_done_timestamp = Clock::timestamp();
 
       frame_counter_++;
     }
@@ -1592,6 +1622,9 @@ class Engine::Impl {
   vk::Context context_;
   vk::Swapchain swapchain_;
 
+  std::vector<VkCommandBuffer> splat_command_buffers_;
+  std::vector<VkFence> splat_fences_;
+
   std::vector<VkCommandBuffer> draw_command_buffers_;
   std::vector<VkSemaphore> image_acquired_semaphores_;
   std::vector<VkSemaphore> render_finished_semaphores_;
@@ -1652,9 +1685,7 @@ class Engine::Impl {
   };
   std::vector<DrawDescriptor> draw_descriptors_;
 
-  static constexpr uint32_t TIMESTAMP_COUNT = 12;
   struct FrameInfo {
-    bool drew_splats = false;
     uint32_t total_point_count = 0;
     uint32_t loaded_point_count = 0;
 
@@ -1663,14 +1694,14 @@ class Engine::Impl {
     uint64_t inverse_time = 0;
     uint64_t projection_time = 0;
     uint64_t rendering_time = 0;
-    uint64_t end_to_end_time = 0;
 
     uint64_t present_timestamp = 0;
     uint64_t present_done_timestamp = 0;
 
     vk::Buffer ply_buffer;
 
-    VkQueryPool timestamp_query_pool;
+    VkQueryPool splat_timestamps;
+    VkQueryPool draw_timestamps;
   };
   std::vector<FrameInfo> frame_infos_;
 
