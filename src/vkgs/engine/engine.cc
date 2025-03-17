@@ -125,11 +125,6 @@ class Engine::Impl {
     GeometryShader,
   };
 
-  enum class DisplayMode {
-    Windowed,
-    WindowedFullscreen,
-  };
-
  public:
   Impl() {
     context_ = vk::Context(0);
@@ -847,17 +842,16 @@ class Engine::Impl {
         ImGui::Text("%s", context_.device_name().c_str());
 
         // Windowed or Windows Fullscreen
-        std::vector<const char*> display_modes = {"Windowed", "Windowed Fullscreen"};
-        int display_mode_index = static_cast<int>(display_mode_);
-        if (ImGui::Combo("Display Mode", &display_mode_index, display_modes.data(), display_modes.size())) {
-          switch (display_mode_index) {
-            case 0:
-              SetWindowed();
-              break;
-            case 1:
-              SetWindowedFullscreen();
-              break;
+        static std::vector<const char*> display_modes = {"Windowed", "Windowed Fullscreen"};
+        int display_mode_index = static_cast<int>(viewer_.display_mode());
+        if (ImGui::BeginCombo("Display Mode", display_modes[display_mode_index])) {
+          if (ImGui::Selectable(display_modes[0])) {
+            viewer_.SetWindowed();
           }
+          if (ImGui::Selectable(display_modes[1])) {
+            viewer_.SetWindowedFullscreen();
+          }
+          ImGui::EndCombo();
         }
 
         // Resolutions
@@ -865,8 +859,8 @@ class Engine::Impl {
         std::string current_resolution;
         int resolution_index = 0;
         std::vector<const char*> resolutions;
-        switch (display_mode_) {
-          case DisplayMode::Windowed: {
+        switch (viewer_.display_mode()) {
+          case viewer::DisplayMode::Windowed: {
             bool is_preset = false;
             for (int i = 0; i < preset_resolutions.size(); ++i) {
               const auto& resolution = preset_resolutions[i];
@@ -884,18 +878,23 @@ class Engine::Impl {
             }
           } break;
 
-          case DisplayMode::WindowedFullscreen:
+          case viewer::DisplayMode::WindowedFullscreen:
             current_resolution = std::to_string(width) + " x " + std::to_string(height) + " (fullscreen)";
             resolution_index = resolutions.size();
             resolutions.push_back(current_resolution.c_str());
             break;
         }
         ImGui::BeginDisabled(display_mode_index == 1);
-        if (ImGui::Combo("Resolution", &resolution_index, resolutions.data(), resolutions.size())) {
-          if (resolution_index < preset_resolutions.size()) {
-            const auto& resolution = preset_resolutions[resolution_index];
-            viewer_.SetWindowSize(resolution.width, resolution.height);
+        if (ImGui::BeginCombo("Resolution", resolutions[resolution_index])) {
+          for (int i = 0; i < resolutions.size(); ++i) {
+            if (ImGui::Selectable(resolutions[i])) {
+              if (i < preset_resolutions.size()) {
+                const auto& resolution = preset_resolutions[i];
+                viewer_.SetWindowSize(resolution.width, resolution.height);
+              }
+            }
           }
+          ImGui::EndCombo();
         }
         ImGui::EndDisabled();
 
@@ -1519,7 +1518,7 @@ class Engine::Impl {
 
   void RecreateFramebuffer() {
     color_attachment_ =
-        vk::Attachment(context_, swapchain_.width(), swapchain_.height(), VK_FORMAT_B8G8R8A8_UNORM, samples_, false);
+        vk::Attachment(context_, swapchain_.width(), swapchain_.height(), swapchain_.format(), samples_, false);
     depth_attachment_ =
         vk::Attachment(context_, swapchain_.width(), swapchain_.height(), depth_format_, samples_, false);
 
@@ -1545,31 +1544,15 @@ class Engine::Impl {
   }
 
   void ToggleDisplayMode() {
-    switch (display_mode_) {
-      case DisplayMode::Windowed:
-        SetWindowedFullscreen();
+    switch (viewer_.display_mode()) {
+      case viewer::DisplayMode::Windowed:
+        viewer_.SetWindowedFullscreen();
         break;
-      case DisplayMode::WindowedFullscreen:
-        SetWindowed();
+      case viewer::DisplayMode::WindowedFullscreen:
+        viewer_.SetWindowed();
         break;
     }
   }
-
-  void SetWindowed() {
-    if (display_mode_ == DisplayMode::WindowedFullscreen) {
-      display_mode_ = DisplayMode::Windowed;
-      viewer_.SetWindowed();
-    }
-  }
-
-  void SetWindowedFullscreen() {
-    if (display_mode_ == DisplayMode::Windowed) {
-      display_mode_ = DisplayMode::WindowedFullscreen;
-      viewer_.SetWindowedFullscreen();
-    }
-  }
-
-  DisplayMode display_mode_ = DisplayMode::Windowed;
 
   std::atomic_bool terminate_ = false;
 

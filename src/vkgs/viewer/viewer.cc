@@ -23,12 +23,6 @@ namespace vkgs {
 namespace viewer {
 
 class Viewer::Impl {
- private:
-  enum class DisplayMode {
-    Windowed,
-    WindowedFullscreen,
-  };
-
  public:
   static void DropCallback(GLFWwindow* window, int count, const char** paths) {
     std::vector<std::string> filepaths(paths, paths + count);
@@ -59,6 +53,8 @@ class Viewer::Impl {
     glfwGetFramebufferSize(window_, &result.width, &result.height);
     return result;
   }
+
+  DisplayMode display_mode() const noexcept { return display_mode_; }
 
   void CreateWindow(const WindowCreateInfo& create_info) {
     // create window
@@ -94,14 +90,14 @@ class Viewer::Impl {
   void Show() { glfwShowWindow(window_); }
 
   void SetWindowed() {
-    if (display_mode == DisplayMode::WindowedFullscreen) {
+    if (display_mode_ == DisplayMode::WindowedFullscreen) {
       glfwSetWindowMonitor(window_, NULL, xpos_, ypos_, width_, height_, 0);
-      display_mode = DisplayMode::Windowed;
+      display_mode_ = DisplayMode::Windowed;
     }
   }
 
   void SetWindowedFullscreen() {
-    if (display_mode == DisplayMode::Windowed) {
+    if (display_mode_ == DisplayMode::Windowed) {
       glfwGetWindowPos(window_, &xpos_, &ypos_);
       glfwGetWindowSize(window_, &width_, &height_);
 
@@ -109,7 +105,7 @@ class Viewer::Impl {
       GLFWmonitor* primary = glfwGetPrimaryMonitor();
       const GLFWvidmode* mode = glfwGetVideoMode(primary);
       glfwSetWindowMonitor(window_, primary, 0, 0, mode->width, mode->height, mode->refreshRate);
-      display_mode = DisplayMode::WindowedFullscreen;
+      display_mode_ = DisplayMode::WindowedFullscreen;
     }
   }
 
@@ -169,7 +165,7 @@ class Viewer::Impl {
   int ypos_ = 0;
   int width_ = 0;
   int height_ = 0;
-  DisplayMode display_mode = DisplayMode::Windowed;
+  DisplayMode display_mode_ = DisplayMode::Windowed;
 
   VkSurfaceKHR surface_ = VK_NULL_HANDLE;
 };
@@ -207,6 +203,8 @@ void Viewer::DrawUi(VkCommandBuffer command_buffer) { impl_->DrawUi(command_buff
 VkSurfaceKHR Viewer::surface() const { return impl_->surface(); }
 
 WindowSize Viewer::window_size() const { return impl_->window_size(); }
+
+DisplayMode Viewer::display_mode() const { return impl_->display_mode(); }
 
 }  // namespace viewer
 }  // namespace vkgs

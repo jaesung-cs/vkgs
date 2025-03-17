@@ -27,6 +27,11 @@ struct WindowSize {
   int height;
 };
 
+enum class DisplayMode {
+  Windowed,
+  WindowedFullscreen,
+};
+
 class Viewer {
  public:
   Viewer();
@@ -48,6 +53,7 @@ class Viewer {
 
   VkSurfaceKHR surface() const;
   WindowSize window_size() const;
+  DisplayMode display_mode() const;
 
  private:
   class Impl;
