@@ -55,11 +55,15 @@ add_library(vkgs SHARED
   src/vkgs/vulkan/cpu_buffer.cc
   src/vkgs/vulkan/descriptor_layout.cc
   src/vkgs/vulkan/descriptor.cc
+  src/vkgs/vulkan/fence.cc
   src/vkgs/vulkan/framebuffer.cc
   src/vkgs/vulkan/graphics_pipeline.cc
   src/vkgs/vulkan/pipeline_layout.cc
   src/vkgs/vulkan/render_pass.cc
+  src/vkgs/vulkan/semaphore.cc
   src/vkgs/vulkan/swapchain.cc
+  src/vkgs/vulkan/timeline_semaphore.cc
+  src/vkgs/vulkan/timestamp_query.cc
   src/vkgs/vulkan/uniform_buffer.cc
   src/vkgs/vulkan/vma_impl.cc
   # imgui

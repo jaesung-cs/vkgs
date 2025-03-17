@@ -35,6 +35,10 @@
 #include "vkgs/vulkan/buffer.h"
 #include "vkgs/vulkan/cpu_buffer.h"
 #include "vkgs/vulkan/uniform_buffer.h"
+#include "vkgs/vulkan/fence.h"
+#include "vkgs/vulkan/semaphore.h"
+#include "vkgs/vulkan/timeline_semaphore.h"
+#include "vkgs/vulkan/timestamp_query.h"
 
 #include "generated/parse_ply_comp.h"
 #include "generated/projection_comp.h"
@@ -484,37 +488,29 @@ class Engine::Impl {
     command_buffer_info.commandBufferCount = draw_command_buffers_.size();
     vkAllocateCommandBuffers(context_.device(), &command_buffer_info, draw_command_buffers_.data());
 
-    VkSemaphoreCreateInfo semaphore_info = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
     splat_fences_.resize(2);
     for (int i = 0; i < 2; ++i) {
-      vkCreateFence(context_.device(), &fence_info, NULL, &splat_fences_[i]);
+      splat_fences_[i] = vk::Fence(context_);
     }
 
     render_finished_semaphores_.resize(2);
     render_finished_fences_.resize(2);
     for (int i = 0; i < 2; ++i) {
-      vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &render_finished_semaphores_[i]);
-      vkCreateFence(context_.device(), &fence_info, NULL, &render_finished_fences_[i]);
+      render_finished_semaphores_[i] = vk::Semaphore(context_);
+      render_finished_fences_[i] = vk::Fence(context_);
     }
 
     image_acquired_semaphores_.resize(3);
-    for (int i = 0; i < 3; ++i) {
-      vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &image_acquired_semaphores_[i]);
-    }
+    for (int i = 0; i < 3; ++i) image_acquired_semaphores_[i] = vk::Semaphore(context_);
 
-    {
-      VkSemaphoreTypeCreateInfo semaphore_type_info = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
-      semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-      VkSemaphoreCreateInfo semaphore_info = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-      semaphore_info.pNext = &semaphore_type_info;
-      vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &transfer_semaphore_);
-    }
+    transfer_semaphore_ = vk::TimelineSemaphore(context_);
 
     // frame info
     frame_infos_.resize(2);
+    for (auto& frame_info : frame_infos_) {
+      frame_info.splat_timestamps = vk::TimestampQuery(context_, 5);
+      frame_info.draw_timestamps = vk::TimestampQuery(context_, 2);
+    }
 
     {
       // create sorter
@@ -571,17 +567,6 @@ class Engine::Impl {
     vkDeviceWaitIdle(context_.device());
 
     vrdxDestroySorter(sorter_);
-
-    for (auto semaphore : image_acquired_semaphores_) vkDestroySemaphore(context_.device(), semaphore, NULL);
-    for (auto semaphore : render_finished_semaphores_) vkDestroySemaphore(context_.device(), semaphore, NULL);
-    for (auto fence : render_finished_fences_) vkDestroyFence(context_.device(), fence, NULL);
-    for (auto fence : splat_fences_) vkDestroyFence(context_.device(), fence, NULL);
-    vkDestroySemaphore(context_.device(), transfer_semaphore_, NULL);
-
-    for (auto& frame_info : frame_infos_) {
-      vkDestroyQueryPool(context_.device(), frame_info.splat_timestamps, NULL);
-      vkDestroyQueryPool(context_.device(), frame_info.draw_timestamps, NULL);
-    }
   }
 
   void LoadSplats(const std::string& ply_filepath) {
@@ -762,27 +747,28 @@ class Engine::Impl {
 
     vkEndCommandBuffer(cb);
 
-    uint64_t wait_value = transfer_timeline_;
-    uint64_t signal_value = transfer_timeline_ + 1;
+    uint64_t wait_value = transfer_semaphore_.value();
+    uint64_t signal_value = transfer_semaphore_.value() + 1;
     VkTimelineSemaphoreSubmitInfo timeline_semaphore_submit_info = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
     timeline_semaphore_submit_info.waitSemaphoreValueCount = 1;
     timeline_semaphore_submit_info.pWaitSemaphoreValues = &wait_value;
     timeline_semaphore_submit_info.signalSemaphoreValueCount = 1;
     timeline_semaphore_submit_info.pSignalSemaphoreValues = &signal_value;
 
+    VkSemaphore transfer_semaphore = transfer_semaphore_;
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit_info.pNext = &timeline_semaphore_submit_info;
     submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &transfer_semaphore_;
+    submit_info.pWaitSemaphores = &transfer_semaphore;
     submit_info.pWaitDstStageMask = &wait_stage;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &cb;
     submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &transfer_semaphore_;
+    submit_info.pSignalSemaphores = &transfer_semaphore;
     vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, NULL);
 
-    transfer_timeline_++;
+    transfer_semaphore_++;
   }
 
   void Draw() {
@@ -1064,9 +1050,7 @@ class Engine::Impl {
 
     // recreate swapchain if need resize
     if (swapchain_.ShouldRecreate()) {
-      vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
-                      UINT64_MAX);
-
+      for (const auto& fence : render_finished_fences_) fence.wait();
       swapchain_.Recreate();
     }
 
@@ -1085,8 +1069,8 @@ class Engine::Impl {
       }
 
       if (loaded_point_count_ != 0) {
-        VkFence splat_fence = splat_fences_[frame_index];
-        vkWaitForFences(context_.device(), 1, &splat_fence, VK_TRUE, UINT64_MAX);
+        auto splat_fence = splat_fences_[frame_index];
+        splat_fence.wait();
 
         // update descriptor
         splat_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
@@ -1120,30 +1104,21 @@ class Engine::Impl {
         splat_push_constant.model = model;
         splat_push_constant.point_count = loaded_point_count_;
 
-        if (frame_info.splat_timestamps == VK_NULL_HANDLE) {
-          VkQueryPoolCreateInfo query_pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-          query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-          query_pool_info.queryCount = 5;
-          vkCreateQueryPool(context_.device(), &query_pool_info, NULL, &frame_info.splat_timestamps);
-        } else {
-          std::vector<uint64_t> splat_timestamps(5);
-          vkGetQueryPoolResults(context_.device(), frame_info.splat_timestamps, 0, splat_timestamps.size(),
-                                splat_timestamps.size() * sizeof(uint64_t), splat_timestamps.data(), sizeof(uint64_t),
-                                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-
-          frame_info.rank_time = splat_timestamps[1] - splat_timestamps[0];
-          frame_info.sort_time = splat_timestamps[2] - splat_timestamps[1];
-          frame_info.inverse_time = splat_timestamps[3] - splat_timestamps[2];
-          frame_info.projection_time = splat_timestamps[4] - splat_timestamps[3];
+        auto timestamps = frame_info.splat_timestamps.timestamps();
+        if (timestamps.size() >= 5) {
+          frame_info.rank_time = timestamps[1] - timestamps[0];
+          frame_info.sort_time = timestamps[2] - timestamps[1];
+          frame_info.inverse_time = timestamps[3] - timestamps[2];
+          frame_info.projection_time = timestamps[4] - timestamps[3];
         }
 
         VkCommandBuffer cb = splat_command_buffers_[frame_index];
-        VkQueryPool splat_timestamps = frame_info.splat_timestamps;
+        auto splat_timestamps = frame_info.splat_timestamps;
 
         VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cb, &command_begin_info);
-        vkCmdResetQueryPool(cb, splat_timestamps, 0, 5);
+        splat_timestamps.reset(cb);
 
         VkMemoryBarrier barrier;
 
@@ -1199,7 +1174,7 @@ class Engine::Impl {
             splat_descriptors_[frame_index].splat_instance,
         };
 
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, splat_timestamps, 0);
+        splat_timestamps.write(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
 
         // rank
         {
@@ -1224,7 +1199,7 @@ class Engine::Impl {
           vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size, 1, 1);
         }
 
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 1);
+        splat_timestamps.write(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         // visible point count to CPU
         {
@@ -1248,7 +1223,7 @@ class Engine::Impl {
                                       NULL, 0);
         }
 
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 2);
+        splat_timestamps.write(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         // inverse map
         {
@@ -1270,7 +1245,7 @@ class Engine::Impl {
           vkCmdDispatch(cb, (loaded_point_count_ + local_size - 1) / local_size, 1, 1);
         }
 
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 3);
+        splat_timestamps.write(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         // projection
         {
@@ -1297,39 +1272,30 @@ class Engine::Impl {
                                0, NULL, 0, NULL);
         }
 
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, splat_timestamps, 4);
+        splat_timestamps.write(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
         vkEndCommandBuffer(cb);
 
         VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &cb;
-        vkResetFences(context_.device(), 1, &splat_fence);
+        splat_fence.reset();
         vkQueueSubmit(context_.graphics_queue(), 1, &submit_info, splat_fence);
       }
 
       if (!framebuffer_ || swapchain_.width() != framebuffer_.width() || swapchain_.height() != framebuffer_.height()) {
-        vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
-                        UINT64_MAX);
+        for (const auto& fence : render_finished_fences_) fence.wait();
         RecreateFramebuffer();
       }
 
       // draw
       {
-        VkFence render_finished_fence = render_finished_fences_[frame_index];
-        vkWaitForFences(context_.device(), 1, &render_finished_fence, VK_TRUE, UINT64_MAX);
+        auto render_finished_fence = render_finished_fences_[frame_index];
+        render_finished_fence.wait();
 
-        if (frame_info.draw_timestamps == VK_NULL_HANDLE) {
-          VkQueryPoolCreateInfo query_pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-          query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-          query_pool_info.queryCount = 2;
-          vkCreateQueryPool(context_.device(), &query_pool_info, NULL, &frame_info.draw_timestamps);
-        } else {
-          std::vector<uint64_t> draw_timestamps(2);
-          vkGetQueryPoolResults(context_.device(), frame_info.draw_timestamps, 0, draw_timestamps.size(),
-                                draw_timestamps.size() * sizeof(uint64_t), draw_timestamps.data(), sizeof(uint64_t),
-                                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-          frame_info.rendering_time = draw_timestamps[1] - draw_timestamps[0];
+        auto timestamps = frame_info.draw_timestamps.timestamps();
+        if (timestamps.size() >= 2) {
+          frame_info.rendering_time = timestamps[1] - timestamps[0];
         }
 
         draw_camera_buffer_[frame_index].projection = camera_.ProjectionMatrix();
@@ -1341,23 +1307,23 @@ class Engine::Impl {
         }
 
         VkCommandBuffer cb = draw_command_buffers_[frame_index];
-        VkQueryPool draw_timestamps = frame_info.draw_timestamps;
+        auto draw_timestamps = frame_info.draw_timestamps;
 
         VkCommandBufferBeginInfo command_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         command_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cb, &command_begin_info);
-        vkCmdResetQueryPool(cb, draw_timestamps, 0, 2);
+        draw_timestamps.reset(cb);
 
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, draw_timestamps, 0);
+        draw_timestamps.write(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
         DrawNormalPass(cb, frame_index, swapchain_.width(), swapchain_.height(), swapchain_.image_view(image_index));
-        vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, draw_timestamps, 1);
+        draw_timestamps.write(cb, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT);
 
         vkEndCommandBuffer(cb);
 
         std::vector<VkSemaphore> wait_semaphores = {image_acquired_semaphore, transfer_semaphore_};
         std::vector<VkPipelineStageFlags> wait_stages = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                                                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
-        std::vector<uint64_t> wait_values = {0, transfer_timeline_};
+        std::vector<uint64_t> wait_values = {0, transfer_semaphore_.value()};
 
         VkTimelineSemaphoreSubmitInfo timeline_semaphore_submit_info = {
             VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
@@ -1365,7 +1331,7 @@ class Engine::Impl {
         timeline_semaphore_submit_info.pWaitSemaphoreValues = wait_values.data();
 
         VkSemaphore render_finished_semaphore = render_finished_semaphores_[frame_index];
-        vkResetFences(context_.device(), 1, &render_finished_fence);
+        render_finished_fence.reset();
 
         VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
         submit_info.pNext = &timeline_semaphore_submit_info;
@@ -1413,8 +1379,7 @@ class Engine::Impl {
       }
 
       // wait for all presentations submitted, before recreate imgui vulkan
-      vkWaitForFences(context_.device(), render_finished_fences_.size(), render_finished_fences_.data(), VK_TRUE,
-                      UINT64_MAX);
+      for (const auto& fence : render_finished_fences_) fence.wait();
 
       viewer::WindowCreateInfo window_info;
       window_info.instance = context_.instance();
@@ -1623,12 +1588,12 @@ class Engine::Impl {
   vk::Swapchain swapchain_;
 
   std::vector<VkCommandBuffer> splat_command_buffers_;
-  std::vector<VkFence> splat_fences_;
+  std::vector<vk::Fence> splat_fences_;
 
   std::vector<VkCommandBuffer> draw_command_buffers_;
-  std::vector<VkSemaphore> image_acquired_semaphores_;
-  std::vector<VkSemaphore> render_finished_semaphores_;
-  std::vector<VkFence> render_finished_fences_;
+  std::vector<vk::Semaphore> image_acquired_semaphores_;
+  std::vector<vk::Semaphore> render_finished_semaphores_;
+  std::vector<vk::Fence> render_finished_fences_;
 
   vk::DescriptorLayout splat_camera_layout_;
   vk::DescriptorLayout gaussian_layout_;
@@ -1700,8 +1665,8 @@ class Engine::Impl {
 
     vk::Buffer ply_buffer;
 
-    VkQueryPool splat_timestamps;
-    VkQueryPool draw_timestamps;
+    vk::TimestampQuery splat_timestamps;
+    vk::TimestampQuery draw_timestamps;
   };
   std::vector<FrameInfo> frame_infos_;
 
@@ -1737,8 +1702,7 @@ class Engine::Impl {
 
   vk::Buffer splat_index_buffer_;  // gaussian2d quads
 
-  VkSemaphore transfer_semaphore_ = VK_NULL_HANDLE;
-  uint64_t transfer_timeline_ = 0;
+  vk::TimelineSemaphore transfer_semaphore_;
 
   SplatLoadThread splat_load_thread_;
   uint32_t loaded_point_count_ = 0;
