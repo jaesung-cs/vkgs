@@ -65,7 +65,7 @@ Drag and drop pretrained .ply file from [official gaussian splatting](https://gi
 
 - Left drag to rotate.
 
-- Right drag to translate.
+- Right drag, or Ctrl + left drag to translate.
 
 - Left+Right drag to zoom in/out.
 
