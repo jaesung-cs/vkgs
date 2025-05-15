@@ -7,6 +7,18 @@ The main goal of this project is to maximize rendering speed.
 For more details, refer to [details](DETAILS.md).
 
 
+## Notes
+
+Currently I am **not actively maintaining** this project, but I am still open to suggestions or discussions, and will be happy to answer any questions or make quick fixes. Please open github issues about anything. Job offer is also welcome ;)
+
+Consider using [vk_gaussian_splatting](https://github.com/nvpro-samples/vk_gaussian_splatting), another Vulkan 3DGS renderer by NVidia with richer functionalities.
+They mentioned my project (which is a great honor for me), and obviously their codes are far more well-organized.
+
+Also, check out [vulkan_radix_sort](https://github.com/jaesung-cs/vulkan_radix_sort).
+It has a way better user-friendly interface that can be easily used by other projects.
+It is adopted by the NVidia sample, implying that the sort algorithm is quite stable.
+
+
 ## Desktop Viewer
 
 ![](/media/screenshot-fast2.jpg)
