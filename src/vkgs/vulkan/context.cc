@@ -49,9 +49,9 @@ class Context::Impl {
     // instance
     VkApplicationInfo application_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application_info.pApplicationName = "vkgs";
-    application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 1, 0);
+    application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 2, 0);
     application_info.pEngineName = "vkgs_vulkan";
-    application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 1, 0);
+    application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 2, 0);
     application_info.apiVersion = VK_API_VERSION_1_2;
 
     VkDebugUtilsMessengerCreateInfoEXT messenger_info = {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
