@@ -281,10 +281,10 @@ class Engine::Impl {
       std::vector<VkPipelineColorBlendAttachmentState> color_blend_attachments(1);
       color_blend_attachments[0] = {};
       color_blend_attachments[0].blendEnable = VK_TRUE;
-      color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
       color_blend_attachments[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
       color_blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
-      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      color_blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
       color_blend_attachments[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
       color_blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
       color_blend_attachments[0].colorWriteMask =
