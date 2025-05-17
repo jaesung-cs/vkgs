@@ -768,11 +768,17 @@ class Engine::Impl {
       if (!io.WantCaptureMouse) {
         bool left = io.MouseDown[ImGuiMouseButton_Left];
         bool right = io.MouseDown[ImGuiMouseButton_Right];
+        bool ctrl = ImGui::IsKeyDown(ImGuiKey::ImGuiMod_Ctrl);
         float dx = io.MouseDelta.x;
         float dy = io.MouseDelta.y;
 
         if (left && !right) {
-          camera_.Rotate(dx, dy);
+          // ctrl + drag for translation, otherwise rotate
+          if (ctrl) {
+            camera_.Translate(dx, dy);
+          } else {
+            camera_.Rotate(dx, dy);
+          }
         } else if (!left && right) {
           camera_.Translate(dx, dy);
         } else if (left && right) {
