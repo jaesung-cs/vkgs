@@ -43,7 +43,9 @@ Viewer works with pre-trained vanilla 3DGS models as input.
 
 
 ### Requirements
-- `VulkanSDK>=1.2`
+- `VulkanSDK>=1.3.296.0`
+  - `slangc` (or `slangc.exe` for Windows) is included in or above `1.3.296.0`.
+  - Required by `vulkan_radix_sort` submodule to compile `slang` shader files.
   - Download the latest version from https://vulkan.lunarg.com/ and follow install instruction.
 - `cmake>=3.15`
 
