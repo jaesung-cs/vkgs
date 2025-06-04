@@ -448,16 +448,16 @@ class Engine::Impl {
     VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    render_finished_semaphores_.resize(2);
     render_finished_fences_.resize(2);
     for (int i = 0; i < 2; ++i) {
-      vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &render_finished_semaphores_[i]);
       vkCreateFence(context_.device(), &fence_info, NULL, &render_finished_fences_[i]);
     }
 
     image_acquired_semaphores_.resize(3);
+    render_finished_semaphores_.resize(3);
     for (int i = 0; i < 3; ++i) {
       vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &image_acquired_semaphores_[i]);
+      vkCreateSemaphore(context_.device(), &semaphore_info, NULL, &render_finished_semaphores_[i]);
     }
 
     {
@@ -1310,7 +1310,7 @@ class Engine::Impl {
       timeline_semaphore_submit_info.waitSemaphoreValueCount = wait_values.size();
       timeline_semaphore_submit_info.pWaitSemaphoreValues = wait_values.data();
 
-      VkSemaphore render_finished_semaphore = render_finished_semaphores_[frame_index];
+      VkSemaphore render_finished_semaphore = render_finished_semaphores_[image_index];
       vkResetFences(context_.device(), 1, &render_finished_fence);
 
       VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
