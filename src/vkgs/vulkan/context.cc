@@ -203,6 +203,7 @@ class Context::Impl {
 
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 #ifdef _WIN32
         "VK_KHR_external_memory_win32",
         "VK_KHR_external_semaphore_win32",
