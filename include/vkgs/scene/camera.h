@@ -14,6 +14,22 @@ class Camera {
   Camera();
   ~Camera();
 
+
+  //getters and setters for cam settings so we can copy and paste it
+  glm::vec3 GetCenter() const { return center_;}
+
+  void  SetCenter(const glm::vec3& c) { center_ = c;}
+  float GetRadius() const { return r_;}
+  float SetRadius(float r) { r_ = r; return r_;}
+  float GetPhi() const { return phi_;}
+  float SetPhi(float p) { phi_ = p; return phi_;}
+  float GetTheta() const {return theta_;}
+  float SetTheta(float t) {theta_ = t; return theta_;}
+  float GetFovy() const { return fovy_; }
+  float SetFovy(float f) { fovy_ = f; return fovy_;}
+
+
+
   auto Near() const noexcept { return near_; }
   auto Far() const noexcept { return far_; }
 

@@ -1017,6 +1017,56 @@ class Engine::Impl {
         }
         ImGui::PopID();
       }
+
+      //allows copying and pasting specific camera view to reproduce results better
+      
+      // Temporary buffer for copy/paste
+      static char camera_view_buf[128] = "";
+
+      
+      glm::vec3 center = camera_.GetCenter();
+      float r = camera_.GetRadius();
+      float phi = camera_.GetPhi();
+      float theta = camera_.GetTheta();
+      float fovy = camera_.GetFovy();
+
+      // Show and edit camera parameters
+      ImGui::InputFloat3("Center", glm::value_ptr(center));
+      ImGui::InputFloat("Radius", &r);
+      ImGui::InputFloat("Phi", &phi); 
+      ImGui::InputFloat("FovY", &fovy); 
+      // Apply changes if edited
+      if (ImGui::Button("Apply Camera Params")) {
+          camera_.SetCenter(center);
+          camera_.SetRadius(r);
+          camera_.SetPhi(phi);
+          camera_.SetTheta(theta);
+          camera_.SetFovy(fovy);
+      }
+
+      // Copy to clipboard
+      if (ImGui::Button("Copy View")) {
+          snprintf(camera_view_buf, sizeof(camera_view_buf), "%.6f %.6f %.6f %.6f %.6f %.6f %.6f",
+              center.x, center.y, center.z, r, phi, theta, fovy);
+          ImGui::SetClipboardText(camera_view_buf);
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Paste View")) {
+          const char* clip = ImGui::GetClipboardText();
+          if (clip && sscanf(clip, "%f %f %f %f %f %f %f",
+              &center.x, &center.y, &center.z, &r, &phi, &theta, &fovy) == 7) {
+              camera_.SetCenter(center);
+              camera_.SetRadius(r);
+              camera_.SetPhi(phi);
+              camera_.SetTheta(theta);
+              camera_.SetFovy(fovy);
+          }
+      }
+      ImGui::InputText("Camera View String", camera_view_buf, sizeof(camera_view_buf));
+
+
+
+
       ImGui::End();
       viewer_.EndUi();
     }
