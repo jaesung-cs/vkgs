@@ -18,7 +18,7 @@ Also, check out [vulkan_radix_sort](https://github.com/jaesung-cs/vulkan_radix_s
 It has a way better user-friendly interface that can be easily used by other projects.
 It is adopted by the NVidia sample, implying that the sort algorithm is quite stable.
 
-Please check out [pygs](https://github.com/jaesung-cs/pygs) for more organized c++ codes and experimental version of python binding.
+Please check out [splatstream](https://github.com/jaesung-cs/splatstream) for more organized c++ codes and experimental version of python binding.
 
 
 ## Desktop Viewer
