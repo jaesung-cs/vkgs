@@ -46,6 +46,7 @@ endfunction()
 add_library(vkgs SHARED
   src/vkgs/engine/engine.cc
   src/vkgs/engine/splat_load_thread.cc
+  src/vkgs/engine/vrdx_impl.cc
   src/vkgs/scene/camera.cc
   src/vkgs/viewer/viewer.cc
   src/vkgs/vulkan/attachment.cc
