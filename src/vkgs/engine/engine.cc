@@ -516,7 +516,7 @@ class Engine::Impl {
 
       // preallocate sorter storage
       VrdxSorterStorageRequirements requirements;
-      vrdxGetSorterKeyValueStorageRequirements(sorter_, MAX_SPLAT_COUNT, &requirements);
+      vrdxGetSorterStorageRequirements(sorter_, MAX_SPLAT_COUNT, VRDX_SORT_MODE_KEY_VALUE, &requirements);
       sort_storage_ = vk::Buffer(context_, requirements.size, requirements.usage);
     }
 
@@ -1215,8 +1215,13 @@ class Engine::Impl {
         {
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, timestamp_query_pool, 3);
 
-          vrdxCmdSortKeyValueIndirect(cb, sorter_, loaded_point_count_, splat_visible_point_count_, 0,
-                                      splat_storage_.key, 0, splat_storage_.index, 0, sort_storage_, 0, NULL, 0);
+          VrdxSortInfo sort_info = {};
+          sort_info.elementCount = loaded_point_count_;
+          sort_info.elementCountBuffer = splat_visible_point_count_;
+          sort_info.keysBuffer = splat_storage_.key;
+          sort_info.valuesBuffer = splat_storage_.index;
+          sort_info.storageBuffer = sort_storage_;
+          vrdxCmdSort(cb, sorter_, &sort_info);
 
           vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, timestamp_query_pool, 4);
         }

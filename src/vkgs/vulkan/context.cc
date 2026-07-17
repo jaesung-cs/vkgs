@@ -52,7 +52,7 @@ class Context::Impl {
     application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 4, 0);
     application_info.pEngineName = "vkgs_vulkan";
     application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 4, 0);
-    application_info.apiVersion = VK_API_VERSION_1_2;
+    application_info.apiVersion = VK_API_VERSION_1_4;
 
     VkDebugUtilsMessengerCreateInfoEXT messenger_info = {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
     messenger_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
@@ -174,8 +174,12 @@ class Context::Impl {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
     imageless_framebuffer_feature.pNext = &timeline_semaphore_features;
 
+    VkPhysicalDeviceSynchronization2Features synchronization2_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+    synchronization2_features.pNext = &imageless_framebuffer_feature;
+
     VkPhysicalDeviceFeatures2 features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-    features.pNext = &imageless_framebuffer_feature;
+    features.pNext = &synchronization2_features;
     vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
     // queues
@@ -204,6 +208,7 @@ class Context::Impl {
     std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 #ifdef _WIN32
         "VK_KHR_external_memory_win32",
         "VK_KHR_external_semaphore_win32",
