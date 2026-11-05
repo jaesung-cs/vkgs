@@ -67,3 +67,99 @@ jobs:
       shell: pwsh
       run: |
         [System.IO.File]::AppendAllText($env:GITHUB_ENV, "VULKAN_SDK=C:\VulkanSDK\${{env.VULKAN_VERSION}}" + [Environment]::NewLine)
+
+    - name: Configure
+      run: >
+        cmake
+        -A "${{matrix.Settings.Platform}}"
+        -B "${{github.workspace}}/build"
+        -DCMAKE_BUILD_TYPE=${{matrix.Configuration}}
+        -DCMAKE_PREFIX_PATH=C:\vcpkg\installed\${{matrix.Settings.Triplet}}
+#        -DSOMELIBRARY_INCLUDE_DIRS=C:\vcpkg\installed\${{matrix.Settings.Triplet}}\include\SOMELIBRARY
+#        -DSOMELIBRARY_LIB=C:\vcpkg\installed\${{matrix.Settings.Triplet}}\lib\SOMELIBRARY.lib
+
+    - name: Build
+      run: >
+        cmake
+        --build "${{github.workspace}}/build"
+        --config "${{matrix.Configuration}}"
+
+    - name: List files
+      run: Get-ChildItem -Path "." -File -Recurse | Select-Object FullName
+
+#    - name: Deploy
+#      shell: cmd
+#      run: |
+#        windeployqt.exe "${{github.workspace}}/${{env.Artifacts}}/${{env.Executable}}"
+#        If exist "C:\vcpkg\installed\${{matrix.Settings.Triplet}}\bin\*.dll"          (move "C:\vcpkg\installed\${{matrix.Settings.Triplet}}\bin\*.dll"        "${{env.Artifacts}}")
+#        If exist "C:\vcpkg\installed\${{matrix.Settings.Triplet}}\debug\bin\*.dll"    (move "C:\vcpkg\installed\${{matrix.Settings.Triplet}}\debug\bin\*.dll"  "${{env.Artifacts}}")
+#        move "assets" "${{env.Artifacts}}"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{env.Title}}-${{matrix.Settings.Name}}-${{matrix.Configuration}}
+        path: "${{github.workspace}}/${{env.Artifacts}}/${{env.Extension}}"
+
+  Release:
+    name: Release
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    needs: Build
+    steps:
+
+      - name: Clone repo and submodules
+        run: >
+          git
+          clone https://${{github.repository_owner}}:${{github.token}}@github.com/${{github.repository}}.git
+          "${{github.workspace}}"
+          --revision ${{github.sha}}
+          --filter=blob:none
+
+      - name: Get current date, commit hash and count
+        run: |
+          echo "FirstCommitHash=$(git rev-list --max-parents=0 HEAD --first-parent)" >> $env:GITHUB_ENV
+          echo "CommitHash=$(git rev-parse HEAD)" >> $env:GITHUB_ENV
+          echo "CommitHashShort=$(git rev-parse --short=7 HEAD)" >> $env:GITHUB_ENV
+          echo "CommitCount=$(git rev-list --count HEAD)" >> $env:GITHUB_ENV
+          echo "CommitDate=$(git show -s --date=format:'%Y-%m-%d' --format=%cd)" >> $env:GITHUB_ENV
+
+#      - name: Download Artifacts - Win32
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{env.Title}}-Win32-Release
+#          path: Release/Win32/
+
+      - name: Download Artifacts - Win64
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{env.Title}}-Win64-Release
+          path: Release/Win64/
+
+      - name: Deploy
+        run: |
+          cp "README.md" "Release/ReadMe.txt"
+          cp "LICENSE" "Release/License.txt"
+  
+      - name: Compress artifacts
+        run: |
+          7z a "Release/${{env.Title}}.zip" "${{github.workspace}}/Release/*" -mx=9
+          cp "Release/${{env.Title}}.zip" "Release/${{env.Title}}_r${{env.CommitCount}}@${{env.CommitHashShort}}.zip"
+  
+      - name: Purge tag - latest-${{env.Branch}}
+        run: |
+          gh release delete latest-${{env.Branch}} --repo ${{github.repository}} --cleanup-tag --yes || true
+
+      - name: Release - latest-${{env.Branch}}
+        run: |
+          gh release create latest-${{env.Branch}} --repo ${{github.repository}} --target ${{env.CommitHash}} --generate-notes --latest=true --title "${{env.Title}} r${{env.CommitCount}}@${{env.CommitHashShort}}" --notes "Build archive: https://github.com/${{github.repository}}/releases/tag/archive-${{env.Branch}}
+          Build log: https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}"
+          gh release upload latest-${{env.Branch}} --repo ${{github.repository}} --clobber "Release/${{env.Title}}.zip" "Release/${{env.Title}}_r${{env.CommitCount}}@${{env.CommitHashShort}}.zip"
+
+      - name: Release - archive-${{env.Branch}}
+        run: |
+          gh release create archive-${{env.Branch}} --repo ${{github.repository}} --target ${{env.FirstCommitHash}} --latest=false --prerelease --title "${{env.Title}} ${{env.Branch}} build archive" --notes "Latest build: https://github.com/${{github.repository}}/releases/latest-${{env.Branch}}
+          Build logs: https://github.com/${{github.repository}}/actions" || true
+          gh release edit archive-${{env.Branch}} --repo ${{github.repository}} --target ${{env.FirstCommitHash}} --latest=false --prerelease --title "${{env.Title}} ${{env.Branch}} build archive" --notes "Latest build: https://github.com/${{github.repository}}/releases/latest-${{env.Branch}}
+          Build logs: https://github.com/${{github.repository}}/actions" || true
+          gh release upload archive-${{env.Branch}} --repo ${{github.repository}} --clobber "Release/${{env.Title}}_r${{env.CommitCount}}@${{env.CommitHashShort}}.zip"
