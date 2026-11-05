@@ -111,7 +111,7 @@ jobs:
       - name: Clone repo and submodules
         run: >
           git
-          clone https://${{github.repository_owner}}:${{github.token}}@github.com/${{github.repository}}.git
+          clone https://github.com/jaesung-cs/vkgs.git
           "${{github.workspace}}"
           --revision ${{github.sha}}
           --filter=blob:none
