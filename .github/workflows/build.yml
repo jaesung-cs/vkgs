@@ -1,0 +1,69 @@
+#Based on template from: https://github.com/ThreeDeeJay/GitHub-Actions-build-templates/blob/main/Windows-CMake.yml
+name: Build
+
+env:
+  GH_TOKEN: "${{github.token}}"
+  Branch: "${{github.ref_name}}"
+  Artifacts: "build/Release"
+  Extension: "*" # "*.exe" # "*.dll"
+  Title: "${{github.event.repository.name}}"
+  Executable: "${{github.event.repository.name}}.exe" # *
+  VULKAN_VERSION: "1.3.296.0"
+
+on:
+  push:
+    Branches: "$Branch"
+  pull_request:
+    Branches: "$Branch"
+  workflow_dispatch:
+
+jobs:
+  Build:
+    name: ${{matrix.Settings.Name}}-${{matrix.Configuration}}
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        Configuration: [Release] #[Release, Debug]
+        Settings:
+#        - {
+#            Name: "Win32",
+#            Platform: "Win32",
+#            Architecture: "x86",
+#            Bits: "32",
+#            Triplet: "x86-windows"
+#          }
+        - {
+            Name: "Win64",
+            Platform: "x64",
+            Architecture: "x64",
+            Triplet: "x64-windows",
+            Bits: "64"
+          }
+          
+    steps:
+    - name: Clone repo and submodules
+      run: >
+        git
+        clone https://github.com/jaesung-cs/vkgs.git
+        "${{github.workspace}}"
+        --revision ${{github.sha}}
+        --filter=blob:none
+        --recurse-submodules
+
+    - name: Cache Vulkan SDK
+      id: cache-vulkan-sdk
+      uses: actions/cache@v5
+      with:
+        path: "C:\\VulkanSDK\\${{env.VULKAN_VERSION}}"
+        key: VulkanSDK-${{env.VULKAN_VERSION}}
+    - name: Install Vulkan SDK
+      if: steps.cache-vulkan-sdk.outputs.cache-hit != 'true'
+      shell: cmd
+      run: |
+        curl --ssl-revoke-best-effort --fail -L "https://sdk.lunarg.com/sdk/download/${{env.VULKAN_VERSION}}/windows/VulkanSDK-${{env.VULKAN_VERSION}}-Installer.exe" -o "VulkanSDK.exe" || true
+        curl --ssl-revoke-best-effort --fail -L "https://sdk.lunarg.com/sdk/download/${{env.VULKAN_VERSION}}/windows/vulkansdk-windows-X64-${{env.VULKAN_VERSION}}.exe" -o "VulkanSDK.exe" || true
+        VulkanSDK.exe --accept-licenses --default-answer --confirm-command install com.lunarg.vulkan.32bit
+    - name: Set VULKAN_SDK
+      shell: pwsh
+      run: |
+        [System.IO.File]::AppendAllText($env:GITHUB_ENV, "VULKAN_SDK=C:\VulkanSDK\${{env.VULKAN_VERSION}}" + [Environment]::NewLine)
