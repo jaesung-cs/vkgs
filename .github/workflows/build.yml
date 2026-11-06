@@ -1,13 +1,12 @@
-#Based on template from: https://github.com/ThreeDeeJay/GitHub-Actions-build-templates/blob/main/Windows-CMake.yml
 name: Build
 
 env:
   GH_TOKEN: "${{github.token}}"
   Branch: "${{github.ref_name}}"
   Artifacts: "build/Release"
-  Extension: "*" # "*.exe" # "*.dll"
+  Extension: "*"
   Title: "${{github.event.repository.name}}"
-  Executable: "${{github.event.repository.name}}.exe" # *
+  Executable: "${{github.event.repository.name}}.exe"
   VULKAN_VERSION: "1.4.363.1"
 
 on:
@@ -23,7 +22,7 @@ jobs:
     runs-on: windows-2025
     strategy:
       matrix:
-        Configuration: [Release] #[Release, Debug]
+        Configuration: [Release]
         Settings:
         - {
             Name: "Win64",
@@ -67,7 +66,6 @@ jobs:
         -A "${{matrix.Settings.Platform}}"
         -B "${{github.workspace}}/build"
         -DCMAKE_BUILD_TYPE=${{matrix.Configuration}}
-        -DCMAKE_PREFIX_PATH=C:\vcpkg\installed\${{matrix.Settings.Triplet}}
 
     - name: Build
       run: >
