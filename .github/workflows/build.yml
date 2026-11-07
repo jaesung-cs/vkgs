@@ -1,0 +1,140 @@
+name: Build
+
+env:
+  GH_TOKEN: "${{github.token}}"
+  Branch: "${{github.ref_name}}"
+  Artifacts: "build/Release"
+  Extension: "*"
+  Title: "${{github.event.repository.name}}"
+  Executable: "${{github.event.repository.name}}.exe"
+  VULKAN_VERSION: "1.4.363.1"
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  Build:
+    name: ${{matrix.Settings.Name}}-${{matrix.Configuration}}
+    runs-on: windows-2025
+    strategy:
+      matrix:
+        Configuration: [Release]
+        Settings:
+        - {
+            Name: "Win64",
+            Platform: "x64",
+            Architecture: "x64",
+            Triplet: "x64-windows",
+            Bits: "64"
+          }
+          
+    steps:
+    - name: Clone repo and submodules
+      run: >
+        git
+        clone https://github.com/jaesung-cs/vkgs.git
+        "${{github.workspace}}"
+        --revision ${{github.sha}}
+        --filter=blob:none
+        --recurse-submodules
+
+    - name: Cache Vulkan SDK
+      id: cache-vulkan-sdk
+      uses: actions/cache@v5
+      with:
+        path: "C:\\VulkanSDK\\${{env.VULKAN_VERSION}}"
+        key: VulkanSDK-${{env.VULKAN_VERSION}}
+    - name: Install Vulkan SDK
+      if: steps.cache-vulkan-sdk.outputs.cache-hit != 'true'
+      shell: cmd
+      run: |
+        curl --ssl-revoke-best-effort --fail -L "https://sdk.lunarg.com/sdk/download/${{env.VULKAN_VERSION}}/windows/VulkanSDK-${{env.VULKAN_VERSION}}-Installer.exe" -o "VulkanSDK.exe" || true
+        curl --ssl-revoke-best-effort --fail -L "https://sdk.lunarg.com/sdk/download/${{env.VULKAN_VERSION}}/windows/vulkansdk-windows-X64-${{env.VULKAN_VERSION}}.exe" -o "VulkanSDK.exe" || true
+        VulkanSDK.exe --accept-licenses --default-answer --confirm-command install
+    - name: Set VULKAN_SDK
+      shell: pwsh
+      run: |
+        [System.IO.File]::AppendAllText($env:GITHUB_ENV, "VULKAN_SDK=C:\VulkanSDK\${{env.VULKAN_VERSION}}" + [Environment]::NewLine)
+
+    - name: Configure
+      run: >
+        cmake
+        -A "${{matrix.Settings.Platform}}"
+        -B "${{github.workspace}}/build"
+        -DCMAKE_BUILD_TYPE=${{matrix.Configuration}}
+
+    - name: Build
+      run: >
+        cmake
+        --build "${{github.workspace}}/build"
+        --config "${{matrix.Configuration}}"
+
+    - name: List files
+      run: Get-ChildItem -Path "." -File -Recurse | Select-Object FullName
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{env.Title}}-${{matrix.Settings.Name}}-${{matrix.Configuration}}
+        path: "${{github.workspace}}/${{env.Artifacts}}/${{env.Extension}}"
+
+  Release:
+    name: Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: windows-latest
+    needs: Build
+    steps:
+
+      - name: Clone repo and submodules
+        run: >
+          git
+          clone https://github.com/jaesung-cs/vkgs.git
+          "${{github.workspace}}"
+          --revision ${{github.sha}}
+          --filter=blob:none
+
+      - name: Get current date, commit hash and count
+        run: |
+          echo "FirstCommitHash=$(git rev-list --max-parents=0 HEAD --first-parent)" >> $env:GITHUB_ENV
+          echo "CommitHash=$(git rev-parse HEAD)" >> $env:GITHUB_ENV
+          echo "CommitHashShort=$(git rev-parse --short=7 HEAD)" >> $env:GITHUB_ENV
+          echo "CommitCount=$(git rev-list --count HEAD)" >> $env:GITHUB_ENV
+          echo "CommitDate=$(git show -s --date=format:'%Y-%m-%d' --format=%cd)" >> $env:GITHUB_ENV
+
+      - name: Download Artifacts - Win64
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{env.Title}}-Win64-Release
+          path: Release/Win64/
+
+      - name: Deploy
+        run: |
+          cp "README.md" "Release/ReadMe.txt"
+          cp "LICENSE" "Release/License.txt"
+  
+      - name: Compress artifacts
+        run: |
+          7z a "Release/${{env.Title}}.zip" "${{github.workspace}}/Release/*" -mx=9
+          cp "Release/${{env.Title}}.zip" "Release/${{env.Title}}_r${{env.CommitCount}}@${{env.CommitHashShort}}.zip"
+  
+      - name: Purge tag - latest-${{env.Branch}}
+        run: |
+          gh release delete latest-${{env.Branch}} --repo ${{github.repository}} --cleanup-tag --yes || true
+
+      - name: Release - latest-${{env.Branch}}
+        run: |
+          gh release create latest-${{env.Branch}} --repo ${{github.repository}} --target ${{env.CommitHash}} --generate-notes --latest=true --title "${{env.Title}} r${{env.CommitCount}}@${{env.CommitHashShort}}" --notes "Build archive: https://github.com/${{github.repository}}/releases/tag/archive-${{env.Branch}}
+          Build log: https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}"
+          gh release upload latest-${{env.Branch}} --repo ${{github.repository}} --clobber "Release/${{env.Title}}.zip" "Release/${{env.Title}}_r${{env.CommitCount}}@${{env.CommitHashShort}}.zip"
+
+      - name: Release - archive-${{env.Branch}}
+        run: |
+          gh release create archive-${{env.Branch}} --repo ${{github.repository}} --target ${{env.FirstCommitHash}} --latest=false --prerelease --title "${{env.Title}} ${{env.Branch}} build archive" --notes "Latest build: https://github.com/${{github.repository}}/releases/latest-${{env.Branch}}
+          Build logs: https://github.com/${{github.repository}}/actions" || true
+          gh release edit archive-${{env.Branch}} --repo ${{github.repository}} --target ${{env.FirstCommitHash}} --latest=false --prerelease --title "${{env.Title}} ${{env.Branch}} build archive" --notes "Latest build: https://github.com/${{github.repository}}/releases/latest-${{env.Branch}}
+          Build logs: https://github.com/${{github.repository}}/actions" || true
+          gh release upload archive-${{env.Branch}} --repo ${{github.repository}} --clobber "Release/${{env.Title}}_r${{env.CommitCount}}@${{env.CommitHashShort}}.zip"
